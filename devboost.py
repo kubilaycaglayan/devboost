@@ -9,6 +9,7 @@ import os
 import re
 import json
 import glob
+import time
 import signal
 import plistlib
 import subprocess
@@ -103,16 +104,51 @@ def load_config():
     if os.path.exists(CONFIG_FILE):
         try:
             with open(CONFIG_FILE, "r") as f:
-                return json.load(f)
+                cfg = json.load(f)
+                cfg.setdefault("labels", {})
+                cfg.setdefault("rules", {})
+                cfg.setdefault("history", [])
+                return cfg
         except Exception:
             pass
-    return {"labels": {}, "rules": {}}
+    return {"labels": {}, "rules": {}, "history": []}
 
 
 def save_config(cfg):
     ensure_dirs()
     with open(CONFIG_FILE, "w") as f:
         json.dump(cfg, f, indent=2)
+
+
+def record_port_history(local_port, remote_port, label=""):
+    """Appends/updates the recently-used port history (most recent first, max 20)."""
+    try:
+        cfg = load_config()
+        history = cfg.setdefault("history", [])
+        # Remove existing entry for the same local port to re-insert at front
+        history = [h for h in history if int(h.get("local_port", -1)) != int(local_port)]
+        history.insert(0, {
+            "local_port": int(local_port),
+            "remote_port": int(remote_port),
+            "label": label or DEFAULT_LABELS.get(int(local_port), f"Port {local_port}"),
+            "last_used": time.time(),
+        })
+        cfg["history"] = history[:20]
+        save_config(cfg)
+    except Exception:
+        pass
+
+
+def get_port_history(limit=8, exclude_ports=None):
+    """Returns most-recently-used ports, optionally excluding currently-configured ones."""
+    try:
+        cfg = load_config()
+        history = cfg.get("history", [])
+        excluded = set(exclude_ports or [])
+        result = [h for h in history if int(h.get("local_port", -1)) not in excluded]
+        return result[:limit]
+    except Exception:
+        return []
 
 
 def get_plist_label(port):
@@ -285,6 +321,7 @@ def get_all_forwards_status():
         "server_reachable": is_server_reachable(),
         "forwards": results,
         "orphaned_count": orphaned_count,
+        "history": get_port_history(limit=10, exclude_ports=all_ports),
     }
 
 
@@ -349,6 +386,7 @@ def add_forward(local_port, remote_port=None, label="", always=False):
     elif str(local_port) not in cfg.get("labels", {}):
         cfg.setdefault("labels", {})[str(local_port)] = DEFAULT_LABELS.get(local_port, f"Port {local_port}")
     save_config(cfg)
+    record_port_history(local_port, remote_port, label=cfg.get("labels", {}).get(str(local_port), ""))
 
     kill_port_processes(local_port)
 
@@ -617,6 +655,21 @@ HTML_DASHBOARD = """<!DOCTYPE html>
     }
     .form-group input:focus { outline: none; border-color: var(--accent); }
     .form-checkbox { display: flex; align-items: center; gap: 8px; cursor: pointer; user-select: none; }
+    .recent-chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+    .recent-chip {
+      background: #0d1117;
+      border: 1px solid var(--border);
+      color: var(--text);
+      border-radius: 16px;
+      padding: 5px 12px;
+      font-size: 12px;
+      font-family: var(--font-mono);
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+    .recent-chip:hover { border-color: var(--accent); color: #fff; background: rgba(88,166,255,0.12); }
+    .recent-chip small { color: var(--text-muted); margin-left: 4px; }
+    .recent-hint { font-size: 12px; color: var(--text-muted); margin-bottom: 2px; }
     .modal-footer {
       padding: 14px 20px;
       background: rgba(255, 255, 255, 0.02);
@@ -731,9 +784,13 @@ HTML_DASHBOARD = """<!DOCTYPE html>
         <button class="btn btn-sm" onclick="closeAddModal()" style="border:none; background:transparent;">✕</button>
       </div>
       <div class="modal-body">
+        <div class="form-group" id="recent-ports-section" style="display:none;">
+          <label class="recent-hint" id="recent-ports-title">Previously used — click to quick select</label>
+          <div class="recent-chips" id="recent-ports-chips"></div>
+        </div>
         <div class="form-group">
           <label>Local Port</label>
-          <input type="number" id="modal-local-port" placeholder="e.g. 3030" oninput="syncRemotePort()" />
+          <input type="number" id="modal-local-port" placeholder="e.g. 3030" oninput="syncRemotePort(); maybeAutofillLabel()" />
         </div>
         <div class="form-group">
           <label id="modal-remote-label">Remote Port</label>
@@ -741,7 +798,7 @@ HTML_DASHBOARD = """<!DOCTYPE html>
         </div>
         <div class="form-group">
           <label>Service Description / Label</label>
-          <input type="text" id="modal-label" placeholder="e.g. Grafana Dashboard" />
+          <input type="text" id="modal-label" placeholder="e.g. Grafana Dashboard" oninput="this.dataset.autoFilled='false'" />
         </div>
         <div class="form-group">
           <label class="form-checkbox">
@@ -762,6 +819,11 @@ HTML_DASHBOARD = """<!DOCTYPE html>
   <script>
     let currentForwards = [];
     let currentServerHost = "";
+    let cachedHistory = [];
+
+    function escapeHtml(s) {
+      return String(s == null ? "" : s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+    }
 
     function showToast(msg) {
       const t = document.getElementById("toast");
@@ -782,10 +844,95 @@ HTML_DASHBOARD = """<!DOCTYPE html>
     function openAddModal(local = "", remote = "", label = "") {
       document.getElementById("modal-local-port").value = local;
       document.getElementById("modal-remote-port").value = remote || local;
-      document.getElementById("modal-label").value = label;
+      document.getElementById("modal-remote-port").dataset.autoSynced = "";
+      const labelEl = document.getElementById("modal-label");
+      labelEl.value = label;
+      // If a label was explicitly passed (e.g. from Scan), treat as manual;
+      // otherwise allow auto-fill from stored SERVICE/LABEL mapping.
+      labelEl.dataset.autoFilled = label ? "false" : "true";
+      if (!label && local) maybeAutofillLabel();
       document.getElementById("modal-always").checked = true;
       document.getElementById("modal-remote-label").innerText = "Remote Port (on " + (currentServerHost || 'server') + ")";
+      renderRecentChips(local);
       document.getElementById("add-modal").style.display = "flex";
+      document.getElementById("modal-local-port").focus();
+      // Refresh history in background so quick-select is always fresh
+      fetch("/api/history").then(r => r.json()).then(d => {
+        if (d.history) {
+          const forwarded = new Set((currentForwards || []).map(f => f.local_port));
+          const cur = document.getElementById("modal-local-port").value;
+          cachedHistory = d.history.filter(h => !forwarded.has(h.local_port) && String(h.local_port) !== String(cur));
+          renderRecentChips(cur);
+        }
+      }).catch(() => {});
+    }
+
+    function renderRecentChips(preselectLocal = "") {
+      const section = document.getElementById("recent-ports-section");
+      const container = document.getElementById("recent-ports-chips");
+      const title = document.getElementById("recent-ports-title");
+      let items = (cachedHistory || []).filter(h => String(h.local_port) !== String(preselectLocal));
+      // Fallback to common ports when no history yet
+      if (!cachedHistory || cachedHistory.length === 0) {
+        const forwarded = new Set((currentForwards || []).map(f => f.local_port));
+        const common = [
+          {local_port: 3000, remote_port: 3000, label: "Docker Web / App"},
+          {local_port: 3030, remote_port: 3030, label: "Grafana Dashboard"},
+          {local_port: 8080, remote_port: 8080, label: "Docker Proxy / Web App"},
+          {local_port: 9090, remote_port: 9090, label: "Prometheus Metrics"},
+          {local_port: 11434, remote_port: 11434, label: "Ollama LLM API"},
+        ].filter(c => !forwarded.has(c.local_port) && String(c.local_port) !== String(preselectLocal));
+        if (common.length === 0) { section.style.display = "none"; return; }
+        title.innerText = "Common ports — click to quick select";
+        items = common;
+      } else {
+        title.innerText = "Previously used — click to quick select";
+      }
+      if (items.length === 0) { section.style.display = "none"; return; }
+      section.style.display = "block";
+      quickSelectCache = items;
+      container.innerHTML = items.map((h, i) => {
+        const remoteSuffix = (h.remote_port && h.remote_port !== h.local_port) ? ` → :${h.remote_port}` : "";
+        return `<button class="recent-chip" onclick="quickSelectRecent(${i})" title="${escapeHtml(h.label || '')}">:${h.local_port}${remoteSuffix}<small>${escapeHtml((h.label || '').slice(0, 22))}</small></button>`;
+      }).join("");
+    }
+
+    let quickSelectCache = [];
+
+    function lookupStoredLabel(port) {
+      const key = String(port == null ? "" : port).trim();
+      if (!key) return "";
+      const pools = [cachedHistory || [], quickSelectCache || [], currentForwards || []];
+      for (const pool of pools) {
+        const hit = pool.find(x => String(x.local_port) === key);
+        if (hit && hit.label) return hit.label;
+      }
+      return "";
+    }
+
+    function maybeAutofillLabel() {
+      const lp = document.getElementById("modal-local-port").value;
+      const labelEl = document.getElementById("modal-label");
+      if (!lp) return;
+      // Don't clobber text the user typed manually
+      if (labelEl.value && labelEl.dataset.autoFilled !== "true") return;
+      const found = lookupStoredLabel(lp);
+      if (found) {
+        labelEl.value = found;
+        labelEl.dataset.autoFilled = "true";
+      }
+    }
+
+    function quickSelectRecent(i) {
+      const h = quickSelectCache[i];
+      if (!h) return;
+      document.getElementById("modal-local-port").value = h.local_port;
+      document.getElementById("modal-remote-port").value = h.remote_port || h.local_port;
+      document.getElementById("modal-remote-port").dataset.autoSynced = "";
+      const labelEl = document.getElementById("modal-label");
+      labelEl.value = h.label || "";
+      labelEl.dataset.autoFilled = "false";
+      renderRecentChips(h.local_port);
       document.getElementById("modal-local-port").focus();
     }
 
@@ -826,6 +973,7 @@ HTML_DASHBOARD = """<!DOCTYPE html>
       }
 
       currentForwards = data.forwards;
+      cachedHistory = data.history || [];
       const activeCount = data.forwards.filter(f => f.active).length;
       const alwaysCount = data.forwards.filter(f => f.always).length;
       document.getElementById("stat-active").innerText = activeCount;
@@ -1036,6 +1184,8 @@ class DashboardHandler(BaseHTTPRequestHandler):
             self._send_json(get_all_forwards_status())
         elif path == "/api/scan":
             self._send_json({"services": scan_remote_services()})
+        elif path == "/api/history":
+            self._send_json({"history": get_port_history(limit=10)})
         else:
             self.send_response(404)
             self.end_headers()
@@ -1128,6 +1278,18 @@ def cli_scan():
     print("To forward any port, run: devboost add <port> [--always]\n")
 
 
+def print_history_hint():
+    history = get_port_history(limit=10)
+    if not history:
+        return
+    print("\nPreviously used ports (quick select):")
+    print("-" * 60)
+    for h in history:
+        remote = f" -> :{h['remote_port']}" if h.get("remote_port") != h.get("local_port") else ""
+        print(f"  :{h['local_port']}{remote:<12} {h.get('label', '')}")
+    print("\nReuse with: devboost add <port> [--always]\n")
+
+
 def print_help():
     print("""DevBoost • SSH Port Forward Manager
 
@@ -1136,6 +1298,7 @@ Usage:
   devboost ls / list             List all forwarded ports & status
   devboost add <port> [remote]   Forward a port (defaults to temporary session)
   devboost add <port> --always   Forward a port persistently (starts on boot, auto-reconnects)
+  devboost add                   Show previously used ports for quick select
   devboost rm / remove <port>    Remove a port forward and stop its tunnel
   devboost clean                 Kill lingering duplicate/orphaned SSH processes
   devboost scan                  Scan listening ports and services on remote server
@@ -1168,6 +1331,7 @@ def main():
     elif cmd in ("add", "forward"):
         if len(args) < 2:
             print("Error: Specify at least a port number. e.g. 'devboost add 8080'")
+            print_history_hint()
             sys.exit(1)
         lp = int(args[1])
         rp = lp
