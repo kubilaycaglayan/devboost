@@ -9,14 +9,14 @@ import os
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-import asus_ports
+import devboost
 
 
 class TestDashboardAPI(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         # Start server on dynamic random port
-        cls.server = HTTPServer(("127.0.0.1", 0), asus_ports.DashboardHandler)
+        cls.server = HTTPServer(("127.0.0.1", 0), devboost.DashboardHandler)
         cls.port = cls.server.server_port
         cls.base_url = f"http://127.0.0.1:{cls.port}"
         cls.thread = threading.Thread(target=cls.server.serve_forever, daemon=True)
@@ -33,7 +33,7 @@ class TestDashboardAPI(unittest.TestCase):
             self.assertEqual(resp.status, 200)
             self.assertIn("text/html", resp.headers.get("Content-Type"))
             html = resp.read().decode("utf-8")
-            self.assertIn("Port Forward Manager", html)
+            self.assertIn("DevBoost", html)
 
     def test_api_status(self):
         req = urllib.request.Request(f"{self.base_url}/api/status")

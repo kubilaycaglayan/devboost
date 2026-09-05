@@ -6,7 +6,7 @@ import sys
 # Ensure parent directory is in sys.path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-import asus_ports
+import devboost
 
 
 class TestEnvLoading(unittest.TestCase):
