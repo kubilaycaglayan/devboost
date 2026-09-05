@@ -66,9 +66,10 @@
       }
       const rounded = Math.round(percent);
       const remainingPercent = 100 - percent;
-      const remaining = quota.remaining != null ? `${usageNumber(quota.remaining)} ${escapeHtml(quota.unit || "remaining")} remaining` : "";
+      const remaining = quota.remaining != null && quota.unit !== "%" ? `${usageNumber(quota.remaining)} ${quota.unit || "remaining"} remaining` : "";
       const details = [remaining, reset].filter(Boolean).join(" · ");
-      return `<div class="usage-quota"><div class="usage-meter-header"><span>${name}</span></div><div class="usage-meter ${usageGrade(percent)}" role="meter" aria-label="${name} remaining quota" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${Math.round(remainingPercent)}"><span style="width:${remainingPercent.toFixed(2)}%"></span><strong class="usage-meter-label">${rounded}% used</strong></div><div class="usage-meter-caption">${details || `${rounded}% used`}</div></div>`;
+      const caption = details ? `<div class="usage-meter-caption">${escapeHtml(details)}</div>` : "";
+      return `<div class="usage-quota"><div class="usage-meter-header"><span>${name}</span></div><div class="usage-meter ${usageGrade(percent)}" role="meter" aria-label="${name} remaining quota" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${Math.round(remainingPercent)}"><span style="width:${remainingPercent.toFixed(2)}%"></span><strong class="usage-meter-label">${rounded}% used</strong></div>${caption}</div>`;
     }
     function usageUpdated(snapshot) {
       const timestamp = snapshot && (snapshot.last_valid_query_at || (snapshot.ok && snapshot.updated_at));
