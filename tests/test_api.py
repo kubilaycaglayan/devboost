@@ -73,6 +73,7 @@ class TestDashboardAPI(unittest.TestCase):
             app_js = resp.read().decode("utf-8")
         self.assertIn("role=\"meter\"", app_js)
         self.assertIn("usageMetrics.usageGrade", app_js)
+        self.assertIn("You have ${resetCount} usage limit", app_js)
         with urllib.request.urlopen(self.base_url + "/dashboard/usage_metrics.js") as resp:
             metrics_js = resp.read().decode("utf-8")
         self.assertIn("usage-grade-green", metrics_js)
@@ -97,23 +98,23 @@ class TestDashboardAPI(unittest.TestCase):
         with urllib.request.urlopen(self.base_url + "/dashboard/app.js") as resp:
             app_js = resp.read().decode("utf-8")
         self.assertIn("editServer", app_js)
-        self.assertIn('draggable="true"', app_js)
-        self.assertIn("onTabDrop", app_js)
-        self.assertIn("source.style.display = \"none\"", app_js)
-        self.assertIn("source.parentNode.insertBefore(shadow, source)", app_js)
+        self.assertIn('class="server-drag-handle" draggable="true"', app_js)
+        self.assertIn("onServerCardDragOver", app_js)
+        self.assertIn("onServerCardDrop", app_js)
+        self.assertNotIn('class="tab ${isActive ? \'active\' : \'\'}" draggable="true"', app_js)
         self.assertIn("Manage servers", app_js)
         self.assertIn("renderServerManagement", app_js)
         self.assertIn("onclick=\"editServer('${s.id}')\"", app_js)
         self.assertIn("onclick=\"removeServerTab('${s.id}')\"", app_js)
         self.assertNotIn("title=\"Edit server\"", app_js)
-        self.assertIn("tab-drop-shadow", app_js)
+        self.assertIn("server-card-drop-shadow", app_js)
         self.assertNotIn("s.active_count || 0", app_js)
         self.assertNotIn("s.always_count || 0", app_js)
         self.assertNotIn("togglePin('${s.id}')", app_js)
 
         with urllib.request.urlopen(self.base_url + "/dashboard/styles.css") as resp:
             css = resp.read().decode("utf-8")
-        self.assertIn(".tab-drop-shadow", css)
+        self.assertIn(".server-card-drop-shadow", css)
         self.assertIn("box-shadow:", css)
 
     def test_docker_log_modal_keeps_pre_scrollable(self):

@@ -52,6 +52,9 @@
     function usageResetTime(value) {
       return usageMetrics.formatResetTime(value);
     }
+    function usageResetCount(quotas) {
+      return usageMetrics.countReadableResets(quotas);
+    }
     function renderUsageQuota(quota) {
       const percent = usagePercent(quota);
       const name = escapeHtml(quota.name);
@@ -147,7 +150,10 @@
       }
       body.innerHTML = data.accounts.map(a => {
         const s = snapshots[a.id] || {};
-        const quotas = (s.quotas || []).map(renderUsageQuota).join("") || (s.ok ? "No quota data" : escapeHtml(s.message || "Unavailable"));
+        const resetCount = usageResetCount(s.quotas);
+        const resetLabel = resetCount === 1 ? "reset" : "resets";
+        const resetSummary = resetCount ? `<div class="usage-reset-summary" role="status">You have ${resetCount} usage limit ${resetLabel} available.</div>` : "";
+        const quotas = resetSummary + ((s.quotas || []).map(renderUsageQuota).join("") || (s.ok ? "No quota data" : escapeHtml(s.message || "Unavailable")));
         const balances = (s.balances || []).map(b => b.remaining != null ? `${usageNumber(b.remaining)} ${escapeHtml(b.currency || "USD")}` : (b.spent != null ? `spent ${usageNumber(b.spent)} ${escapeHtml(b.currency || "USD")}` : "—")).join("<br>") || "—";
         const accountId = escapeHtml(JSON.stringify(String(a.id || "")));
         return `<tr><td>${escapeHtml(a.provider)}</td><td>${escapeHtml(a.name)}</td><td>${quotas}</td><td>${balances}</td><td class="mono usage-age" data-last-valid-query="${escapeHtml(s.last_valid_query_at || (s.ok ? s.updated_at : ""))}">${usageUpdated(s)}</td><td style="text-align:right;"><button class="btn btn-sm" onclick="editUsageAccount(${accountId})">Edit</button> <button class="btn btn-sm" onclick="removeUsageAccount(${accountId})">Remove</button></td></tr>`;

@@ -31,5 +31,9 @@
     return `Resets ${parts.month} ${parts.day}, ${parts.year} ${parts.hour}:${parts.minute} ${parts.dayPeriod}`;
   }
 
-  return {usagePercent, usageGrade, formatResetTime};
+  function countReadableResets(quotas) {
+    return (quotas || []).filter(quota => formatResetTime(quota && quota.reset_at)).length;
+  }
+
+  return {usagePercent, usageGrade, formatResetTime, countReadableResets};
 }));
