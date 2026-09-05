@@ -16,6 +16,7 @@ import posixpath
 import shlex
 import shutil
 import subprocess
+import tempfile
 import urllib.parse
 import uuid
 from http.server import HTTPServer, BaseHTTPRequestHandler
@@ -27,14 +28,14 @@ def _code_dir():
 
 
 def _default_app_dir():
-    """Untracked per-checkout state dir. TCC-safe: sibling `app/` of the running copy."""
-    return os.path.join(_code_dir(), "app")
+    """Per-user state kept separate from both source and the app bundle."""
+    return os.path.expanduser("~/Library/Application Support/DevBoost")
 
 
 def load_env(app_dir=None):
     """Loads key-value pairs from .env files without requiring external libraries."""
     code_dir = _code_dir()
-    resolved_app = app_dir or os.path.join(code_dir, "app")
+    resolved_app = app_dir or _default_app_dir()
     candidates = []
     # Explicit override via environment always wins (set externally, before .env load).
     for _override_key in ("DEVBOOST_APP_DIR", "PORT_TRACKER_APP_DIR",
@@ -43,9 +44,11 @@ def load_env(app_dir=None):
         if _override_val:
             candidates.append(os.path.join(os.path.expanduser(_override_val), ".env"))
     candidates += [
-        # Canonical: untracked sibling app/ state (repo/app in dev, ~/.config/devboost/app installed)
+        # Canonical state. This is writable by the packaged app and does not
+        # make its background work depend on access to Documents.
         os.path.join(resolved_app, ".env"),
         # Legacy fallbacks (migration period)
+        os.path.join(code_dir, "app", ".env"),
         os.path.join(code_dir, ".env"),
         os.path.expanduser("~/.config/devboost/app/.env"),
         os.path.expanduser("~/.config/devboost/.env"),
@@ -115,12 +118,11 @@ SYNC_DEFAULT_DIRECTION = "two-way"
 SYNC_DEFAULT_INTERVAL = 15
 SYNC_MIN_INTERVAL = 5
 SYNC_MAX_INTERVAL = 600
-# CODE_DIR holds the executable (repo root in dev, ~/.config/devboost when installed —
-# stays outside ~/Documents for the installed copy so launchd/TCC keeps working).
+# CODE_DIR holds the executable (repo root in development, app Resources when packaged).
 CODE_DIR = _code_dir()
-# APP_DIR holds untracked state (.env, config.json). Sibling `app/` of the running copy:
-# repo/app/ in dev (gitignored), ~/.config/devboost/app/ when installed (TCC-safe).
-# DEVBOOST_APP_DIR / DEVBOOST_CONFIG_DIR (legacy) override it explicitly (tests, custom setups).
+# APP_DIR holds per-user state (.env, config.json), separate from source code
+# and the read-only app bundle. DEVBOOST_APP_DIR / DEVBOOST_CONFIG_DIR (legacy)
+# override it explicitly (tests and custom deployments).
 _APP_DIR_OVERRIDE = _env("DEVBOOST_APP_DIR", "PORT_TRACKER_APP_DIR", "")
 _CONFIG_DIR_OVERRIDE = _env("DEVBOOST_CONFIG_DIR", "PORT_TRACKER_CONFIG_DIR", "")
 if _APP_DIR_OVERRIDE:
@@ -134,16 +136,18 @@ CONFIG_DIR = APP_DIR
 CONFIG_FILE = os.path.join(APP_DIR, "config.json")
 # Legacy state locations checked once for one-time migration into APP_DIR.
 LEGACY_CONFIG_FILES = [
+    os.path.expanduser("~/.config/devboost/app/config.json"),
+    os.path.join(CODE_DIR, "app", "config.json"),
     os.path.join(CODE_DIR, "config.json"),
     os.path.expanduser("~/.config/devboost/config.json"),
-    os.path.expanduser("~/.config/devboost/app/config.json"),
     os.path.join(os.getcwd(), "config.json"),
 ]
 BIN_DIR = os.path.join(CODE_DIR, "bin")
 DASHBOARD_WRAPPER_NAME = "DevBoost-dashboard"
 TUNNEL_WRAPPER_NAME = "DevBoost-tunnel"
 LAUNCH_AGENTS_DIR = os.path.expanduser("~/Library/LaunchAgents")
-LOG_DIR = os.path.expanduser(_env("DEVBOOST_LOG_DIR", "PORT_TRACKER_LOG_DIR", "~/Library/Logs"))
+LOG_DIR = os.path.expanduser(_env("DEVBOOST_LOG_DIR", "PORT_TRACKER_LOG_DIR",
+                                 os.path.join(APP_DIR, "logs")))
 SSH_CONFIG_PATH = os.path.expanduser("~/.ssh/config")
 
 # Favicon (assets/favicon.png) served at /favicon.png + /favicon.ico.
@@ -182,16 +186,35 @@ def get_favicon_bytes():
 
 def get_tunnel_executable():
     """Scoped wrapper so macOS Background Items shows DevBoost-tunnel instead of ssh."""
+    packaged = get_packaged_app_executable()
+    if packaged:
+        return packaged
     return os.path.join(BIN_DIR, TUNNEL_WRAPPER_NAME)
 
 
 def get_dashboard_executable():
     """Scoped wrapper so macOS Background Items shows DevBoost-dashboard instead of python3."""
+    packaged = get_packaged_app_executable()
+    if packaged:
+        return packaged
     return os.path.join(BIN_DIR, DASHBOARD_WRAPPER_NAME)
 
 
+def get_packaged_app_executable():
+    """Returns the native DevBoost launcher when code is running from its app bundle."""
+    resources = os.path.realpath(CODE_DIR)
+    if os.path.basename(resources) != "Resources":
+        return ""
+    contents = os.path.dirname(resources)
+    candidate = os.path.join(contents, "MacOS", "DevBoost")
+    try:
+        return candidate if os.path.isfile(candidate) and os.access(candidate, os.X_OK) else ""
+    except OSError:
+        return ""
+
+
 def _installed_code_dir():
-    """Where the installed (launchd-safe) copy lives. Matches install.sh."""
+    """Where the legacy installed (launchd-safe) copy lives."""
     override = _env("DEVBOOST_CONFIG_DIR", "PORT_TRACKER_CONFIG_DIR", "")
     if override:
         return os.path.expanduser(override)
@@ -257,10 +280,11 @@ def ensure_dirs():
             os.makedirs(CONFIG_DIR, exist_ok=True)
     except OSError:
         pass
-    try:
-        os.makedirs(BIN_DIR, exist_ok=True)
-    except OSError:
-        pass
+    if not get_packaged_app_executable():
+        try:
+            os.makedirs(BIN_DIR, exist_ok=True)
+        except OSError:
+            pass
     os.makedirs(LAUNCH_AGENTS_DIR, exist_ok=True)
     os.makedirs(LOG_DIR, exist_ok=True)
 
@@ -339,6 +363,24 @@ def ensure_servers_migrated(cfg):
     return cfg, changed
 
 
+def _write_config_atomic(cfg):
+    """Write config as a complete replacement so readers never see partial JSON."""
+    directory = os.path.dirname(os.path.abspath(CONFIG_FILE))
+    fd, temporary = tempfile.mkstemp(prefix=".config-", suffix=".json", dir=directory)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump(cfg, f, indent=2)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(temporary, CONFIG_FILE)
+    except Exception:
+        try:
+            os.unlink(temporary)
+        except OSError:
+            pass
+        raise
+
+
 def _migrate_legacy_config():
     """One-time copy of a legacy config.json into APP_DIR (never overwrites)."""
     if os.path.exists(CONFIG_FILE):
@@ -358,10 +400,9 @@ def _migrate_legacy_config():
         if os.path.exists(legacy_path):
             try:
                 with open(legacy_path, "r") as f:
-                    json.load(f)  # validate before migrating
+                    legacy_cfg = json.load(f)  # validate before migrating
                 ensure_dirs()
-                with open(legacy_path, "r") as src, open(CONFIG_FILE, "w") as dst:
-                    dst.write(src.read())
+                _write_config_atomic(legacy_cfg)
                 return legacy_path
             except Exception:
                 continue
@@ -383,8 +424,7 @@ def load_config():
                 changed = changed or changed2
                 if changed:
                     try:
-                        with open(CONFIG_FILE, "w") as out:
-                            json.dump(cfg, out, indent=2)
+                        _write_config_atomic(cfg)
                     except Exception:
                         pass
                 return cfg
@@ -400,8 +440,7 @@ def save_config(cfg):
     ensure_dirs()
     cfg, _ = ensure_servers_migrated(cfg)
     cfg, _ = ensure_syncs_migrated(cfg)
-    with open(CONFIG_FILE, "w") as f:
-        json.dump(cfg, f, indent=2)
+    _write_config_atomic(cfg)
 
 
 def sort_servers(servers):
@@ -810,6 +849,63 @@ def create_sync_agent(sync):
     return plist_path
 
 
+def restore_auto_sync_agents():
+    """Refresh persistent sync agents after the packaged app is updated."""
+    cfg = load_config()
+    for sync in cfg.get("syncs", []):
+        if isinstance(sync, dict) and sync.get("always") and sync.get("id"):
+            try:
+                create_sync_agent(sync)
+            except Exception:
+                pass
+
+
+def restore_packaged_forward_agents():
+    """Move legacy DevBoost tunnel agents to the packaged app launcher."""
+    packaged = get_packaged_app_executable()
+    if not packaged:
+        return 0
+    patterns = [
+        os.path.join(LAUNCH_AGENTS_DIR, f"{AGENT_PREFIX}-*.plist"),
+        os.path.join(LAUNCH_AGENTS_DIR, "com.*.ssh-forward-*.plist"),
+    ]
+    migrated = 0
+    seen = set()
+    for pattern in patterns:
+        for plist_path in glob.glob(pattern):
+            if plist_path in seen:
+                continue
+            seen.add(plist_path)
+            try:
+                with open(plist_path, "rb") as f:
+                    data = plistlib.load(f)
+                args = data.get("ProgramArguments", [])
+                if not args:
+                    continue
+                already_packaged = os.path.abspath(args[0]) == os.path.abspath(packaged)
+                # Only rewrite DevBoost's own wrapper; never touch another app's SSH agent.
+                if not already_packaged and os.path.basename(args[0]) != TUNNEL_WRAPPER_NAME:
+                    continue
+                tunnel_args = args[1:] if not already_packaged else args[1:]
+                if tunnel_args and tunnel_args[0] == "--tunnel":
+                    continue
+                data["ProgramArguments"] = [packaged, "--tunnel"] + tunnel_args
+                for key in ("StandardOutPath", "StandardErrorPath"):
+                    previous = data.get(key, "")
+                    if os.path.basename(previous).startswith("devboost-forward-"):
+                        data[key] = os.path.join(LOG_DIR, os.path.basename(previous))
+                subprocess.run(["launchctl", "unload", "-w", plist_path],
+                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                with open(plist_path, "wb") as f:
+                    plistlib.dump(data, f)
+                subprocess.run(["launchctl", "load", "-w", plist_path],
+                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                migrated += 1
+            except Exception:
+                continue
+    return migrated
+
+
 def remove_sync_agent(sync_id):
     plist_path = get_sync_plist_path(sync_id)
     # Also catch legacy/renamed files for the same id (glob by suffix).
@@ -1212,6 +1308,7 @@ def get_syncs_status(server_ref=None):
         "server_id": sid,
         "server_name": server.get("name") or server.get("ssh_host"),
         "server_host": server.get("ssh_host"),
+        "packaged_app": bool(get_packaged_app_executable()),
         "syncs": rows,
         "folder_history": get_folder_history(limit=10, server_id=sid),
     }
@@ -2129,8 +2226,9 @@ def create_launchagent(local_port, remote_port, server_ref=None):
         pass
     data = {
         "Label": label,
-        "ProgramArguments": [
-            get_tunnel_executable(),
+        "ProgramArguments": (
+            [get_tunnel_executable()] +
+            (["--tunnel"] if get_packaged_app_executable() else []) + [
             "-N",
             "-T",
             "-o", "ServerAliveInterval=15",
@@ -2139,7 +2237,8 @@ def create_launchagent(local_port, remote_port, server_ref=None):
             "-o", "BatchMode=yes",
             "-L", f"{local_port}:127.0.0.1:{remote_port}",
             ssh_host
-        ],
+            ]
+        ),
         "RunAtLoad": True,
         "KeepAlive": True,
         "ThrottleInterval": 10,
@@ -4469,8 +4568,18 @@ class DashboardHandler(BaseHTTPRequestHandler):
         return
 
 
+class ReusableHTTPServer(HTTPServer):
+    """Allows the packaged runner to immediately retake its dashboard port."""
+    allow_reuse_address = True
+
+
 def serve(port=DEFAULT_DASHBOARD_PORT):
-    server = HTTPServer(("127.0.0.1", port), DashboardHandler)
+    # Auto sync agents execute the app's native launcher. Recreate them on
+    # each packaged-app start so an update always refreshes their path.
+    if get_packaged_app_executable():
+        restore_packaged_forward_agents()
+        restore_auto_sync_agents()
+    server = ReusableHTTPServer(("127.0.0.1", port), DashboardHandler)
     print(f"DevBoost Dashboard running at http://localhost:{port}")
     try:
         server.serve_forever()
@@ -4773,6 +4882,11 @@ def main():
         res = run_sync(args[1].strip())
         print(res.get("message", ""))
         sys.exit(0 if res.get("ok") else 1)
+    elif cmd == "refresh-agents":
+        # Hidden entry point used by the packaged runner after each rebuild.
+        forwards = restore_packaged_forward_agents()
+        restore_auto_sync_agents()
+        print(f"Refreshed {forwards} persistent forward agent(s).")
     elif cmd == "sync":
         server_ref, filtered = _extract_server_flag(args[1:])
         rest = filtered[1:] if filtered and filtered[0] == "sync" else filtered

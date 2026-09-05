@@ -30,11 +30,10 @@ A lightweight, zero-dependency port forward manager and discovery dashboard for 
 ```text
 port_tracker/
 ├── devboost.py           # Core CLI, REST API & embedded Web Dashboard SPA
-├── app/                  # UNTRACKED local state (gitignored): app/.env, app/config.json
-│                         # Executable stays in ~/.config/devboost (TCC-safe); only state lives here
+├── build-app.sh          # Builds the self-contained macOS app bundle
+├── run-app.sh            # Rebuilds and launches the development app
 ├── assets/                 # Static web assets (favicon.png served at /favicon.png)
 │   └── favicon.png         # Dashboard favicon (with embedded fallback in devboost.py)
-├── install.sh              # Installation & deployment script
 ├── .env.example            # Environment template for private credentials & host settings
 ├── config.example.json     # Sample port-to-service label definitions
 ├── launchagents/           # LaunchAgent plist templates
@@ -57,11 +56,12 @@ port_tracker/
 ## 🚀 Quick Start
 
 ### 1. Configure Environment
-Copy the example environment file into the untracked state dir:
+Copy the example environment file into DevBoost's per-user state directory:
 ```bash
-mkdir -p app && cp .env.example app/.env
+mkdir -p "$HOME/Library/Application Support/DevBoost"
+cp .env.example "$HOME/Library/Application Support/DevBoost/.env"
 ```
-Edit `app/.env` to configure your remote SSH server:
+Edit that `.env` file to configure your remote SSH server:
 ```bash
 DEVBOOST_SSH_HOST=my-remote-server
 DEVBOOST_SERVER_NAME="My Remote Server"
@@ -69,14 +69,14 @@ DEVBOOST_SERVER_IP=192.168.1.100
 DEVBOOST_DASHBOARD_PORT=3080
 ```
 
-### 2. Install & Deploy
-Run the installer script:
+### 2. Build & Run
+Build and launch the app from the current checkout:
 ```bash
-./install.sh
+./run-app.sh
 ```
 This will:
-- Install the CLI command `devboost` into `~/.local/bin/` (make sure it's in your `$PATH`).
-- Render and load the macOS LaunchAgent so the dashboard runs in the background.
+- Rebuild `~/Applications/DevBoost.app` from the current source.
+- Relaunch the dashboard on port 3080.
 
 ---
 
@@ -161,23 +161,23 @@ python3 -m unittest discover tests -v
 
 ## 🛠️ Development (always-latest dashboard)
 
-`devboost serve` runs the **installed** copy (`~/.config/devboost/devboost.py`), so repo edits need a reinstall first. For development, use the dev script instead — it always execs the repo file, shares your live state, and defaults to port 3081 so it runs alongside the background dashboard on 3080:
+Source can live anywhere, including `an external checkout`. Run the packaged app
+from the source checkout; it rebuilds `~/Applications/DevBoost.app` from the latest changes,
+uses port 3080, and remains in the menu bar until you choose **Quit DevBoost**:
 
 ```bash
-./serve-dev.sh                # latest code on http://localhost:3080 (stops the existing occupant first)
-./serve-dev.sh --port 3090    # custom port instead
-# Ctrl-C to stop, rerun to pick up edits — no build step, no reinstall
+./run-app.sh
 ```
 
-Rerunning takes the port: a previous dev server on that port is stopped automatically. If the background dashboard itself holds the port, it is unloaded via `launchctl` and **reloaded automatically when the dev server exits**, so the system returns to its prior state. (`install.sh` stays manual — the dev script never installs anything.)
+Rerunning takes over port 3080 and replaces the prior app. Auto sync workers execute through
+the installed app bundle, so they always use the same packaged version as the dashboard.
 
 ---
 
 ## 🔒 Privacy & macOS Permissions
 
-- All private server hostnames, IPs, and custom agent domains are configured via `app/.env` (untracked via `/app/` in `.gitignore`; legacy root `.env` still works as fallback).
-- Runtime state (`app/config.json`) is also untracked in `app/`.
-- **macOS TCC Sandbox Compliance**: Background daemons managed by macOS `launchd` are restricted from reading directly inside `~/Documents/` or `~/Desktop/`. The `install.sh` script deploys the runtime executable to `~/.config/devboost/` so background services operate smoothly without macOS privacy sandbox errors.
+- Private server settings, runtime configuration, and logs live in `~/Library/Application Support/DevBoost/`, outside the source checkout and app bundle.
+- DevBoost runs from `~/Applications/DevBoost.app`. Grant that app access in **System Settings → Privacy & Security** when an Auto sync needs to read or write protected folders such as Documents, Desktop, Downloads, or iCloud Drive.
 
 ---
 

@@ -44,6 +44,12 @@ class TestConfig(unittest.TestCase):
         self.assertEqual(devboost.DEFAULT_LABELS.get(11434), "Ollama LLM API")
         self.assertEqual(devboost.DEFAULT_LABELS.get(9090), "Prometheus Metrics")
 
+    def test_default_state_is_outside_the_source_checkout(self):
+        self.assertEqual(
+            devboost._default_app_dir(),
+            os.path.join(os.path.expanduser("~"), "Library", "Application Support", "DevBoost"),
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

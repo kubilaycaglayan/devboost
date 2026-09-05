@@ -72,6 +72,29 @@ class TestManager(unittest.TestCase):
         self.assertEqual(agents[3000]["remote_port"], 3000)
         self.assertEqual(agents[9000]["remote_port"], 9000)
 
+    @patch("subprocess.run")
+    @patch("devboost.get_packaged_app_executable")
+    def test_packaged_app_migrates_legacy_tunnel_agent(self, mock_packaged, mock_run):
+        packaged = "/Applications/DevBoost.app/Contents/MacOS/DevBoost"
+        mock_packaged.return_value = packaged
+        plist_path = os.path.join(self.temp_dir.name, f"{devboost.AGENT_PREFIX}-3000.plist")
+        with open(plist_path, "wb") as f:
+            plistlib.dump({
+                "Label": devboost.get_plist_label(3000),
+                "ProgramArguments": ["/old/devboost/bin/DevBoost-tunnel", "-N", "host"],
+                "StandardOutPath": "/old/logs/devboost-forward-server-3000.log",
+                "StandardErrorPath": "/old/logs/devboost-forward-server-3000.err",
+            }, f)
+
+        self.assertEqual(devboost.restore_packaged_forward_agents(), 1)
+        with open(plist_path, "rb") as f:
+            data = plistlib.load(f)
+        self.assertEqual(data["ProgramArguments"][:2], [packaged, "--tunnel"])
+        self.assertEqual(data["StandardOutPath"],
+                         os.path.join(self.temp_dir.name, "devboost-forward-server-3000.log"))
+        self.assertEqual(data["StandardErrorPath"],
+                         os.path.join(self.temp_dir.name, "devboost-forward-server-3000.err"))
+
     @patch("os.kill")
     @patch("devboost.get_ssh_forwards")
     def test_clean_orphaned_tunnels(self, mock_forwards, mock_kill):

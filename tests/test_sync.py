@@ -340,6 +340,18 @@ class TestFolderSync(unittest.TestCase):
             args = devboost.get_sync_executable_args("abc123")
         self.assertEqual(args, [inst_wrapper, "sync-run", "abc123"])
 
+    def test_packaged_sync_executable_uses_native_app_launcher(self):
+        contents = os.path.join(self.temp_dir.name, "DevBoost.app", "Contents")
+        resources = os.path.join(contents, "Resources")
+        executable = os.path.join(contents, "MacOS", "DevBoost")
+        os.makedirs(os.path.dirname(executable), exist_ok=True)
+        with open(executable, "w") as f:
+            f.write("#!/bin/sh\nexit 0\n")
+        os.chmod(executable, 0o755)
+        with patch.object(devboost, "CODE_DIR", resources):
+            args = devboost.get_sync_executable_args("abc123")
+        self.assertEqual(args, [os.path.realpath(executable), "sync-run", "abc123"])
+
     def test_syncs_status_flags_protected_local(self):
         sid = self._server_id()
         home = os.path.expanduser("~")
