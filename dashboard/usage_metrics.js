@@ -19,5 +19,17 @@
     return "usage-grade-red";
   }
 
-  return {usagePercent, usageGrade};
+  function formatResetTime(value, timeZone) {
+    if (value == null || value === "") return null;
+    const raw = String(value).trim();
+    const numeric = /^\d+(?:\.\d+)?$/.test(raw) ? Number(raw) : NaN;
+    const date = new Date(Number.isFinite(numeric) ? (numeric < 1e12 ? numeric * 1000 : numeric) : raw);
+    if (Number.isNaN(date.getTime())) return null;
+    const options = {month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit"};
+    if (timeZone) options.timeZone = timeZone;
+    const parts = Object.fromEntries(new Intl.DateTimeFormat("en-US", options).formatToParts(date).map(part => [part.type, part.value]));
+    return `Resets ${parts.month} ${parts.day}, ${parts.year} ${parts.hour}:${parts.minute} ${parts.dayPeriod}`;
+  }
+
+  return {usagePercent, usageGrade, formatResetTime};
 }));

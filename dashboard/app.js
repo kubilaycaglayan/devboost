@@ -49,17 +49,22 @@
     function usageGrade(percent) {
       return usageMetrics.usageGrade(percent);
     }
+    function usageResetTime(value) {
+      return usageMetrics.formatResetTime(value);
+    }
     function renderUsageQuota(quota) {
       const percent = usagePercent(quota);
       const name = escapeHtml(quota.name);
+      const reset = usageResetTime(quota.reset_at);
       if (percent == null) {
         const detail = quota.remaining != null ? `${usageNumber(quota.remaining)} ${escapeHtml(quota.unit || "remaining")}` :
           (quota.used != null ? `${usageNumber(quota.used)} ${escapeHtml(quota.unit || "used")}` : "No percentage data");
-        return `<div class="usage-quota-text"><span>${name}</span><strong>${detail}</strong></div>`;
+        return `<div class="usage-quota-text"><span>${name}</span><strong>${detail}</strong>${reset ? `<small>${escapeHtml(reset)}</small>` : ""}</div>`;
       }
       const rounded = Math.round(percent);
-      const remaining = quota.remaining != null ? ` · ${usageNumber(quota.remaining)} ${escapeHtml(quota.unit || "remaining")} remaining` : "";
-      return `<div class="usage-quota"><div class="usage-meter-header"><span>${name}</span><strong>${rounded}% used</strong></div><div class="usage-meter ${usageGrade(percent)}" role="meter" aria-label="${name} usage" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${rounded}"><span style="width:${percent.toFixed(2)}%"></span></div><div class="usage-meter-caption">${rounded}% used${remaining}</div></div>`;
+      const remaining = quota.remaining != null ? `${usageNumber(quota.remaining)} ${escapeHtml(quota.unit || "remaining")} remaining` : "";
+      const details = [remaining, reset].filter(Boolean).join(" · ");
+      return `<div class="usage-quota"><div class="usage-meter-header"><span>${name}</span><strong>${rounded}% used</strong></div><div class="usage-meter ${usageGrade(percent)}" role="meter" aria-label="${name} usage" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${rounded}"><span style="width:${percent.toFixed(2)}%"></span></div><div class="usage-meter-caption">${rounded}% used${details ? ` · ${escapeHtml(details)}` : ""}</div></div>`;
     }
     function usageUpdated(snapshot) {
       const timestamp = snapshot && (snapshot.last_valid_query_at || (snapshot.ok && snapshot.updated_at));
@@ -353,10 +358,9 @@
       bar.innerHTML = allServers.map(s => {
         const isActive = s.id === currentServerId;
         const dotCls = serverReachability[s.id] === true ? "tab-dot online" : (serverReachability[s.id] === false ? "tab-dot" : "tab-dot");
-        return `<div class="tab ${isActive ? 'active' : ''}" draggable="true" data-server-id="${s.id}"
+        return `<div class="tab ${isActive ? 'active' : ''}" data-server-id="${s.id}"
             onclick="selectServer('${s.id}')"
-            ondragstart="onTabDragStart(event, '${s.id}')" ondragover="onTabDragOver(event)" ondrop="onTabDrop(event, '${s.id}')" ondragend="onTabDragEnd(event)"
-            title="${escapeHtml(s.ssh_host)}${s.ip ? ' (' + escapeHtml(s.ip) + ')' : ''} — drag to reorder">
+            title="${escapeHtml(s.ssh_host)}${s.ip ? ' (' + escapeHtml(s.ip) + ')' : ''}">
           <span class="${dotCls}"></span>
           <span class="tab-name">${escapeHtml(s.name || s.ssh_host)}</span>
         </div>`;
@@ -375,13 +379,15 @@
         const reachability = serverReachability[s.id];
         const dotCls = reachability === true ? "tab-dot online" : "tab-dot";
         const status = reachability === true ? "Online" : (reachability === false ? "Offline" : "Not checked");
-        return `<article class="server-management-item">
+        return `<article class="server-management-item" data-server-id="${s.id}"
+            ondragover="onServerCardDragOver(event)" ondrop="onServerCardDrop(event, '${s.id}')">
           <div class="server-management-details">
             <div class="server-management-name"><span class="${dotCls}"></span>${escapeHtml(s.name || s.ssh_host)}${isActive ? '<span class="badge badge-active">Active</span>' : ''}</div>
             <div class="server-management-host">${escapeHtml(s.ssh_host)}${s.ip ? ` · ${escapeHtml(s.ip)}` : ''}</div>
             <div class="server-management-status">${status}</div>
           </div>
           <div class="server-management-actions">
+            <button class="server-drag-handle" draggable="true" ondragstart="onServerCardDragStart(event, '${s.id}')" ondragend="onServerCardDragEnd(event)" title="Drag to reorder" aria-label="Drag to reorder">⠿</button>
             <button class="btn btn-sm" onclick="selectServer('${s.id}'); navigatePage('forwards')">Use server</button>
             <button class="btn btn-sm" onclick="editServer('${s.id}')">Edit</button>
             <button class="btn btn-sm btn-danger" onclick="removeServerTab('${s.id}')">Remove</button>
@@ -391,64 +397,69 @@
     }
 
     let draggedServerId = null;
-    function getTabDropShadow() {
-      return document.querySelector("#tabs-bar .tab-drop-shadow");
+    let draggedServerCard = null;
+    function getServerCardDropShadow() {
+      return document.querySelector("#server-management-list .server-card-drop-shadow");
     }
-    function onTabDragStart(e, sid) {
+    function onServerCardDragStart(e, sid) {
       draggedServerId = sid;
-      const source = e.currentTarget;
-      const shadow = document.createElement("span");
-      shadow.className = "tab-drop-shadow";
-      shadow.style.width = `${source.getBoundingClientRect().width}px`;
+      draggedServerCard = e.currentTarget.closest(".server-management-item");
+      const shadow = document.createElement("div");
+      shadow.className = "server-management-item server-card-drop-shadow";
+      shadow.style.height = `${draggedServerCard.getBoundingClientRect().height}px`;
       shadow.setAttribute("aria-label", "Drop server here");
-      source.classList.add("dragging");
-      source.setAttribute("aria-grabbed", "true");
-      // The shadow replaces the source in the flex layout. Keeping both in
-      // flow makes every chip shift when the placeholder is introduced.
-      source.parentNode.insertBefore(shadow, source);
-      source.style.display = "none";
+      draggedServerCard.classList.add("dragging");
+      draggedServerCard.setAttribute("aria-grabbed", "true");
+      draggedServerCard.parentNode.insertBefore(shadow, draggedServerCard);
+      draggedServerCard.style.display = "none";
       e.dataTransfer.effectAllowed = "move";
+      e.dataTransfer.setData("text/plain", sid);
     }
-    function onTabDragOver(e) {
+    function onServerCardDragOver(e) {
       e.preventDefault();
-      if (!draggedServerId || e.currentTarget.dataset.serverId === draggedServerId) return;
+      const target = e.currentTarget;
+      if (!draggedServerId || target.dataset.serverId === draggedServerId) return;
       e.dataTransfer.dropEffect = "move";
-      const shadow = getTabDropShadow();
+      const shadow = getServerCardDropShadow();
       if (!shadow) return;
-      const rect = e.currentTarget.getBoundingClientRect();
-      const insertBefore = e.clientX < rect.left + rect.width / 2;
-      e.currentTarget.parentNode.insertBefore(shadow, insertBefore ? e.currentTarget : e.currentTarget.nextSibling);
+      const rect = target.getBoundingClientRect();
+      const insertBefore = e.clientY < rect.top + rect.height / 2 ||
+        (Math.abs(e.clientY - (rect.top + rect.height / 2)) < rect.height / 2 && e.clientX < rect.left + rect.width / 2);
+      target.parentNode.insertBefore(shadow, insertBefore ? target : target.nextSibling);
     }
-    function onTabDragEnd(e) {
-      e.currentTarget.classList.remove("dragging");
-      e.currentTarget.style.display = "";
-      e.currentTarget.removeAttribute("aria-grabbed");
-      const shadow = getTabDropShadow();
+    function onServerCardDragEnd() {
+      if (draggedServerCard) {
+        draggedServerCard.classList.remove("dragging");
+        draggedServerCard.style.display = "";
+        draggedServerCard.removeAttribute("aria-grabbed");
+      }
+      const shadow = getServerCardDropShadow();
       if (shadow) shadow.remove();
+      draggedServerCard = null;
       draggedServerId = null;
     }
-    async function onTabDrop(e, targetId) {
+    async function onServerCardDrop(e, targetId) {
       e.preventDefault();
       if (!draggedServerId || draggedServerId === targetId) return;
-      const bar = document.getElementById("tabs-bar");
-      const shadow = getTabDropShadow();
-      const ids = Array.from(bar.querySelectorAll(".tab[data-server-id]"), tab => tab.dataset.serverId);
+      const list = document.getElementById("server-management-list");
+      const shadow = getServerCardDropShadow();
+      const ids = Array.from(list.querySelectorAll(".server-management-item[data-server-id]"), card => card.dataset.serverId);
       const from = ids.indexOf(draggedServerId);
       if (from < 0) return;
       ids.splice(from, 1);
-      const shadowPosition = shadow ? Array.from(bar.children).indexOf(shadow) : -1;
+      const shadowPosition = shadow ? Array.from(list.children).indexOf(shadow) : -1;
       const insertAt = shadowPosition < 0
         ? ids.indexOf(targetId)
-        : Array.from(bar.children).slice(0, shadowPosition)
+        : Array.from(list.children).slice(0, shadowPosition)
             .filter(child => child.dataset && child.dataset.serverId && child.dataset.serverId !== draggedServerId).length;
       ids.splice(Math.max(0, insertAt), 0, draggedServerId);
       allServers.sort((a, b) => ids.indexOf(a.id) - ids.indexOf(b.id));
-      renderTabs();
+      onServerCardDragEnd();
+      renderServerManagement();
       try {
         await fetch("/api/servers/reorder", { method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({ order: ids }) });
         fetchServers();
       } catch (err) { console.error(err); }
-      draggedServerId = null;
     }
 
     function selectServer(sid) {
