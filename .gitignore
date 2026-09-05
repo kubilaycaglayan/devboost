@@ -1,0 +1,24 @@
+# Environment and credentials
+.env
+*.env.local
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Logs and runtime artifacts
+*.log
+*.err
+
+# macOS system files
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Local instance config (use config.example.json as template)
+config.json

@@ -1,0 +1,10 @@
+{
+  "labels": {
+    "3000": "Web Application",
+    "3030": "Grafana Dashboard",
+    "8080": "Docker Service",
+    "9090": "Prometheus Metrics",
+    "11434": "Ollama LLM API",
+    "43127": "Extension Hot-Reload"
+  }
+}
