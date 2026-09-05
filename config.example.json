@@ -42,5 +42,29 @@
       "label": "Grafana Dashboard",
       "last_used": 0
     }
+  ],
+  "syncs": [
+    {
+      "id": "a1b2c3d4",
+      "server_id": "my-remote-server",
+      "local_path": "/Users/you/projects/app",
+      "remote_path": "~/projects/app",
+      "direction": "two-way",
+      "mirror": false,
+      "always": true,
+      "interval": 15,
+      "created_at": 0,
+      "last_sync": null,
+      "last_status": "never",
+      "last_message": ""
+    }
+  ],
+  "folder_history": [
+    {
+      "server_id": "my-remote-server",
+      "local_path": "/Users/you/projects/app",
+      "remote_path": "~/projects/app",
+      "last_used": 0
+    }
   ]
 }

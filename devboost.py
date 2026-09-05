@@ -12,8 +12,12 @@ import glob
 import time
 import signal
 import plistlib
+import posixpath
+import shlex
+import shutil
 import subprocess
 import urllib.parse
+import uuid
 from http.server import HTTPServer, BaseHTTPRequestHandler
 
 
@@ -85,6 +89,32 @@ SERVER_IP = _env("DEVBOOST_SERVER_IP", "PORT_TRACKER_SERVER_IP", "")
 DEFAULT_DASHBOARD_PORT = int(_env("DEVBOOST_DASHBOARD_PORT", "PORT_TRACKER_DASHBOARD_PORT", "3080"))
 AGENT_DOMAIN = _env("DEVBOOST_AGENT_DOMAIN", "PORT_TRACKER_AGENT_DOMAIN", "com.user.devboost")
 AGENT_PREFIX = _env("DEVBOOST_AGENT_PREFIX", "PORT_TRACKER_AGENT_PREFIX", "com.user.devboost-forward")
+# Folder-sync LaunchAgent prefix, derived from the tunnel prefix so custom
+# AGENT_DOMAIN / AGENT_PREFIX installs stay namespaced (default ...-sync).
+# Explicit override via DEVBOOST_SYNC_PREFIX (legacy PORT_TRACKER_SYNC_PREFIX).
+_SYNC_PREFIX_OVERRIDE = _env("DEVBOOST_SYNC_PREFIX", "PORT_TRACKER_SYNC_PREFIX", "")
+if _SYNC_PREFIX_OVERRIDE:
+    SYNC_AGENT_PREFIX = _SYNC_PREFIX_OVERRIDE
+elif AGENT_PREFIX.endswith("-forward"):
+    SYNC_AGENT_PREFIX = AGENT_PREFIX[: -len("-forward")] + "-sync"
+else:
+    SYNC_AGENT_PREFIX = AGENT_PREFIX + "-sync"
+# Folder-sync semantics (see README + dashboard modal for user-facing docs):
+# - direction: "two-way" (merge, newer wins, deletions never propagate),
+#   "push" (local -> remote), "pull" (remote -> local).
+# - mirror (bool): one-way only — when True the destination becomes an exact
+#   copy via rsync --delete. Ignored for two-way (always a safe merge), because
+#   delete-propagation in both directions via plain rsync is order-dependent
+#   and lossy. The dashboard disables the checkbox for two-way.
+# - always (bool): False = "Once" (one-time sync, runs now + on-demand, no
+#   background agent; Session equivalent). True = "Auto" (persistent LaunchAgent
+#   with WatchPaths for instant local triggers + StartInterval polling for
+#   remote changes; Always equivalent).
+SYNC_DIRECTIONS = ("two-way", "push", "pull")
+SYNC_DEFAULT_DIRECTION = "two-way"
+SYNC_DEFAULT_INTERVAL = 15
+SYNC_MIN_INTERVAL = 5
+SYNC_MAX_INTERVAL = 600
 # CODE_DIR holds the executable (repo root in dev, ~/.config/devboost when installed —
 # stays outside ~/Documents for the installed copy so launchd/TCC keeps working).
 CODE_DIR = _code_dir()
@@ -311,6 +341,8 @@ def load_config():
                 cfg.setdefault("rules", {})
                 cfg.setdefault("history", [])
                 cfg, changed = ensure_servers_migrated(cfg)
+                cfg, changed2 = ensure_syncs_migrated(cfg)
+                changed = changed or changed2
                 if changed:
                     try:
                         with open(CONFIG_FILE, "w") as out:
@@ -321,13 +353,15 @@ def load_config():
         except Exception:
             pass
     cfg = {"labels": {}, "rules": {}, "history": [], "server_labels": {},
-           "servers": [default_server_from_env(order=0)]}
+           "servers": [default_server_from_env(order=0)], "syncs": [],
+           "folder_history": []}
     return cfg
 
 
 def save_config(cfg):
     ensure_dirs()
     cfg, _ = ensure_servers_migrated(cfg)
+    cfg, _ = ensure_syncs_migrated(cfg)
     with open(CONFIG_FILE, "w") as f:
         json.dump(cfg, f, indent=2)
 
@@ -443,7 +477,7 @@ def add_server(ssh_host, name=None, ip=""):
 
 
 def remove_server_entry(server_id):
-    """Removes a server tab + its labels/history. Cleans its tunnels/agents. Returns True if removed."""
+    """Removes a server tab + its labels/history/syncs. Cleans tunnels/sync agents. Returns True if removed."""
     cfg = load_config()
     server = get_server(cfg, server_id)
     if not server:
@@ -453,6 +487,9 @@ def remove_server_entry(server_id):
     cfg["servers"] = [s for s in cfg["servers"] if s.get("id") != server["id"]]
     cfg.get("server_labels", {}).pop(server["id"], None)
     cfg["history"] = [h for h in cfg.get("history", []) if h.get("server_id") != server["id"]]
+    sync_ids = [s.get("id") for s in cfg.get("syncs", []) if isinstance(s, dict) and s.get("server_id") == server["id"]]
+    cfg["syncs"] = [s for s in cfg.get("syncs", []) if not (isinstance(s, dict) and s.get("server_id") == server["id"])]
+    cfg["folder_history"] = [h for h in cfg.get("folder_history", []) if h.get("server_id") != server["id"]]
     save_config(cfg)
     # Best-effort cleanup of that server's tunnels (outside config write)
     try:
@@ -463,6 +500,11 @@ def remove_server_entry(server_id):
         kill_server_processes(server)
     except Exception:
         pass
+    for sid in sync_ids:
+        try:
+            remove_sync_agent(sid)
+        except Exception:
+            pass
     return True
 
 
@@ -505,6 +547,820 @@ def set_server_pinned(server_id, pinned):
     server["pinned"] = bool(pinned)
     save_config(cfg)
     return server
+
+
+# -----------------------------
+# Folder sync (two-way mirror)
+# -----------------------------
+# Semantics (user-facing, also in README + dashboard modal):
+# - direction "two-way" (default): bidirectional merge, newer file wins
+#   (rsync --update both ways). Deletions NEVER propagate — safe merge.
+# - direction "push"/"pull": one-way. mirror=False (default) keeps extra files
+#   on the destination; mirror=True makes the destination an exact copy
+#   (rsync --delete, deletions propagate). Mirror is ignored for two-way.
+# - always False = "Once": one-time sync (runs now + on-demand via Sync Now,
+#   no background agent; the Session equivalent for ports).
+# - always True = "Auto": persistent LaunchAgent (WatchPaths for instant local
+#   triggers + StartInterval polling every `interval` seconds for remote
+#   changes; the Always equivalent for ports).
+
+def ensure_syncs_migrated(cfg):
+    """Ensures cfg has syncs + folder_history lists; normalizes entries."""
+    changed = False
+    if not isinstance(cfg.get("syncs"), list):
+        cfg["syncs"] = []
+        changed = True
+    if not isinstance(cfg.get("folder_history"), list):
+        cfg["folder_history"] = []
+        changed = True
+    seen_ids = set()
+    server_ids = set()
+    try:
+        server_ids = {s.get("id") for s in cfg.get("servers", []) if isinstance(s, dict) and s.get("id")}
+    except Exception:
+        pass
+    for s in cfg["syncs"]:
+        if not isinstance(s, dict):
+            continue
+        if not s.get("id"):
+            s["id"] = uuid.uuid4().hex[:8]
+            changed = True
+        if s["id"] in seen_ids:
+            s["id"] = uuid.uuid4().hex[:8]
+            changed = True
+        seen_ids.add(s["id"])
+        if s.get("direction") not in SYNC_DIRECTIONS:
+            s["direction"] = SYNC_DEFAULT_DIRECTION
+            changed = True
+        # Mirror is only meaningful for one-way; force off for two-way.
+        if s.get("direction") == "two-way" and s.get("mirror"):
+            s["mirror"] = False
+            changed = True
+        else:
+            s["mirror"] = bool(s.get("mirror", False))
+        s["always"] = bool(s.get("always", False))
+        try:
+            iv = int(s.get("interval", SYNC_DEFAULT_INTERVAL))
+        except (TypeError, ValueError):
+            iv = SYNC_DEFAULT_INTERVAL
+        iv = max(SYNC_MIN_INTERVAL, min(SYNC_MAX_INTERVAL, iv))
+        if s.get("interval") != iv:
+            s["interval"] = iv
+            changed = True
+        s.setdefault("local_path", "")
+        s.setdefault("remote_path", "")
+        s.setdefault("server_id", "")
+        s.setdefault("created_at", time.time())
+        s.setdefault("last_sync", None)
+        s.setdefault("last_status", "never")
+        s.setdefault("last_message", "")
+        # Drop syncs pointing at removed servers? Keep them but they resolve
+        # to default on read; cleanup happens on remove_server_entry.
+        _ = server_ids
+    # Normalize folder_history entries
+    kept = []
+    for h in cfg["folder_history"]:
+        if isinstance(h, dict) and (h.get("local_path") or h.get("remote_path")):
+            h.setdefault("server_id", "")
+            h.setdefault("last_used", 0)
+            kept.append(h)
+    if len(kept) != len(cfg["folder_history"]):
+        cfg["folder_history"] = kept
+        changed = True
+    return cfg, changed
+
+
+def _normalize_sync_path(p, is_remote=False):
+    """Normalizes a sync path: expands ~ (local only), strips whitespace."""
+    p = (p or "").strip()
+    if not p:
+        return ""
+    if not is_remote:
+        # Expand ~ and make absolute; keep as-entered for display otherwise.
+        p = os.path.expanduser(p)
+        if not os.path.isabs(p):
+            # Resolve relative to $HOME (dashboard browsers always send absolute,
+            # CLI users may send ~/x which is already expanded above).
+            p = os.path.join(os.path.expanduser("~"), p)
+        p = os.path.normpath(p)
+    else:
+        # Remote (POSIX): expand leading ~/ via $HOME is resolved server-side;
+        # keep "~" as-is for display, normalize absolute paths with posixpath.
+        if p.startswith("~"):
+            return p  # e.g. ~, ~/projects — resolved by ssh/rsync remotely
+        if not p.startswith("/"):
+            p = "/" + p
+        p = posixpath.normpath(p)
+    return p
+
+
+def validate_sync_paths(local_path, remote_path):
+    """Validates a sync pair. Returns (local, remote) normalized or raises ValueError."""
+    local = _normalize_sync_path(local_path, is_remote=False)
+    remote = _normalize_sync_path(remote_path, is_remote=True)
+    if not local or not remote:
+        raise ValueError("Both local and remote folders are required")
+    if local == "/":
+        raise ValueError("Refusing to sync the filesystem root (/) — pick a subfolder")
+    if remote in ("/",):
+        raise ValueError("Refusing to sync the remote filesystem root (/) — pick a subfolder")
+    if ":" in remote:
+        raise ValueError("Remote path must not contain ':' (rsync host:path separator)")
+    return local, remote
+
+
+def get_sync(cfg, sync_id):
+    for s in cfg.get("syncs", []):
+        if isinstance(s, dict) and s.get("id") == sync_id:
+            return s
+    return None
+
+
+def get_syncs_for_server(cfg, server_id):
+    return [s for s in cfg.get("syncs", []) if isinstance(s, dict) and s.get("server_id") == server_id]
+
+
+def get_sync_plist_label(sync_id):
+    safe = re.sub(r"[^A-Za-z0-9_-]+", "-", str(sync_id)) or "sync"
+    return f"{SYNC_AGENT_PREFIX}-{safe}"
+
+
+def get_sync_plist_path(sync_id):
+    return os.path.join(LAUNCH_AGENTS_DIR, f"{get_sync_plist_label(sync_id)}.plist")
+
+
+def get_sync_executable_args(sync_id):
+    """ProgramArguments for a sync LaunchAgent: runs `devboost.py sync-run <id>`."""
+    wrapper = get_dashboard_executable()
+    try:
+        if os.path.isfile(wrapper) and os.access(wrapper, os.X_OK):
+            return [wrapper, "sync-run", str(sync_id)]
+    except OSError:
+        pass
+    return [sys.executable or "/usr/bin/python3",
+            os.path.join(CODE_DIR, "devboost.py"), "sync-run", str(sync_id)]
+
+
+def _scan_sync_agents_raw():
+    """Scans LaunchAgents for sync plists -> {sync_id: agent}."""
+    out = {}
+    pat = os.path.join(LAUNCH_AGENTS_DIR, f"{SYNC_AGENT_PREFIX}-*.plist")
+    for plist_path in glob.glob(pat):
+        try:
+            with open(plist_path, "rb") as f:
+                data = plistlib.load(f)
+        except Exception:
+            continue
+        label = data.get("Label", "")
+        prefix = SYNC_AGENT_PREFIX + "-"
+        sid = label[len(prefix):] if label.startswith(prefix) else None
+        if not sid:
+            m = re.search(rf"{re.escape(SYNC_AGENT_PREFIX)}-(.+)\.plist$", plist_path)
+            sid = m.group(1) if m else None
+        if sid:
+            out.setdefault(sid, {"label": label, "path": plist_path, "data": data})
+    return out
+
+
+def create_sync_agent(sync):
+    """Installs/refreshes the persistent LaunchAgent for an Auto sync."""
+    sid = sync.get("id")
+    interval = max(SYNC_MIN_INTERVAL, min(SYNC_MAX_INTERVAL, int(sync.get("interval", SYNC_DEFAULT_INTERVAL))))
+    plist_path = get_sync_plist_path(sid)
+    data = {
+        "Label": get_sync_plist_label(sid),
+        "ProgramArguments": get_sync_executable_args(sid),
+        "RunAtLoad": True,
+        "StartInterval": interval,
+        "ThrottleInterval": 10,
+        "StandardOutPath": os.path.join(LOG_DIR, f"devboost-sync-{sid}.log"),
+        "StandardErrorPath": os.path.join(LOG_DIR, f"devboost-sync-{sid}.err"),
+    }
+    # WatchPaths gives near-real-time triggers for local changes; polling
+    # (StartInterval) covers remote changes. Only set when the local dir exists.
+    try:
+        local = sync.get("local_path", "")
+        if local and os.path.isdir(os.path.expanduser(local)):
+            data["WatchPaths"] = [os.path.expanduser(local)]
+    except Exception:
+        pass
+    # Reload if already loaded (unload errors are fine — first install).
+    try:
+        subprocess.run(["launchctl", "unload", "-w", plist_path],
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except Exception:
+        pass
+    with open(plist_path, "wb") as f:
+        plistlib.dump(data, f)
+    try:
+        subprocess.run(["launchctl", "load", "-w", plist_path],
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except Exception:
+        pass
+    return plist_path
+
+
+def remove_sync_agent(sync_id):
+    plist_path = get_sync_plist_path(sync_id)
+    # Also catch legacy/renamed files for the same id (glob by suffix).
+    candidates = {plist_path}
+    try:
+        for p in glob.glob(os.path.join(LAUNCH_AGENTS_DIR, f"*{sync_id}*.plist")):
+            if os.path.basename(p).startswith(SYNC_AGENT_PREFIX) or sync_id in p:
+                candidates.add(p)
+    except Exception:
+        pass
+    for p in candidates:
+        try:
+            subprocess.run(["launchctl", "unload", "-w", p],
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except Exception:
+            pass
+        try:
+            if os.path.exists(p):
+                os.remove(p)
+        except OSError:
+            pass
+
+
+def remove_sync_agents_for_server(server_id):
+    cfg = load_config()
+    for s in get_syncs_for_server(cfg, server_id):
+        try:
+            remove_sync_agent(s.get("id"))
+        except Exception:
+            pass
+
+
+def _ssh_remote_cmd(host, remote_cmd):
+    """Runs a remote shell command via ssh. Returns CompletedProcess."""
+    return subprocess.run(
+        ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=5", host, remote_cmd],
+        capture_output=True, text=True, timeout=30,
+    )
+
+
+def _ensure_remote_dir(host, remote_path):
+    quoted = shlex.quote(remote_path)
+    res = _ssh_remote_cmd(host, f"mkdir -p -- {quoted} && echo OK")
+    return res.returncode == 0
+
+
+def check_rsync_prereqs(ssh_host):
+    """Verifies rsync exists locally and on the remote host.
+
+    Returns None when fine, else an actionable error message. Code-12
+    protocol errors almost always mean one of these two is missing.
+    """
+    if not shutil.which("rsync"):
+        return ("rsync not found on this Mac "
+                "(install with `brew install rsync`)")
+    try:
+        res = _ssh_remote_cmd(ssh_host, "command -v rsync")
+    except Exception as e:
+        return f"Cannot reach {ssh_host} to check for rsync: {e}"
+    if res.returncode != 0 or not (res.stdout or "").strip():
+        return (f"rsync not found on server '{ssh_host}' "
+                f"(install with `sudo apt install rsync`)")
+    return None
+
+
+def explain_rsync_output(text, ssh_host=""):
+    """Appends ONE targeted hint to raw rsync stderr based on known patterns.
+
+    Hints are exclusive and ordered by conclusiveness: a local TCC denial
+    explains the whole failure (including the follow-on "connection closed" /
+    code-12 lines), so no other guess is appended in that case.
+    """
+    t = text or ""
+    host = f" '{ssh_host}'" if ssh_host else ""
+    if "Operation not permitted" in t:
+        return t + " — macOS blocked local file access (grant Full Disk Access, see dashboard help)"
+    if "command not found" in t and "rsync" in t:
+        return t + f" — rsync is missing on the remote side (install with `sudo apt install rsync` on{host})"
+    if "Permission denied (publickey" in t:
+        return t + f" — SSH key rejected by{host} (check `ssh{host}` works without a password prompt)"
+    if "No such file or directory" in t:
+        return t + " — a synced path (or its parent) does not exist on that side"
+    if "connection unexpectedly closed" in t:
+        return (t + f" — the remote rsync never started on{host}: "
+                "either rsync is not installed there, or the remote shell prints "
+                "startup text (motd/echo in ~/.bashrc) that corrupts the protocol stream")
+    return t
+
+
+def build_rsync_commands(sync, ssh_host):
+    """Builds the ordered rsync command list for a sync entry (no shell)."""
+    direction = sync.get("direction", SYNC_DEFAULT_DIRECTION)
+    mirror = bool(sync.get("mirror", False)) and direction in ("push", "pull")
+    local = sync.get("local_path", "")
+    remote = sync.get("remote_path", "")
+    ssh_opts = "ssh -o BatchMode=yes -o ConnectTimeout=5 -o ServerAliveInterval=15 -o ServerAliveCountMax=3"
+    local_src = local.rstrip("/") + "/"
+    remote_spec = f"{ssh_host}:{remote.rstrip('/')}/"
+    remote_src = f"{ssh_host}:{remote.rstrip('/')}/"
+    cmds = []
+    base = ["rsync", "-az", "--update", "-e", ssh_opts]
+    if direction == "push":
+        cmd = base + (["--delete"] if mirror else []) + [local_src, remote_spec]
+        cmds.append(cmd)
+    elif direction == "pull":
+        cmd = base + (["--delete"] if mirror else []) + [remote_src, local_src]
+        cmds.append(cmd)
+    else:  # two-way: push then pull, newer wins, never delete
+        cmds.append(base + [local_src, remote_spec])
+        cmds.append(base + [remote_src, local_src])
+    return cmds
+
+
+def run_sync(sync_id, timeout=300):
+    """Runs one sync pass now (used by Sync Now, Once creation, and LaunchAgent).
+
+    Returns {"ok": bool, "message": str}. Updates last_sync/last_status and
+    folder_history in config. Never raises (errors are captured in message).
+    """
+    try:
+        cfg = load_config()
+    except Exception as e:
+        return {"ok": False, "message": f"Cannot load config: {e}"}
+    sync = get_sync(cfg, sync_id)
+    if not sync:
+        return {"ok": False, "message": f"Sync '{sync_id}' not found"}
+    server = get_server(cfg, sync.get("server_id"))
+    if not server:
+        # Server tab removed but sync row survived: resolve to default so the
+        # error message names a concrete host instead of failing silently.
+        server = get_default_server(cfg)
+    ssh_host = server.get("ssh_host")
+    local = sync.get("local_path", "")
+    remote = sync.get("remote_path", "")
+
+    def _fail(msg):
+        sync["last_status"] = "error"
+        sync["last_message"] = msg
+        try:
+            save_config(cfg)
+        except Exception:
+            pass
+        return {"ok": False, "message": msg}
+
+    # Local side: create on pull/two-way so first sync just works.
+    try:
+        os.makedirs(os.path.expanduser(local), exist_ok=True)
+    except Exception as e:
+        return _fail(f"Cannot create local folder {local}: {e}")
+    if not _ensure_remote_dir(ssh_host, remote):
+        return _fail(f"Cannot reach {ssh_host} or create {remote} (check SSH keys)")
+    # Preflight: code-12 protocol errors almost always mean rsync is missing
+    # on one side — fail fast with the fix instead of cryptic stderr.
+    prereq_msg = check_rsync_prereqs(ssh_host)
+    if prereq_msg:
+        return _fail(prereq_msg)
+    cmds = build_rsync_commands(sync, ssh_host)
+    errors = []
+    for cmd in cmds:
+        try:
+            res = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+        except FileNotFoundError:
+            errors.append("rsync not found (install rsync on this Mac)")
+            break
+        except subprocess.TimeoutExpired:
+            errors.append(f"rsync timed out after {timeout}s")
+            break
+        except Exception as e:
+            errors.append(str(e))
+            break
+        if res.returncode != 0:
+            lines = [l for l in (res.stderr or res.stdout or f"exit {res.returncode}").strip().splitlines() if l.strip()]
+            # The cause is usually the first line(s); the last line is just the
+            # "code 12" summary — keep up to 3 lines so the cause survives.
+            shown = " / ".join(lines[:2] + ([lines[-1]] if len(lines) > 2 and lines[-1] not in lines[:2] else []))
+            if not shown:
+                shown = f"rsync exit {res.returncode}"
+            errors.append(explain_rsync_output(shown, ssh_host))
+            break
+    now = time.time()
+    sync["last_sync"] = now
+    if errors:
+        sync["last_status"] = "error"
+        sync["last_message"] = "; ".join(errors)[:500]
+    else:
+        sync["last_status"] = "ok"
+        n = len(cmds)
+        sync["last_message"] = f"Synced {local} <-> {ssh_host}:{remote} ({sync.get('direction')})"
+    try:
+        save_config(cfg)
+    except Exception:
+        pass
+    try:
+        record_folder_history(sync.get("server_id"), local, remote)
+    except Exception:
+        pass
+    if errors:
+        return {"ok": False, "message": "; ".join(errors)[:500]}
+    return {"ok": True, "message": sync["last_message"]}
+
+
+def add_sync(server_ref=None, local_path="", remote_path="", direction="two-way",
+             mirror=False, always=False, interval=SYNC_DEFAULT_INTERVAL, run_now=True):
+    """Creates a sync entry, installs agent if Auto, optionally runs once now."""
+    cfg = load_config()
+    server = resolve_server(cfg, server_ref)
+    sid = server.get("id")
+    local, remote = validate_sync_paths(local_path, remote_path)
+    direction = (direction or SYNC_DEFAULT_DIRECTION).strip().lower()
+    if direction not in SYNC_DIRECTIONS:
+        raise ValueError(f"direction must be one of {', '.join(SYNC_DIRECTIONS)}")
+    if direction == "two-way":
+        mirror = False  # safe merge only (see semantics above)
+    try:
+        interval = int(interval or SYNC_DEFAULT_INTERVAL)
+    except (TypeError, ValueError):
+        interval = SYNC_DEFAULT_INTERVAL
+    interval = max(SYNC_MIN_INTERVAL, min(SYNC_MAX_INTERVAL, interval))
+    # De-dupe: same server + same pair reuses the row (updates params instead).
+    for s in get_syncs_for_server(cfg, sid):
+        if s.get("local_path") == local and s.get("remote_path") == remote:
+            s["direction"] = direction
+            s["mirror"] = bool(mirror)
+            s["always"] = bool(always)
+            s["interval"] = interval
+            save_config(cfg)
+            sync = s
+            break
+    else:
+        sync = {
+            "id": uuid.uuid4().hex[:8],
+            "server_id": sid,
+            "local_path": local,
+            "remote_path": remote,
+            "direction": direction,
+            "mirror": bool(mirror),
+            "always": bool(always),
+            "interval": interval,
+            "created_at": time.time(),
+            "last_sync": None,
+            "last_status": "never",
+            "last_message": "",
+        }
+        cfg.setdefault("syncs", []).append(sync)
+        save_config(cfg)
+    try:
+        record_folder_history(sid, local, remote)
+    except Exception:
+        pass
+    # Ensure the local dir exists now so the Auto agent can WatchPaths it.
+    try:
+        os.makedirs(os.path.expanduser(local), exist_ok=True)
+    except Exception:
+        pass
+    if sync.get("always"):
+        try:
+            create_sync_agent(sync)
+        except Exception:
+            pass
+    else:
+        try:
+            remove_sync_agent(sync.get("id"))
+        except Exception:
+            pass
+    result = {"ok": True, "sync": dict(sync), "message": "Folder sync added"}
+    if run_now:
+        res = run_sync(sync.get("id"))
+        # Re-read for fresh last_sync/status after the run.
+        try:
+            cfg2 = load_config()
+            sync2 = get_sync(cfg2, sync.get("id"))
+            if sync2:
+                result["sync"] = dict(sync2)
+        except Exception:
+            pass
+        result["run"] = res
+        result["message"] = res.get("message", result["message"])
+        result["ok"] = bool(res.get("ok"))
+    return result
+
+
+def remove_sync_entry(sync_id):
+    cfg = load_config()
+    sync = get_sync(cfg, sync_id)
+    if not sync:
+        return False
+    cfg["syncs"] = [s for s in cfg.get("syncs", []) if s.get("id") != sync_id]
+    save_config(cfg)
+    try:
+        remove_sync_agent(sync_id)
+    except Exception:
+        pass
+    return True
+
+
+def toggle_sync_always(sync_id, make_always, interval=None):
+    cfg = load_config()
+    sync = get_sync(cfg, sync_id)
+    if not sync:
+        return None
+    sync["always"] = bool(make_always)
+    if interval is not None:
+        try:
+            sync["interval"] = max(SYNC_MIN_INTERVAL, min(SYNC_MAX_INTERVAL, int(interval)))
+        except (TypeError, ValueError):
+            pass
+    save_config(cfg)
+    try:
+        if sync["always"]:
+            create_sync_agent(sync)
+        else:
+            remove_sync_agent(sync_id)
+    except Exception:
+        pass
+    return sync
+
+
+def update_sync(sync_id, local_path=None, remote_path=None, direction=None,
+                mirror=None, always=None, interval=None):
+    """Edits a sync entry's paths/params (server tab never changes).
+
+    Only arguments that are not None are updated. Returns the updated sync
+    dict, None if not found. Raises ValueError on invalid input.
+    """
+    cfg = load_config()
+    sync = get_sync(cfg, sync_id)
+    if not sync:
+        return None
+    if local_path is not None or remote_path is not None:
+        local, remote = validate_sync_paths(
+            local_path if local_path is not None else sync.get("local_path", ""),
+            remote_path if remote_path is not None else sync.get("remote_path", ""))
+        sync["local_path"] = local
+        sync["remote_path"] = remote
+    if direction is not None:
+        direction = (direction or "").strip().lower()
+        if direction not in SYNC_DIRECTIONS:
+            raise ValueError(f"direction must be one of {', '.join(SYNC_DIRECTIONS)}")
+        sync["direction"] = direction
+    if mirror is not None:
+        sync["mirror"] = bool(mirror)
+    if sync.get("direction") == "two-way":
+        sync["mirror"] = False  # safe merge only (see semantics above)
+    if always is not None:
+        sync["always"] = bool(always)
+    if interval is not None:
+        try:
+            sync["interval"] = max(SYNC_MIN_INTERVAL, min(SYNC_MAX_INTERVAL, int(interval)))
+        except (TypeError, ValueError):
+            pass
+    save_config(cfg)
+    try:
+        record_folder_history(sync.get("server_id"), sync.get("local_path"), sync.get("remote_path"))
+    except Exception:
+        pass
+    # Ensure the local dir exists so the Auto agent can WatchPaths it.
+    try:
+        os.makedirs(os.path.expanduser(sync.get("local_path", "")), exist_ok=True)
+    except Exception:
+        pass
+    try:
+        if sync.get("always"):
+            create_sync_agent(sync)
+        else:
+            remove_sync_agent(sync_id)
+    except Exception:
+        pass
+    return sync
+
+
+def get_syncs_status(server_ref=None):
+    """Sync rows for one server tab, with agent presence (like forwards)."""
+    cfg = load_config()
+    server = resolve_server(cfg, server_ref)
+    sid = server.get("id")
+    agents = _scan_sync_agents_raw()
+    rows = []
+    for s in get_syncs_for_server(cfg, sid):
+        sid_row = s.get("id")
+        agent = agents.get(sid_row)
+        rows.append({
+            "id": sid_row,
+            "server_id": sid,
+            "local_path": s.get("local_path", ""),
+            "remote_path": s.get("remote_path", ""),
+            "direction": s.get("direction", SYNC_DEFAULT_DIRECTION),
+            "mirror": bool(s.get("mirror", False)),
+            "always": bool(s.get("always", False)),
+            "agent_installed": agent is not None,
+            "active": bool(s.get("always", False)) and agent is not None,
+            "interval": s.get("interval", SYNC_DEFAULT_INTERVAL),
+            "created_at": s.get("created_at"),
+            "last_sync": s.get("last_sync"),
+            "last_status": s.get("last_status", "never"),
+            "last_message": s.get("last_message", ""),
+        })
+    rows.sort(key=lambda r: (r.get("local_path") or "", r.get("remote_path") or ""))
+    return {
+        "server_id": sid,
+        "server_name": server.get("name") or server.get("ssh_host"),
+        "server_host": server.get("ssh_host"),
+        "syncs": rows,
+        "folder_history": get_folder_history(limit=10, server_id=sid),
+    }
+
+
+def record_folder_history(server_id, local_path, remote_path):
+    """Remembers used folder pairs for quick-select (max 20 per server)."""
+    try:
+        cfg = load_config()
+        server = resolve_server(cfg, server_id)
+        sid = server.get("id")
+        local = (local_path or "").strip()
+        remote = (remote_path or "").strip()
+        if not local and not remote:
+            return
+        history = cfg.setdefault("folder_history", [])
+        kept = []
+        for h in history:
+            if not isinstance(h, dict):
+                continue
+            if (h.get("server_id") or sid) == sid and (h.get("local_path") or "") == local and (h.get("remote_path") or "") == remote:
+                continue
+            kept.append(h)
+        kept.insert(0, {"server_id": sid, "local_path": local, "remote_path": remote, "last_used": time.time()})
+        per_counts = {}
+        capped = []
+        for h in kept:
+            key = h.get("server_id") or sid
+            per_counts[key] = per_counts.get(key, 0) + 1
+            if per_counts[key] <= 20:
+                capped.append(h)
+        cfg["folder_history"] = capped[:100]
+        save_config(cfg)
+    except Exception:
+        pass
+
+
+def get_folder_history(limit=10, server_id=None):
+    """Most-recently-used folder pairs for a server (for quick-select chips)."""
+    try:
+        cfg = load_config()
+        server = resolve_server(cfg, server_id)
+        sid = server.get("id")
+        out = [h for h in cfg.get("folder_history", []) if (h.get("server_id") or sid) == sid]
+        return out[:limit]
+    except Exception:
+        return []
+
+
+def browse_local(path=""):
+    """Lists local directories for the folder picker. Returns dict with entries."""
+    raw = (path or "").strip() or os.path.expanduser("~")
+    raw = os.path.expanduser(raw)
+    if not os.path.isabs(raw):
+        raw = os.path.join(os.path.expanduser("~"), raw)
+    target = os.path.normpath(raw)
+    home = os.path.expanduser("~")
+    if not os.path.exists(target):
+        return {"ok": False, "path": target, "parent": os.path.dirname(target),
+                "home": home, "entries": [], "message": f"Path does not exist: {target}"}
+    if not os.path.isdir(target):
+        target = os.path.dirname(target)
+    try:
+        names = sorted(os.listdir(target), key=lambda n: n.lower())
+    except OSError as e:
+        # Errno 1 (EPERM) / 13 (EACCES) on ~/Documents, ~/Desktop, ... is
+        # macOS TCC privacy protection, not a missing folder: the dashboard
+        # process needs Full Disk Access (see README + dashboard help).
+        if getattr(e, "errno", None) in (1, 13):
+            return {"ok": False, "denied": True, "path": target,
+                    "parent": os.path.dirname(target),
+                    "home": home, "entries": [],
+                    "message": f"macOS blocked access to {target} (privacy protection)"}
+        return {"ok": False, "path": target, "parent": os.path.dirname(target),
+                "home": home, "entries": [], "message": f"Cannot list {target}: {e}"}
+    entries = []
+    for name in names:
+        full = os.path.join(target, name)
+        try:
+            if os.path.isdir(full):
+                entries.append({"name": name, "path": full,
+                                "hidden": name.startswith(".")})
+        except OSError:
+            continue
+    parent = os.path.dirname(target.rstrip("/")) or "/"
+    # Root's parent is itself; avoid empty.
+    if not parent:
+        parent = "/"
+    return {"ok": True, "path": target, "parent": parent, "home": home, "entries": entries}
+
+
+def browse_remote(server_ref=None, path=""):
+    """Lists remote directories over SSH for the folder picker."""
+    cfg = load_config()
+    server = resolve_server(cfg, server_ref)
+    ssh_host = server.get("ssh_host")
+    want = (path or "").strip() or "~"
+    # Resolve ~ to absolute once so parent navigation works with posixpath.
+    if want in ("~", "~/", "$HOME"):
+        probe = _ssh_remote_cmd(ssh_host, "pwd && echo OK")
+        if probe.returncode == 0:
+            lines = [l for l in (probe.stdout or "").splitlines() if l.strip()]
+            if lines:
+                want = lines[0].strip()
+            else:
+                want = "~"
+        else:
+            return {"ok": False, "path": want, "parent": "~", "entries": [],
+                    "message": f"Cannot reach {ssh_host} (check SSH keys)"}
+    if want.startswith("~"):
+        # ~/sub -> ask remote shell to expand (keep display absolute when possible)
+        probe = _ssh_remote_cmd(ssh_host, f"cd -- {shlex.quote(want)} 2>/dev/null && pwd")
+        if probe.returncode == 0 and (probe.stdout or "").strip():
+            want = (probe.stdout or "").strip().splitlines()[0].strip()
+    # List with ls -1pa -a so hidden/dot folders (.output, .git, ...) are
+    # visible too (dirs end with /). Quote for the remote shell.
+    res = _ssh_remote_cmd(ssh_host, f"ls -1pa -- {shlex.quote(want)} 2>&1")
+    out = (res.stdout or "") + (res.stderr or "")
+    if res.returncode != 0:
+        # ls writes the error to stdout/stderr; surface the last line.
+        lines = [l for l in out.splitlines() if l.strip()]
+        msg = lines[-1] if lines else f"Cannot list {want}"
+        return {"ok": False, "path": want, "parent": posixpath.dirname(want.rstrip("/")) or "/",
+                "entries": [], "message": msg[:300]}
+    entries = []
+    for line in (res.stdout or "").splitlines():
+        name = line.rstrip("\n")
+        if not name or name in ("./", "../"):
+            continue
+        is_dir = name.endswith("/")
+        name = name[:-1] if is_dir else name
+        if name in (".", "..") or not name:
+            continue
+        if is_dir:
+            full = posixpath.join(want.rstrip("/"), name)
+            entries.append({"name": name, "path": full,
+                            "hidden": name.startswith(".")})
+    entries.sort(key=lambda e: e["name"].lower())
+    parent = posixpath.dirname(want.rstrip("/")) or "/"
+    return {"ok": True, "path": want, "parent": parent, "entries": entries}
+
+
+def _validate_new_folder_name(name):
+    """Validates a new folder name. Returns stripped name or raises ValueError."""
+    clean = (name or "").strip().strip("'\"")
+    if not clean or clean in (".", ".."):
+        raise ValueError("Enter a folder name")
+    if len(clean) > 255:
+        raise ValueError("Folder name is too long")
+    if "/" in clean or "\\" in clean or "\x00" in clean:
+        raise ValueError(f"Invalid folder name: {clean!r} (no slashes)")
+    return clean
+
+
+def mkdir_local(parent="", name=""):
+    """Creates a local folder for the picker. Returns {ok, path, ...}."""
+    clean = _validate_new_folder_name(name)
+    base = (parent or "").strip() or "~"
+    base = os.path.expanduser(base)
+    if not os.path.isabs(base):
+        base = os.path.join(os.path.expanduser("~"), base)
+    new = os.path.normpath(os.path.join(base, clean))
+    try:
+        if os.path.isdir(new):
+            return {"ok": True, "path": new, "message": "Folder already exists"}
+        os.makedirs(new, exist_ok=True)
+    except OSError as e:
+        if getattr(e, "errno", None) in (1, 13):
+            return {"ok": False, "denied": True, "path": new,
+                    "message": f"macOS blocked creating {new} (privacy protection)"}
+        return {"ok": False, "path": new, "message": f"Cannot create {new}: {e}"}
+    return {"ok": True, "path": new, "message": f"Created {new}"}
+
+
+def mkdir_remote(server_ref=None, parent="", name=""):
+    """Creates a remote folder over SSH for the picker. Returns {ok, path, ...}."""
+    clean = _validate_new_folder_name(name)
+    cfg = load_config()
+    server = resolve_server(cfg, server_ref)
+    ssh_host = server.get("ssh_host")
+    base = (parent or "").strip() or "~"
+    if base.startswith("~") or base in ("$HOME", "") or not base.startswith("/"):
+        home_probe = _ssh_remote_cmd(ssh_host, "pwd")
+        if home_probe.returncode != 0:
+            return {"ok": False, "path": base,
+                    "message": f"Cannot reach {ssh_host} (check SSH keys)"}
+        home = (home_probe.stdout or "").strip().splitlines()[0].strip()
+        if base in ("~", "~/", "$HOME", ""):
+            base = home
+        elif base.startswith("~/"):
+            base = posixpath.join(home, base[2:])
+        else:
+            base = posixpath.join(home, base)
+    new = posixpath.normpath(posixpath.join(base, clean))
+    res = _ssh_remote_cmd(ssh_host, f"mkdir -p -- {shlex.quote(new)} 2>&1")
+    if res.returncode != 0:
+        lines = [l for l in ((res.stdout or "") + (res.stderr or "")).splitlines() if l.strip()]
+        return {"ok": False, "path": new,
+                "message": (lines[-1] if lines else f"Cannot create {new}")[:300]}
+    return {"ok": True, "path": new, "message": f"Created {ssh_host}:{new}"}
 
 
 # -----------------------------
@@ -1145,12 +2001,26 @@ def get_servers_status():
     """Lightweight per-tab summary for the tab bar (no per-port detail)."""
     cfg = load_config()
     servers = get_servers(cfg)
+    sync_agents = {}
+    try:
+        sync_agents = _scan_sync_agents_raw()
+    except Exception:
+        sync_agents = {}
+    try:
+        sync_server_ids = {}
+        for s in cfg.get("syncs", []):
+            if isinstance(s, dict) and s.get("server_id"):
+                sync_server_ids.setdefault(s["server_id"], []).append(s)
+    except Exception:
+        sync_server_ids = {}
     out = []
     for srv in servers:
         try:
             agents = get_launchagents_for_server(srv)
             procs = get_ssh_forwards(server=srv)
             active = sum(1 for p in procs if p.get("is_listening"))
+            srv_syncs = sync_server_ids.get(srv.get("id"), [])
+            auto_syncs = sum(1 for s in srv_syncs if s.get("always") and s.get("id") in sync_agents)
             out.append({
                 "id": srv.get("id"),
                 "ssh_host": srv.get("ssh_host"),
@@ -1160,6 +2030,8 @@ def get_servers_status():
                 "pinned": bool(srv.get("pinned", False)),
                 "always_count": len(agents),
                 "active_count": active,
+                "sync_count": len(srv_syncs),
+                "auto_sync_count": auto_syncs,
             })
         except Exception:
             out.append({
@@ -1171,6 +2043,8 @@ def get_servers_status():
                 "pinned": bool(srv.get("pinned", False)),
                 "always_count": 0,
                 "active_count": 0,
+                "sync_count": 0,
+                "auto_sync_count": 0,
             })
     return out
 
@@ -1643,6 +2517,88 @@ HTML_DASHBOARD = """<!DOCTYPE html>
       font-family: var(--font-mono);
     }
     .form-group input:focus { outline: none; border-color: var(--accent); }
+    .form-group select {
+      width: 100%;
+      padding: 8px 12px;
+      background: #0d1117;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      color: #fff;
+      font-size: 13px;
+    }
+    .form-group select:focus { outline: none; border-color: var(--accent); }
+    .form-hint { font-size: 11px; color: var(--text-muted); margin-top: 4px; line-height: 1.4; }
+    .path-row { display: flex; gap: 8px; }
+    .path-row input { flex: 1; min-width: 0; }
+    .path-row .btn { flex-shrink: 0; }
+    .suggest-wrap { position: relative; flex: 1; min-width: 0; display: flex; }
+    .suggest-wrap input { flex: 1; min-width: 0; width: 100%; }
+    .suggest-list {
+      position: absolute; top: calc(100% + 4px); left: 0; right: 0;
+      background: #0d1117;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      max-height: 200px;
+      overflow-y: auto;
+      z-index: 60;
+      display: none;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+    }
+    .suggest-list.open { display: block; }
+    .suggest-item {
+      display: flex; align-items: center; gap: 8px;
+      width: 100%; text-align: left;
+      background: transparent; border: none; border-bottom: 1px solid rgba(48,54,61,0.4);
+      color: var(--text); font-size: 12px; font-family: var(--font-mono);
+      padding: 7px 10px; cursor: pointer;
+    }
+    .suggest-item:hover, .suggest-item.active { background: rgba(88,166,255,0.15); color: #fff; }
+    .suggest-item:last-child { border-bottom: none; }
+    .suggest-item.is-hidden { opacity: 0.6; }
+    .browser {
+      margin-top: 8px;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      background: #0d1117;
+      overflow: hidden;
+      display: none;
+    }
+    .browser.open { display: block; }
+    .browser-bar {
+      display: flex; align-items: center; gap: 6px;
+      padding: 8px 10px;
+      border-bottom: 1px solid var(--border);
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: var(--text-muted);
+    }
+    .browser-bar .cur { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); }
+    .browser-path {
+      flex: 1; min-width: 0;
+      padding: 5px 8px;
+      background: #0d1117;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      color: var(--text);
+      font-size: 11px;
+      font-family: var(--font-mono);
+    }
+    .browser-path:focus { outline: none; border-color: var(--accent); color: #fff; }
+    .browser-item.is-hidden { opacity: 0.6; }
+    .browser-list { max-height: 180px; overflow-y: auto; }
+    .browser-item {
+      display: flex; align-items: center; gap: 8px;
+      width: 100%; text-align: left;
+      background: transparent; border: none; border-bottom: 1px solid rgba(48,54,61,0.4);
+      color: var(--text); font-size: 12px; font-family: var(--font-mono);
+      padding: 7px 10px; cursor: pointer;
+    }
+    .browser-item:hover { background: rgba(88,166,255,0.08); color: #fff; }
+    .browser-item:last-child { border-bottom: none; }
+    .mono { font-family: var(--font-mono); }
+    .muted { color: var(--text-muted); }
+    .sync-path { font-family: var(--font-mono); font-size: 12px; color: #fff; word-break: break-all; }
+    .sync-sub { font-size: 11px; color: var(--text-muted); font-family: var(--font-mono); word-break: break-all; }
     .form-checkbox { display: flex; align-items: center; gap: 8px; cursor: pointer; user-select: none; }
     .recent-chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
     .recent-chip {
@@ -1719,6 +2675,10 @@ HTML_DASHBOARD = """<!DOCTYPE html>
         <div class="value" id="stat-always">0</div>
       </div>
       <div class="stat-card">
+        <div class="label">Folder Syncs (Auto)</div>
+        <div class="value" id="stat-syncs">0</div>
+      </div>
+      <div class="stat-card">
         <div class="label">Discovered Remote Ports</div>
         <div class="value" id="stat-remote">-</div>
       </div>
@@ -1743,6 +2703,31 @@ HTML_DASHBOARD = """<!DOCTYPE html>
         </thead>
         <tbody id="forwards-body">
           <tr><td colspan="6" style="text-align:center; color:var(--text-muted); padding:30px;">Loading forwards...</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Folder Syncs (tracked mirrors, managed like ports) -->
+    <div class="section-card">
+      <div class="section-header">
+        <h2>Folder Syncs <span class="muted" style="font-weight:400; font-size:12px;" id="syncs-subtitle"></span></h2>
+        <div style="display:flex; gap:8px;">
+          <button class="btn btn-sm" onclick="fetchSyncs()">↻ Refresh</button>
+          <button class="btn btn-sm btn-primary" onclick="openSyncModal()">+ Add Folder Sync</button>
+        </div>
+      </div>
+      <table>
+        <thead>
+          <tr>
+            <th>LOCAL FOLDER</th>
+            <th>REMOTE FOLDER</th>
+            <th>MODE</th>
+            <th>STATUS</th>
+            <th style="text-align:right;">ACTIONS</th>
+          </tr>
+        </thead>
+        <tbody id="syncs-body">
+          <tr><td colspan="5" style="text-align:center; color:var(--text-muted); padding:30px;">Loading folder syncs...</td></tr>
         </tbody>
       </table>
     </div>
@@ -1808,6 +2793,101 @@ HTML_DASHBOARD = """<!DOCTYPE html>
     </div>
   </div>
 
+  <!-- Add Folder Sync Modal (dual file-system quick select) -->
+  <div class="modal-overlay" id="sync-modal">
+    <div class="modal" style="max-width:560px;">
+      <div class="modal-header">
+        <h3 id="sync-modal-title">Add Folder Sync</h3>
+        <button class="btn btn-sm" onclick="closeSyncModal()" style="border:none; background:transparent;">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group" id="recent-folders-section" style="display:none;">
+          <label class="recent-hint">Recently synced — click to quick select</label>
+          <div class="recent-chips" id="recent-folders-chips"></div>
+        </div>
+        <div class="form-group">
+          <label>Local folder (this Mac)</label>
+          <div class="path-row">
+            <div class="suggest-wrap">
+              <input type="text" id="sync-local-path" placeholder="e.g. /Users/you/projects/app — type to search" autocomplete="off" spellcheck="false"
+                     oninput="onSyncPathInput('local')" onkeydown="onSuggestKey(event, 'local')" onblur="hideSuggest('local')" onfocus="onSyncPathInput('local')" />
+              <div class="suggest-list" id="suggest-local"></div>
+            </div>
+            <button class="btn btn-sm" onclick="toggleBrowser('local')">📂 Browse</button>
+          </div>
+          <div class="browser" id="browser-local">
+            <div class="browser-bar">
+              <button class="btn btn-sm" onclick="browseLocalGo('..')" title="Up one level">⬆</button>
+              <button class="btn btn-sm" onclick="browseLocalGo('~')" title="Home">⌂</button>
+              <input class="browser-path" id="browser-local-path" value="~" spellcheck="false"
+                     title="Type a path and press Enter to jump there"
+                     onkeydown="if (event.key === 'Enter') browserGo('local')" />
+              <button class="btn btn-sm" onclick="browserGo('local')" title="Go to typed path">Go</button>
+              <button class="btn btn-sm" onclick="mkdirBrowser('local')" title="Create new folder here">＋</button>
+              <button class="btn btn-sm btn-primary" onclick="pickBrowserPath('local')">Select</button>
+            </div>
+            <div class="browser-list" id="browser-local-list"></div>
+          </div>
+        </div>
+        <div class="form-group">
+          <label id="sync-remote-label">Remote folder (on server)</label>
+          <div class="path-row">
+            <div class="suggest-wrap">
+              <input type="text" id="sync-remote-path" placeholder="e.g. ~/projects/app — type to search" autocomplete="off" spellcheck="false"
+                     oninput="onSyncPathInput('remote')" onkeydown="onSuggestKey(event, 'remote')" onblur="hideSuggest('remote')" onfocus="onSyncPathInput('remote')" />
+              <div class="suggest-list" id="suggest-remote"></div>
+            </div>
+            <button class="btn btn-sm" onclick="toggleBrowser('remote')">📂 Browse</button>
+          </div>
+          <div class="browser" id="browser-remote">
+            <div class="browser-bar">
+              <button class="btn btn-sm" onclick="browseRemoteGo('..')" title="Up one level">⬆</button>
+              <button class="btn btn-sm" onclick="browseRemoteGo('~')" title="Home">⌂</button>
+              <input class="browser-path" id="browser-remote-path" value="~" spellcheck="false"
+                     title="Type a path and press Enter to jump there"
+                     onkeydown="if (event.key === 'Enter') browserGo('remote')" />
+              <button class="btn btn-sm" onclick="browserGo('remote')" title="Go to typed path">Go</button>
+              <button class="btn btn-sm" onclick="mkdirBrowser('remote')" title="Create new folder here">＋</button>
+              <button class="btn btn-sm btn-primary" onclick="pickBrowserPath('remote')">Select</button>
+            </div>
+            <div class="browser-list" id="browser-remote-list"></div>
+          </div>
+        </div>
+        <div class="form-group">
+          <label>Direction</label>
+          <select id="sync-direction" onchange="onSyncDirectionChange()">
+            <option value="two-way" selected>⇄ Two-way merge (newer wins, safe)</option>
+            <option value="push">⬆ Push — local → remote</option>
+            <option value="pull">⬇ Pull — remote → local</option>
+          </select>
+          <div class="form-hint" id="sync-direction-hint">Two-way keeps both sides merged. Newer file wins. Deletions never propagate.</div>
+        </div>
+        <div class="form-group" id="sync-mirror-group">
+          <label class="form-checkbox">
+            <input type="checkbox" id="sync-mirror" />
+            <span>Mirror — exact copy (delete extra files on destination)</span>
+          </label>
+          <div class="form-hint" id="sync-mirror-hint">One-way only: destination becomes an exact copy via rsync --delete. Disabled for two-way (always a safe merge).</div>
+        </div>
+        <div class="form-group">
+          <label class="form-checkbox">
+            <input type="checkbox" id="sync-always" checked onchange="document.getElementById('sync-interval-group').style.display = this.checked ? 'block' : 'none'" />
+            <span>Auto — keep in sync continuously (persistent agent)</span>
+          </label>
+          <div class="form-hint">Auto = LaunchAgent with instant local triggers + polling for remote changes (the Always equivalent for ports). Unchecked = one-time sync: runs now + on-demand via Sync Now.</div>
+        </div>
+        <div class="form-group" id="sync-interval-group">
+          <label>Poll interval (seconds, 5–600)</label>
+          <input type="number" id="sync-interval" value="15" min="5" max="600" />
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn" onclick="closeSyncModal()">Cancel</button>
+        <button class="btn btn-primary" id="sync-submit-btn" onclick="submitAddSync()">Start Sync</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Add Server Modal (selective import from ~/.ssh/config) -->
   <div class="modal-overlay" id="server-modal">
     <div class="modal" style="max-width:520px;">
@@ -1850,6 +2930,12 @@ HTML_DASHBOARD = """<!DOCTYPE html>
     let allServers = [];
     let sshHostCache = [];
     let serverReachability = {};
+    let currentSyncs = [];
+    let cachedFolderHistory = [];
+    let folderChipCache = [];
+    let editingSyncId = null;
+    let browserLocalCur = "";
+    let browserRemoteCur = "";
 
     function escapeHtml(s) {
       return String(s == null ? "" : s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
@@ -2009,7 +3095,7 @@ HTML_DASHBOARD = """<!DOCTYPE html>
             title="${escapeHtml(s.ssh_host)}${s.ip ? ' (' + escapeHtml(s.ip) + ')' : ''} — drag to reorder">
           <span class="${dotCls}"></span>
           <span class="tab-name">${escapeHtml(s.name || s.ssh_host)}</span>
-          <span class="tab-meta">${s.active_count || 0}● ${s.always_count || 0}📌</span>
+          <span class="tab-meta">${s.active_count || 0}● ${s.always_count || 0}📌${(s.sync_count || 0) ? ` ${s.sync_count}🔄` : ''}</span>
           <button onclick="event.stopPropagation(); togglePin('${s.id}')" title="${s.pinned ? 'Unpin tab' : 'Pin tab (stays first)'}">${pinIcon}</button>
           <button onclick="event.stopPropagation(); removeServerTab('${s.id}')" title="Remove tab">✕</button>
         </div>`;
@@ -2043,8 +3129,10 @@ HTML_DASHBOARD = """<!DOCTYPE html>
       localStorage.setItem("devboost-active-server", sid);
       document.getElementById("remote-services-body").innerHTML = '<tr><td colspan="5" style="text-align:center; color:var(--text-muted); padding:20px;">Click "Scan Ports" to detect running services on the remote server.</td></tr>';
       document.getElementById("stat-remote").innerText = "-";
+      document.getElementById("syncs-body").innerHTML = '<tr><td colspan="5" style="text-align:center; color:var(--text-muted); padding:30px;">Loading folder syncs...</td></tr>';
       renderTabs();
       fetchStatus();
+      fetchSyncs();
     }
 
     async function togglePin(sid) {
@@ -2069,6 +3157,7 @@ HTML_DASHBOARD = """<!DOCTYPE html>
         showToast(d.message || "Server removed");
         await fetchServers();
         fetchStatus();
+        fetchSyncs();
       } catch (err) { alert("Failed to remove server: " + err); }
     }
 
@@ -2354,8 +3443,439 @@ HTML_DASHBOARD = """<!DOCTYPE html>
       }
     }
 
-    fetchServers().then(fetchStatus);
+    async function fetchSyncs() {
+      try {
+        const res = await fetch("/api/syncs" + serverQuery());
+        const data = await res.json();
+        if (data.server_id) { currentServerId = data.server_id; localStorage.setItem("devboost-active-server", currentServerId); }
+        cachedFolderHistory = data.folder_history || [];
+        renderSyncs(data);
+      } catch (err) {
+        console.error(err);
+      }
+    }
+
+    function formatSyncAge(ts) {
+      if (!ts) return "never";
+      const delta = (Date.now() / 1000) - ts;
+      if (delta < 60) return Math.max(0, Math.floor(delta)) + "s ago";
+      if (delta < 3600) return Math.floor(delta / 60) + "m ago";
+      if (delta < 86400) return Math.floor(delta / 3600) + "h ago";
+      return new Date(ts * 1000).toLocaleString();
+    }
+
+    function directionBadge(direction, mirror) {
+      const icons = { "two-way": "⇄ Two-way", "push": "⬆ Push", "pull": "⬇ Pull" };
+      const label = icons[direction] || escapeHtml(direction || "two-way");
+      const mirrorTag = (mirror && direction !== "two-way") ? " +mirror" : "";
+      return `<span class="badge badge-session" title="${direction === 'two-way' ? 'Bidirectional merge, newer wins, deletions never propagate' : (mirror ? 'Exact copy — deletions propagate (rsync --delete)' : 'One-way, extra files kept')}">${label}${mirrorTag}</span>`;
+    }
+
+    function modeBadge(s) {
+      return s.always
+        ? `<span class="badge badge-always" title="Persistent LaunchAgent: instant local triggers + polling every ${s.interval || 15}s">📌 Auto</span>`
+        : `<span class="badge badge-session" title="One-time sync: runs now + on-demand">⚡ Once</span>`;
+    }
+
+    function syncStatusBadge(s) {
+      if (s.last_status === "ok") return `<span class="badge badge-active">✓ ${escapeHtml(formatSyncAge(s.last_sync))}</span>`;
+      if (s.last_status === "error") return `<span class="badge badge-inactive" title="${escapeHtml(s.last_message || 'Sync failed')}">✕ failed</span>`;
+      return `<span class="badge" style="background:rgba(255,255,255,0.05); color:var(--text-muted);">never synced</span>`;
+    }
+
+    function renderSyncs(data) {
+      currentSyncs = data.syncs || [];
+      const autoCount = currentSyncs.filter(s => s.always).length;
+      document.getElementById("stat-syncs").innerText = currentSyncs.length ? `${currentSyncs.length} (${autoCount} auto)` : "0";
+      const sub = document.getElementById("syncs-subtitle");
+      if (sub) sub.innerText = data.server_name ? `• ${data.server_name}` : "";
+      const tbody = document.getElementById("syncs-body");
+      if (!currentSyncs.length) {
+        tbody.innerHTML = '<tr><td colspan="5" style="text-align:center; color:var(--text-muted); padding:30px;">No folder syncs yet. Click "+ Add Folder Sync" to mirror a folder with this server.</td></tr>';
+        return;
+      }
+      tbody.innerHTML = currentSyncs.map(s => {
+        const msg = s.last_message ? `<br/><span class="muted" style="font-size:11px;">${escapeHtml((s.last_message || '').slice(0, 120))}</span>` : "";
+        return `
+          <tr>
+            <td><span class="sync-path">${escapeHtml(s.local_path)}</span><br/><span class="muted" style="font-size:11px;">this Mac</span></td>
+            <td><span class="sync-path">${escapeHtml(s.remote_path)}</span><br/><span class="muted" style="font-size:11px;">${escapeHtml(data.server_host || currentServerHost || 'server')}</span></td>
+            <td>${directionBadge(s.direction, s.mirror)}<br/><span style="display:inline-block; margin-top:4px;">${modeBadge(s)}</span></td>
+            <td>${syncStatusBadge(s)}${msg}</td>
+            <td>
+              <div class="actions-cell">
+                <button class="btn btn-sm" onclick="openSyncModal('${s.id}')" title="Edit paths and options">Edit</button>
+                <button class="btn btn-sm" onclick="runSyncNow('${s.id}')" title="Run this sync immediately">Sync Now</button>
+                <button class="btn btn-sm" onclick="toggleSyncAlways('${s.id}', ${!s.always})" title="${s.always ? 'Switch to one-time (remove background agent)' : 'Keep in sync continuously (persistent agent)'}">
+                  ${s.always ? 'Make Once' : 'Make Auto'}
+                </button>
+                <button class="btn btn-sm btn-danger" onclick="deleteSync('${s.id}')" title="Remove sync">Delete</button>
+              </div>
+            </td>
+          </tr>
+        `;
+      }).join("");
+    }
+
+    async function runSyncNow(sid) {
+      showToast("Syncing folders...");
+      try {
+        const res = await fetch("/api/syncs/run", { method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({ id: sid }) });
+        const d = await res.json();
+        showToast(d.message || (d.ok ? "Sync complete" : "Sync failed"));
+        fetchSyncs();
+      } catch (err) { alert("Sync failed: " + err); }
+    }
+
+    async function toggleSyncAlways(sid, makeAlways) {
+      showToast(makeAlways ? "Enabling Auto sync..." : "Switching to one-time...");
+      try {
+        await fetch("/api/syncs/toggle", { method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({ id: sid, always: makeAlways }) });
+        fetchSyncs();
+        fetchServers();
+      } catch (err) { alert("Error toggling sync mode: " + err); }
+    }
+
+    async function deleteSync(sid) {
+      const s = (currentSyncs || []).find(x => x.id === sid);
+      const label = s ? `${s.local_path} <-> ${s.remote_path}` : sid;
+      if (!confirm(`Remove folder sync "${label}"? Files are kept on both sides; only the tracking + background agent are removed.`)) return;
+      showToast("Removing folder sync...");
+      try {
+        await fetch("/api/syncs/remove", { method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({ id: sid }) });
+        fetchSyncs();
+        fetchServers();
+      } catch (err) { alert("Error removing sync: " + err); }
+    }
+
+    function onSyncDirectionChange() {
+      const dir = document.getElementById("sync-direction").value;
+      const mirrorEl = document.getElementById("sync-mirror");
+      const hint = document.getElementById("sync-direction-hint");
+      if (dir === "two-way") {
+        mirrorEl.checked = false;
+        mirrorEl.disabled = true;
+        document.getElementById("sync-mirror-group").style.opacity = "0.55";
+        hint.innerText = "Two-way keeps both sides merged. Newer file wins. Deletions never propagate.";
+      } else {
+        mirrorEl.disabled = false;
+        document.getElementById("sync-mirror-group").style.opacity = "1";
+        hint.innerText = dir === "push"
+          ? "Push: local is the source of truth, copied to the server."
+          : "Pull: server is the source of truth, copied to this Mac.";
+      }
+    }
+
+    function openSyncModal(syncId) {
+      const existing = syncId ? (currentSyncs || []).find(x => x.id === syncId) : null;
+      editingSyncId = existing ? existing.id : null;
+      document.getElementById("sync-modal-title").innerText = existing ? "Edit Folder Sync" : "Add Folder Sync";
+      document.getElementById("sync-submit-btn").innerText = existing ? "Save & Sync" : "Start Sync";
+      document.getElementById("sync-local-path").value = existing ? (existing.local_path || "") : "";
+      document.getElementById("sync-remote-path").value = existing ? (existing.remote_path || "") : "";
+      document.getElementById("sync-direction").value = existing ? (existing.direction || "two-way") : "two-way";
+      document.getElementById("sync-mirror").checked = existing ? !!existing.mirror : false;
+      document.getElementById("sync-always").checked = existing ? !!existing.always : true;
+      document.getElementById("sync-interval").value = existing ? (existing.interval || 15) : 15;
+      document.getElementById("sync-interval-group").style.display = document.getElementById("sync-always").checked ? "block" : "none";
+      document.getElementById("sync-remote-label").innerText = "Remote folder (on " + (currentServerHost || "server") + ")";
+      onSyncDirectionChange();
+      document.getElementById("browser-local").classList.remove("open");
+      document.getElementById("browser-remote").classList.remove("open");
+      hideSuggest("local");
+      hideSuggest("remote");
+      renderFolderChips();
+      document.getElementById("sync-modal").style.display = "flex";
+      // Refresh recent pairs in background (per active tab)
+      fetch("/api/folder-history" + serverQuery()).then(r => r.json()).then(d => {
+        if (d.history) { cachedFolderHistory = d.history; renderFolderChips(); }
+      }).catch(() => {});
+      browseLocalGo(existing ? (existing.local_path || "~") : "~");
+      browseRemoteGo(existing ? (existing.remote_path || "~") : "~");
+    }
+
+    function closeSyncModal() {
+      document.getElementById("sync-modal").style.display = "none";
+      editingSyncId = null;
+    }
+
+    function renderFolderChips() {
+      const section = document.getElementById("recent-folders-section");
+      const container = document.getElementById("recent-folders-chips");
+      const items = cachedFolderHistory || [];
+      if (!items.length) { section.style.display = "none"; return; }
+      section.style.display = "block";
+      folderChipCache = items;
+      container.innerHTML = items.map((h, i) => {
+        const localShort = (h.local_path || "").split("/").slice(-2).join("/") || h.local_path;
+        const remoteShort = (h.remote_path || "").split("/").slice(-2).join("/") || h.remote_path;
+        return `<button class="recent-chip" onclick="quickSelectFolder(${i})" title="local: ${escapeHtml(h.local_path || '')}&#10;remote: ${escapeHtml(h.remote_path || '')}">${escapeHtml(localShort)} ⇄ ${escapeHtml(remoteShort)}</button>`;
+      }).join("");
+    }
+
+    function quickSelectFolder(i) {
+      const h = (folderChipCache || [])[i];
+      if (!h) return;
+      if (h.local_path) document.getElementById("sync-local-path").value = h.local_path;
+      if (h.remote_path) document.getElementById("sync-remote-path").value = h.remote_path;
+    }
+
+    function toggleBrowser(which) {
+      const el = document.getElementById(which === "local" ? "browser-local" : "browser-remote");
+      el.classList.toggle("open");
+    }
+
+    function pickBrowserPath(which) {
+      if (which === "local" && browserLocalCur) {
+        document.getElementById("sync-local-path").value = browserLocalCur;
+        document.getElementById("browser-local").classList.remove("open");
+      } else if (which === "remote" && browserRemoteCur) {
+        document.getElementById("sync-remote-path").value = browserRemoteCur;
+        document.getElementById("browser-remote").classList.remove("open");
+      }
+    }
+
+    function browserPathEl(which) {
+      return document.getElementById(which === "local" ? "browser-local-path" : "browser-remote-path");
+    }
+
+    function browserGo(which) {
+      const typed = (browserPathEl(which).value || "").trim();
+      if (which === "local") browseLocalGo(typed || "~");
+      else browseRemoteGo(typed || "~");
+    }
+
+    async function mkdirBrowser(which) {
+      const cur = (which === "local" ? browserLocalCur : browserRemoteCur)
+        || (browserPathEl(which).value || "").trim() || "~";
+      const name = prompt(`New folder name (inside ${cur}):`, "");
+      if (name === null) return;
+      if (!name.trim()) return;
+      showToast("Creating folder...");
+      try {
+        const body = which === "local"
+          ? { which: "local", path: cur, name: name }
+          : { which: "remote", server_id: currentServerId, path: cur, name: name };
+        const res = await fetch("/api/browse/mkdir", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body)
+        });
+        const d = await res.json();
+        if (!d.ok) { alert(d.message || "Could not create folder"); return; }
+        showToast(d.message || "Folder created");
+        if (which === "local") {
+          document.getElementById("sync-local-path").value = d.path;
+          browseLocalGo(d.path);
+        } else {
+          document.getElementById("sync-remote-path").value = d.path;
+          browseRemoteGo(d.path);
+        }
+      } catch (err) {
+        alert("Could not create folder: " + err);
+      }
+    }
+
+    function renderBrowserList(which, data) {
+      const listEl = document.getElementById(which === "local" ? "browser-local-list" : "browser-remote-list");
+      const pathEl = browserPathEl(which);
+      if (!data || data.ok === false) {
+        if (data && data.path) pathEl.value = data.path;
+        if (data && data.denied) {
+          listEl.innerHTML = `<div style="padding:12px; font-size:12px; line-height:1.6;">
+            <div style="color:var(--warning); font-weight:600; margin-bottom:6px;">🔒 macOS blocked access to this folder</div>
+            <div style="color:var(--text-muted);">The dashboard process isn't allowed to read<br/><span class="mono">${escapeHtml(data.path || '')}</span></div>
+            <div style="margin-top:8px; color:var(--text);">Fix: System Settings → Privacy &amp; Security → <b>Full Disk Access</b> → add your terminal app (Terminal, iTerm, VS Code…), then restart the dashboard. If the dashboard runs in the background, add the Python that runs it instead.</div>
+            <div style="margin-top:6px; color:var(--text-muted);">Tip: you can still type the full path above, but syncing the folder needs the same permission.</div>
+          </div>`;
+          return;
+        }
+        listEl.innerHTML = `<div style="padding:10px; font-size:12px; color:var(--danger);">${escapeHtml((data && data.message) || 'Cannot list folders')}</div>`;
+        return;
+      }
+      pathEl.value = data.path || "";
+      const entries = data.entries || [];
+      browserCache[which] = entries;
+      if (!entries.length) {
+        listEl.innerHTML = `<div style="padding:10px; font-size:12px; color:var(--text-muted);">No subfolders here. <button class="btn btn-sm" onclick="pickBrowserPath('${which}')">Select this folder</button></div>`;
+        return;
+      }
+      listEl.innerHTML = entries.map((e, i) =>
+        `<button class="browser-item${e.hidden ? ' is-hidden' : ''}" onclick="browseCacheGo('${which}', ${i})" title="${escapeHtml(e.path)}"><span>📁</span><span style="flex:1; overflow:hidden; text-overflow:ellipsis;">${escapeHtml(e.name)}</span><span style="color:var(--text-muted);">→</span></button>`
+      ).join("");
+    }
+
+    let browserCache = { local: [], remote: [] };
+
+    function browseCacheGo(which, i) {
+      const e = (browserCache[which] || [])[i];
+      if (!e) return;
+      if (which === "local") browseLocalGo(e.path);
+      else browseRemoteGo(e.path);
+    }
+
+    async function browseLocalGo(path) {
+      let target = path;
+      if (path === "..") target = browserLocalCur ? browserLocalCur + "/.." : "~";
+      if (path === "~") target = "";
+      const listEl = document.getElementById("browser-local-list");
+      listEl.innerHTML = '<div style="padding:10px; font-size:12px; color:var(--text-muted);">Loading...</div>';
+      try {
+        const res = await fetch("/api/browse/local?path=" + encodeURIComponent(target || ""));
+        const data = await res.json();
+        if (data.ok) browserLocalCur = data.path;
+        renderBrowserList("local", data);
+      } catch (err) {
+        listEl.innerHTML = `<div style="padding:10px; font-size:12px; color:var(--danger);">Browse failed: ${escapeHtml(String(err))}</div>`;
+      }
+    }
+
+    async function browseRemoteGo(path) {
+      let target = path;
+      if (path === "..") {
+        // Go up from current remote dir (posix-style, remote is ~-aware)
+        const cur = browserRemoteCur || "~";
+        target = cur === "/" ? "/" : cur.replace(/[/]+$/, "").split("/").slice(0, -1).join("/") || "/";
+        if (cur === "~") target = "~";
+      }
+      if (path === "~") target = "~";
+      const listEl = document.getElementById("browser-remote-list");
+      listEl.innerHTML = '<div style="padding:10px; font-size:12px; color:var(--text-muted);">Loading remote folders...</div>';
+      try {
+        const res = await fetch("/api/browse/remote" + serverQuery() + (serverQuery() ? "&" : "?") + "path=" + encodeURIComponent(target || "~"));
+        const data = await res.json();
+        if (data.ok) browserRemoteCur = data.path;
+        renderBrowserList("remote", data);
+      } catch (err) {
+        listEl.innerHTML = `<div style="padding:10px; font-size:12px; color:var(--danger);">Remote browse failed: ${escapeHtml(String(err))}</div>`;
+      }
+    }
+
+    let suggestState = { local: { active: 0, req: 0, timer: null }, remote: { active: 0, req: 0, timer: null } };
+    let suggestCache = { local: [], remote: [] };
+
+    function suggestInputEl(which) {
+      return document.getElementById(which === "local" ? "sync-local-path" : "sync-remote-path");
+    }
+
+    function suggestListEl(which) {
+      return document.getElementById(which === "local" ? "suggest-local" : "suggest-remote");
+    }
+
+    function onSyncPathInput(which) {
+      const st = suggestState[which];
+      clearTimeout(st.timer);
+      st.timer = setTimeout(() => fetchSuggest(which), 250);
+    }
+
+    function hideSuggest(which) {
+      suggestState[which].req++; // invalidate in-flight requests
+      suggestListEl(which).classList.remove("open");
+    }
+
+    async function fetchSuggest(which) {
+      const input = suggestInputEl(which);
+      const listEl = suggestListEl(which);
+      const val = (input.value || "").trim();
+      if (!val) { hideSuggest(which); return; }
+      // Split typed text into dir-to-list + name prefix to match.
+      let dir, prefix;
+      if (val.endsWith("/")) { dir = val; prefix = ""; }
+      else {
+        const idx = val.lastIndexOf("/");
+        if (idx < 0) { dir = "~"; prefix = val; }
+        else if (idx === 0) { dir = "/"; prefix = val.slice(1); }
+        else { dir = val.slice(0, idx) || "/"; prefix = val.slice(idx + 1); }
+      }
+      const myReq = ++suggestState[which].req;
+      const url = which === "local"
+        ? "/api/browse/local?path=" + encodeURIComponent(dir)
+        : "/api/browse/remote" + serverQuery() + (serverQuery() ? "&" : "?") + "path=" + encodeURIComponent(dir);
+      try {
+        const res = await fetch(url);
+        const data = await res.json();
+        if (myReq !== suggestState[which].req) return; // stale response
+        if (!data || data.ok === false) { hideSuggest(which); return; }
+        const pl = prefix.toLowerCase();
+        const items = (data.entries || [])
+          .filter(e => !prefix || e.name.toLowerCase().startsWith(pl))
+          .slice(0, 8);
+        if (!items.length) { hideSuggest(which); return; }
+        suggestCache[which] = items;
+        suggestState[which].active = 0;
+        listEl.innerHTML = items.map((e, i) =>
+          `<button class="suggest-item${e.hidden ? ' is-hidden' : ''}${i === 0 ? ' active' : ''}" onmousedown="event.preventDefault(); pickSuggest('${which}', ${i})" title="${escapeHtml(e.path)}"><span>📁</span><span style="flex:1; overflow:hidden; text-overflow:ellipsis;">${escapeHtml(e.name)}</span></button>`
+        ).join("");
+        listEl.classList.add("open");
+      } catch (err) {
+        hideSuggest(which);
+      }
+    }
+
+    function pickSuggest(which, i) {
+      const e = (suggestCache[which] || [])[i];
+      if (!e) return;
+      suggestInputEl(which).value = e.path + "/";
+      fetchSuggest(which); // keep drilling into children
+      if (which === "local") browseLocalGo(e.path);
+      else browseRemoteGo(e.path);
+    }
+
+    function onSuggestKey(ev, which) {
+      const listEl = suggestListEl(which);
+      if (!listEl.classList.contains("open")) return;
+      const items = suggestCache[which] || [];
+      if (ev.key === "ArrowDown" || ev.key === "ArrowUp") {
+        ev.preventDefault();
+        if (!items.length) return;
+        let a = suggestState[which].active + (ev.key === "ArrowDown" ? 1 : -1);
+        a = (a + items.length) % items.length;
+        suggestState[which].active = a;
+        [...listEl.children].forEach((c, i) => c.classList.toggle("active", i === a));
+      } else if (ev.key === "Enter") {
+        if (items.length) { ev.preventDefault(); pickSuggest(which, suggestState[which].active); }
+      } else if (ev.key === "Escape") {
+        hideSuggest(which);
+      }
+    }
+
+    async function submitAddSync() {
+      const localPath = document.getElementById("sync-local-path").value.trim();
+      const remotePath = document.getElementById("sync-remote-path").value.trim();
+      const direction = document.getElementById("sync-direction").value;
+      const mirror = document.getElementById("sync-mirror").checked;
+      const always = document.getElementById("sync-always").checked;
+      let interval = parseInt(document.getElementById("sync-interval").value, 10);
+      if (isNaN(interval)) interval = 15;
+      if (!localPath || !remotePath) {
+        alert("Pick both a local folder and a remote folder (use Browse for quick select).");
+        return;
+      }
+      const isEdit = !!editingSyncId;
+      const url = isEdit ? "/api/syncs/update" : "/api/syncs";
+      const payload = isEdit
+        ? { id: editingSyncId, local_path: localPath, remote_path: remotePath, direction: direction, mirror: mirror, always: always, interval: interval, run_now: true }
+        : { server_id: currentServerId, local_path: localPath, remote_path: remotePath, direction: direction, mirror: mirror, always: always, interval: interval, run_now: true };
+      closeSyncModal();
+      showToast(isEdit ? `Saving folder sync...` : `Starting folder sync...`);
+      try {
+        const res = await fetch(url, {
+          method: "POST",
+          headers: {"Content-Type": "application/json"},
+          body: JSON.stringify(payload)
+        });
+        const d = await res.json();
+        showToast(d.message || (d.ok ? "Sync complete" : "Sync failed"));
+        fetchSyncs();
+        fetchServers();
+      } catch (err) {
+        alert("Failed to save sync: " + err);
+      }
+    }
+
+    fetchServers().then(() => { fetchStatus(); fetchSyncs(); });
     setInterval(fetchStatus, 4000);
+    setInterval(fetchSyncs, 8000);
     setInterval(fetchServers, 15000);
   </script>
 </body>
@@ -2443,6 +3963,28 @@ class DashboardHandler(BaseHTTPRequestHandler):
         elif path == "/api/history":
             srv = query.get("server", [None])[0] or query.get("server_id", [None])[0]
             self._send_json({"history": get_port_history(limit=10, server_id=srv)})
+        elif path == "/api/syncs":
+            srv = query.get("server", [None])[0] or query.get("server_id", [None])[0]
+            try:
+                self._send_json(get_syncs_status(srv))
+            except Exception as e:
+                self._send_json({"syncs": [], "folder_history": [], "message": str(e)})
+        elif path == "/api/folder-history":
+            srv = query.get("server", [None])[0] or query.get("server_id", [None])[0]
+            self._send_json({"history": get_folder_history(limit=10, server_id=srv)})
+        elif path == "/api/browse/local":
+            p = query.get("path", [""])[0]
+            try:
+                self._send_json(browse_local(p))
+            except Exception as e:
+                self._send_json({"ok": False, "path": p, "parent": "/", "home": os.path.expanduser("~"), "entries": [], "message": str(e)})
+        elif path == "/api/browse/remote":
+            srv = query.get("server", [None])[0] or query.get("server_id", [None])[0]
+            p = query.get("path", [""])[0]
+            try:
+                self._send_json(browse_remote(srv, p))
+            except Exception as e:
+                self._send_json({"ok": False, "path": p, "parent": "/", "entries": [], "message": str(e)})
         else:
             self.send_response(404)
             self.end_headers()
@@ -2524,6 +4066,108 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 self._send_json({"ok": False, "message": "Server not found"}, status=404)
                 return
             self._send_json({"ok": True, "server": server})
+        elif path == "/api/syncs":
+            try:
+                result = add_sync(
+                    server_ref=body.get("server_id") or body.get("server"),
+                    local_path=body.get("local_path", ""),
+                    remote_path=body.get("remote_path", ""),
+                    direction=body.get("direction", SYNC_DEFAULT_DIRECTION),
+                    mirror=bool(body.get("mirror", False)),
+                    always=bool(body.get("always", False)),
+                    interval=body.get("interval", SYNC_DEFAULT_INTERVAL),
+                    run_now=bool(body.get("run_now", True)),
+                )
+            except ValueError as e:
+                self._send_json({"ok": False, "message": str(e)}, status=400)
+                return
+            except Exception as e:
+                self._send_json({"ok": False, "message": f"Failed to add sync: {e}"}, status=500)
+                return
+            self._send_json(result, status=200 if result.get("ok") else 500)
+        elif path == "/api/syncs/remove":
+            sid = body.get("id") or body.get("sync_id")
+            if not sid:
+                self._send_json({"ok": False, "message": "sync id is required"}, status=400)
+                return
+            ok = remove_sync_entry(sid)
+            if not ok:
+                self._send_json({"ok": False, "message": "Sync not found"}, status=404)
+                return
+            self._send_json({"ok": True, "message": "Folder sync removed"})
+        elif path == "/api/syncs/run":
+            sid = body.get("id") or body.get("sync_id")
+            if not sid:
+                self._send_json({"ok": False, "message": "sync id is required"}, status=400)
+                return
+            res = run_sync(sid)
+            self._send_json({"ok": bool(res.get("ok")), "message": res.get("message", "")},
+                            status=200 if res.get("ok") else 500)
+        elif path == "/api/syncs/toggle":
+            sid = body.get("id") or body.get("sync_id")
+            if not sid:
+                self._send_json({"ok": False, "message": "sync id is required"}, status=400)
+                return
+            sync = toggle_sync_always(sid, bool(body.get("always", False)),
+                                      interval=body.get("interval"))
+            if not sync:
+                self._send_json({"ok": False, "message": "Sync not found"}, status=404)
+                return
+            mode = "Auto (persistent)" if sync.get("always") else "Once (one-time)"
+            self._send_json({"ok": True, "sync": sync, "message": f"Sync mode: {mode}"})
+        elif path == "/api/syncs/update":
+            sid = body.get("id") or body.get("sync_id")
+            if not sid:
+                self._send_json({"ok": False, "message": "sync id is required"}, status=400)
+                return
+            try:
+                sync = update_sync(
+                    sid,
+                    local_path=body.get("local_path") if "local_path" in body else None,
+                    remote_path=body.get("remote_path") if "remote_path" in body else None,
+                    direction=body.get("direction") if "direction" in body else None,
+                    mirror=body.get("mirror") if "mirror" in body else None,
+                    always=body.get("always") if "always" in body else None,
+                    interval=body.get("interval") if "interval" in body else None,
+                )
+            except ValueError as e:
+                self._send_json({"ok": False, "message": str(e)}, status=400)
+                return
+            if not sync:
+                self._send_json({"ok": False, "message": "Sync not found"}, status=404)
+                return
+            result = {"ok": True, "sync": dict(sync), "message": "Folder sync updated"}
+            if bool(body.get("run_now", True)):
+                res = run_sync(sid)
+                try:
+                    sync2 = get_sync(load_config(), sid)
+                    if sync2:
+                        result["sync"] = dict(sync2)
+                except Exception:
+                    pass
+                result["run"] = res
+                result["message"] = res.get("message", result["message"])
+                result["ok"] = bool(res.get("ok"))
+            self._send_json(result, status=200 if result.get("ok") else 500)
+        elif path == "/api/browse/mkdir":
+            which = (body.get("which") or "").strip().lower()
+            if which == "local":
+                try:
+                    result = mkdir_local(body.get("path", ""), body.get("name", ""))
+                except ValueError as e:
+                    self._send_json({"ok": False, "message": str(e)}, status=400)
+                    return
+                self._send_json(result, status=200 if result.get("ok") else 500)
+            elif which == "remote":
+                try:
+                    result = mkdir_remote(body.get("server_id") or body.get("server"),
+                                          body.get("path", ""), body.get("name", ""))
+                except ValueError as e:
+                    self._send_json({"ok": False, "message": str(e)}, status=400)
+                    return
+                self._send_json(result, status=200 if result.get("ok") else 500)
+            else:
+                self._send_json({"ok": False, "message": "which must be 'local' or 'remote'"}, status=400)
         else:
             self.send_response(404)
             self.end_headers()
@@ -2650,6 +4294,47 @@ def print_history_hint(server_ref=None):
     print("\nReuse with: devboost add <port> [--always]\n")
 
 
+def _format_sync_age(ts):
+    if not ts:
+        return "never"
+    try:
+        delta = time.time() - float(ts)
+    except (TypeError, ValueError):
+        return "never"
+    if delta < 60:
+        return f"{int(delta)}s ago"
+    if delta < 3600:
+        return f"{int(delta // 60)}m ago"
+    if delta < 86400:
+        return f"{int(delta // 3600)}h ago"
+    return time.strftime("%Y-%m-%d %H:%M", time.localtime(ts))
+
+
+def cli_sync_list(server_ref=None, show_all=False):
+    cfg = load_config()
+    servers = get_servers(cfg)
+    targets = servers if show_all else [resolve_server(cfg, server_ref)]
+    for srv in targets:
+        status = get_syncs_status(srv.get("id"))
+        print(f"\nFolder syncs • {status['server_name']} ({status['server_host']})")
+        print("=" * 100)
+        if not status["syncs"]:
+            print("No folder syncs configured.")
+            print("Use 'devboost sync add <local> <remote> [--auto]' to add one.")
+            continue
+        print(f"{'ID':<10}{'DIRECTION':<10}{'MODE':<10}{'LAST SYNC':<14}{'LOCAL':<28}{'REMOTE'}")
+        print("-" * 100)
+        for s in status["syncs"]:
+            mode = "AUTO" if s["always"] else "ONCE"
+            if s["mirror"] and s["direction"] in ("push", "pull"):
+                mode += "+MIRROR"
+            last = _format_sync_age(s.get("last_sync"))
+            st = (s.get("last_status") or "never").upper()
+            print(f"{s['id']:<10}{s['direction']:<10}{mode:<10}{last:<14}{(s['local_path'] or '')[:27]:<28}{s['remote_path']}  [{st}]")
+        print("=" * 100)
+    print(f"Dashboard: http://localhost:{DEFAULT_DASHBOARD_PORT}\n")
+
+
 def print_help():
     print("""DevBoost • SSH Port Forward Manager
 
@@ -2665,8 +4350,22 @@ Usage:
   devboost server add <ssh-host> [display-name]   Add a tab (host should exist in ~/.ssh/config)
   devboost server rm <id>        Remove a tab (stops its tunnels)
   devboost server pin <id> [--off]    Pin/unpin a tab (pinned tabs sort first)
+  devboost sync [--server ID] [--all]   List folder syncs (tracked mirrors)
+  devboost sync add <local> <remote> [--server ID] [--direction two-way|push|pull] [--mirror] [--auto] [--interval N] [--no-run]
+                                      Add a folder sync (runs once now unless --no-run)
+  devboost sync run <id>         Run a folder sync now
+  devboost sync edit <id> [--local PATH] [--remote PATH] [--direction two-way|push|pull] [--mirror|--no-mirror] [--auto|--once] [--interval N] [--no-run]
+                                      Edit a folder sync (runs once now unless --no-run)
+  devboost sync rm <id>          Remove a folder sync (stops its agent)
+  devboost sync auto <id> [--off] [--interval N]   Make a sync Auto (persistent) or Once (one-time)
   devboost ui / dashboard        Open the web dashboard in Chrome/browser
   devboost serve [--port 3080]   Run the web dashboard server
+
+Folder sync modes (see dashboard ? help):
+  direction two-way (default) = bidirectional merge, newer wins, deletions never propagate.
+  direction push/pull + --mirror = exact copy (rsync --delete, deletions propagate).
+  --auto = persistent background agent (WatchPaths + polling every --interval sec).
+  Without --auto the sync is one-time (runs now + on-demand via Sync Now).
 
 Tabs: the dashboard shows one tab per SSH connection. Add tabs from
 ~/.ssh/config hosts (selective — nothing is auto-added), then drag to
@@ -2773,6 +4472,167 @@ def main():
         lp = int(fargs[1])
         remove_forward(lp, server_ref=server_ref)
         print(f"Port {lp} forward removed.")
+    elif cmd == "sync-run":
+        # Hidden entry point for sync LaunchAgents: `devboost.py sync-run <id>`
+        if len(args) < 2 or not args[1].strip():
+            print("Error: sync-run requires a sync id.")
+            sys.exit(1)
+        res = run_sync(args[1].strip())
+        print(res.get("message", ""))
+        sys.exit(0 if res.get("ok") else 1)
+    elif cmd == "sync":
+        server_ref, filtered = _extract_server_flag(args[1:])
+        rest = filtered[1:] if filtered and filtered[0] == "sync" else filtered
+        # `devboost sync` bare == list
+        sub = rest[0] if rest else "list"
+        if sub in ("list", "ls", "status"):
+            show_all = "--all" in rest
+            cli_sync_list(server_ref=server_ref, show_all=show_all)
+        elif sub == "add":
+            positional = [a for a in rest[1:] if not a.startswith("--")]
+            flags = {a for a in rest[1:] if a.startswith("--")}
+            direction = SYNC_DEFAULT_DIRECTION
+            interval = SYNC_DEFAULT_INTERVAL
+            for a in rest[1:]:
+                if a.startswith("--direction="):
+                    direction = a.split("=", 1)[1]
+                elif a.startswith("--interval="):
+                    try:
+                        interval = int(a.split("=", 1)[1])
+                    except ValueError:
+                        pass
+            if len(positional) >= 2 and positional[0].startswith("--direction"):
+                pass
+            # Support `--direction X` (space-separated) form
+            if "--direction" in rest[1:]:
+                try:
+                    direction = rest[rest.index("--direction") + 1]
+                except IndexError:
+                    pass
+            if "--interval" in rest[1:]:
+                try:
+                    interval = int(rest[rest.index("--interval") + 1])
+                except (IndexError, ValueError):
+                    pass
+            if len(positional) < 2:
+                print("Error: Specify local and remote folders. e.g. 'devboost sync add ~/projects/app ~/projects/app'")
+                print("Previously used folders:")
+                for h in get_folder_history(limit=10, server_id=server_ref):
+                    print(f"  local={h.get('local_path')} remote={h.get('remote_path')}")
+                sys.exit(1)
+            mirror = "--mirror" in flags
+            always = "--auto" in flags or "--always" in flags
+            run_now = "--no-run" not in flags
+            try:
+                result = add_sync(server_ref=server_ref, local_path=positional[0],
+                                 remote_path=positional[1], direction=direction,
+                                 mirror=mirror, always=always, interval=interval,
+                                 run_now=run_now)
+            except ValueError as e:
+                print(f"Error: {e}")
+                sys.exit(1)
+            print(result.get("message", "Folder sync added"))
+            if not result.get("ok"):
+                sys.exit(1)
+        elif sub in ("rm", "remove", "del", "delete"):
+            if len(rest) < 2:
+                print("Error: Specify a sync id. e.g. 'devboost sync rm a1b2c3d4'")
+                sys.exit(1)
+            ok = remove_sync_entry(rest[1])
+            print("Folder sync removed." if ok else "Sync not found.")
+        elif sub == "run":
+            if len(rest) < 2:
+                print("Error: Specify a sync id. e.g. 'devboost sync run a1b2c3d4'")
+                sys.exit(1)
+            res = run_sync(rest[1])
+            print(res.get("message", ""))
+            if not res.get("ok"):
+                sys.exit(1)
+        elif sub == "auto":
+            if len(rest) < 2:
+                print("Error: Specify a sync id. e.g. 'devboost sync auto a1b2c3d4'")
+                sys.exit(1)
+            make_always = "--off" not in rest
+            interval = None
+            for a in rest:
+                if a.startswith("--interval="):
+                    try:
+                        interval = int(a.split("=", 1)[1])
+                    except ValueError:
+                        pass
+            if "--interval" in rest:
+                try:
+                    interval = int(rest[rest.index("--interval") + 1])
+                except (IndexError, ValueError):
+                    pass
+            sync = toggle_sync_always(rest[1], make_always, interval=interval)
+            if not sync:
+                print("Sync not found.")
+                sys.exit(1)
+            print(f"Sync '{rest[1]}' is now {'AUTO (persistent)' if make_always else 'ONCE (one-time)'}.")
+        elif sub == "edit":
+            if len(rest) < 2:
+                print("Error: Specify a sync id. e.g. 'devboost sync edit a1b2c3d4 --remote ~/new-path'")
+                sys.exit(1)
+            args = rest[1:]
+            sid = args[0]
+            kwargs = {}
+            i = 1
+            while i < len(args):
+                a = args[i]
+                if a.startswith("--local="):
+                    kwargs["local_path"] = a.split("=", 1)[1]
+                elif a == "--local" and i + 1 < len(args):
+                    kwargs["local_path"] = args[i + 1]
+                    i += 1
+                elif a.startswith("--remote="):
+                    kwargs["remote_path"] = a.split("=", 1)[1]
+                elif a == "--remote" and i + 1 < len(args):
+                    kwargs["remote_path"] = args[i + 1]
+                    i += 1
+                elif a.startswith("--direction="):
+                    kwargs["direction"] = a.split("=", 1)[1]
+                elif a == "--direction" and i + 1 < len(args):
+                    kwargs["direction"] = args[i + 1]
+                    i += 1
+                elif a == "--mirror":
+                    kwargs["mirror"] = True
+                elif a == "--no-mirror":
+                    kwargs["mirror"] = False
+                elif a.startswith("--interval="):
+                    kwargs["interval"] = a.split("=", 1)[1]
+                elif a == "--interval" and i + 1 < len(args):
+                    kwargs["interval"] = args[i + 1]
+                    i += 1
+                elif a in ("--auto", "--always"):
+                    kwargs["always"] = True
+                elif a == "--once":
+                    kwargs["always"] = False
+                i += 1
+            run_now = "--no-run" not in args
+            if "interval" in kwargs:
+                try:
+                    kwargs["interval"] = int(kwargs["interval"])
+                except (TypeError, ValueError):
+                    print("Error: --interval must be a number of seconds.")
+                    sys.exit(1)
+            try:
+                sync = update_sync(sid, **kwargs)
+            except ValueError as e:
+                print(f"Error: {e}")
+                sys.exit(1)
+            if not sync:
+                print("Sync not found.")
+                sys.exit(1)
+            if run_now:
+                res = run_sync(sid)
+                print(res.get("message", "Folder sync updated."))
+                if not res.get("ok"):
+                    sys.exit(1)
+            else:
+                print(f"Sync '{sid}' updated.")
+        else:
+            print_help()
     else:
         print_help()
 
