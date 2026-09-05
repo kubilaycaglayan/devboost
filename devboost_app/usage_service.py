@@ -18,6 +18,25 @@ def local_usage_path(account, provider):
     default = "~/.codex/sessions" if provider == "codex" else "~/.claude/projects"
     return os.path.expanduser(str(account.get("local_path") or default))
 
+
+def _window_label(key, window):
+    explicit = window.get("name") or window.get("label") or window.get("window_name")
+    if explicit:
+        return str(explicit)
+    minutes = safe_number(window.get("window_minutes"))
+    if minutes is not None and minutes > 0:
+        minutes = int(minutes)
+        if minutes % (7 * 24 * 60) == 0:
+            duration = "weekly" if minutes == 7 * 24 * 60 else f"{minutes // (7 * 24 * 60)}-week"
+        elif minutes % (24 * 60) == 0:
+            duration = f"{minutes // (24 * 60)}-day"
+        elif minutes % 60 == 0:
+            duration = f"{minutes // 60}-hour"
+        else:
+            duration = f"{minutes}-minute"
+        return f"{key.capitalize()} ({duration} window)"
+    return f"{key.capitalize()} window"
+
 def read_local_transcript_usage(runtime, account):
     """Read local, non-secret usage records emitted by Codex or Claude Code."""
     provider = account.get("provider")
@@ -66,11 +85,11 @@ def read_local_transcript_usage(runtime, account):
               "used": sum(totals.values()), "unit": "tokens"}]}
     if provider == "codex" and latest_limits:
         result["quotas"] = []
-        for key, label in (("primary", "primary window"), ("secondary", "secondary window")):
+        for key in ("primary", "secondary"):
             window = latest_limits.get(key) or {}
             used = safe_number(window.get("used_percent"))
             if used is not None:
-                result["quotas"].append({"name": label, "used": used, "limit": 100,
+                result["quotas"].append({"name": _window_label(key, window), "used": used, "limit": 100,
                                          "remaining": max(0, 100 - used), "unit": "%",
                                          "reset_at": window.get("resets_at"),
                                          "window_minutes": window.get("window_minutes")})
@@ -151,11 +170,11 @@ def read_remote_transcript_usage(runtime, account, ssh_host):
               "quotas": [{"name": "tokens observed", "used": sum(totals.values()), "unit": "tokens"}]}
     if provider == "codex" and latest_limits:
         result["quotas"] = []
-        for key, label in (("primary", "primary window"), ("secondary", "secondary window")):
+        for key in ("primary", "secondary"):
             window = latest_limits.get(key) or {}
             used = safe_number(window.get("used_percent"))
             if used is not None:
-                result["quotas"].append({"name": label, "used": used, "limit": 100,
+                result["quotas"].append({"name": _window_label(key, window), "used": used, "limit": 100,
                                          "remaining": max(0, 100 - used), "unit": "%",
                                          "reset_at": window.get("resets_at"),
                                          "window_minutes": window.get("window_minutes")})
