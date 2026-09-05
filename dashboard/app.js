@@ -306,26 +306,57 @@
             title="${escapeHtml(s.ssh_host)}${s.ip ? ' (' + escapeHtml(s.ip) + ')' : ''} — drag to reorder">
           <span class="${dotCls}"></span>
           <span class="tab-name">${escapeHtml(s.name || s.ssh_host)}</span>
-          <span class="tab-meta">${s.active_count || 0} active · ${s.always_count || 0} persistent${(s.sync_count || 0) ? ` · ${s.sync_count} sync` : ''}</span>
           <button class="tab-action" onclick="event.stopPropagation(); editServer('${s.id}')" title="Edit server">Edit</button>
-          <button class="tab-action" onclick="event.stopPropagation(); togglePin('${s.id}')" title="${s.pinned ? 'Unpin tab' : 'Pin tab (stays first)'}">${s.pinned ? 'Pinned' : 'Pin'}</button>
           <button class="tab-action" onclick="event.stopPropagation(); removeServerTab('${s.id}')" title="Remove tab">Remove</button>
         </div>`;
       }).join("") + `<button class="tab tab-add" onclick="openServerModal()">+ Add Server</button>`;
     }
 
     let draggedServerId = null;
-    function onTabDragStart(e, sid) { draggedServerId = sid; e.currentTarget.classList.add("dragging"); e.dataTransfer.effectAllowed = "move"; }
-    function onTabDragOver(e) { e.preventDefault(); e.dataTransfer.dropEffect = "move"; }
-    function onTabDragEnd(e) { e.currentTarget.classList.remove("dragging"); }
+    function getTabDropShadow() {
+      return document.querySelector("#tabs-bar .tab-drop-shadow");
+    }
+    function onTabDragStart(e, sid) {
+      draggedServerId = sid;
+      e.currentTarget.classList.add("dragging");
+      const shadow = document.createElement("span");
+      shadow.className = "tab-drop-shadow";
+      shadow.style.width = `${e.currentTarget.getBoundingClientRect().width}px`;
+      shadow.setAttribute("aria-label", "Drop server here");
+      document.getElementById("tabs-bar").insertBefore(shadow, document.getElementById("tabs-bar").lastElementChild);
+      e.dataTransfer.effectAllowed = "move";
+    }
+    function onTabDragOver(e) {
+      e.preventDefault();
+      if (!draggedServerId || e.currentTarget.dataset.serverId === draggedServerId) return;
+      e.dataTransfer.dropEffect = "move";
+      const shadow = getTabDropShadow();
+      if (!shadow) return;
+      const rect = e.currentTarget.getBoundingClientRect();
+      const insertBefore = e.clientX < rect.left + rect.width / 2;
+      e.currentTarget.parentNode.insertBefore(shadow, insertBefore ? e.currentTarget : e.currentTarget.nextSibling);
+    }
+    function onTabDragEnd(e) {
+      e.currentTarget.classList.remove("dragging");
+      const shadow = getTabDropShadow();
+      if (shadow) shadow.remove();
+      draggedServerId = null;
+    }
     async function onTabDrop(e, targetId) {
       e.preventDefault();
       if (!draggedServerId || draggedServerId === targetId) return;
-      const ids = allServers.map(s => s.id);
+      const bar = document.getElementById("tabs-bar");
+      const shadow = getTabDropShadow();
+      const ids = Array.from(bar.querySelectorAll(".tab[data-server-id]"), tab => tab.dataset.serverId);
       const from = ids.indexOf(draggedServerId);
-      const to = ids.indexOf(targetId);
-      if (from < 0 || to < 0) return;
-      ids.splice(to, 0, ids.splice(from, 1)[0]);
+      if (from < 0) return;
+      ids.splice(from, 1);
+      const shadowPosition = shadow ? Array.from(bar.children).indexOf(shadow) : -1;
+      const insertAt = shadowPosition < 0
+        ? ids.indexOf(targetId)
+        : Array.from(bar.children).slice(0, shadowPosition)
+            .filter(child => child.dataset && child.dataset.serverId && child.dataset.serverId !== draggedServerId).length;
+      ids.splice(Math.max(0, insertAt), 0, draggedServerId);
       allServers.sort((a, b) => ids.indexOf(a.id) - ids.indexOf(b.id));
       renderTabs();
       try {
@@ -348,15 +379,6 @@
       fetchStatus();
       fetchDocker();
       fetchSyncs();
-    }
-
-    async function togglePin(sid) {
-      const srv = allServers.find(s => s.id === sid);
-      if (!srv) return;
-      try {
-        await fetch("/api/servers/pin", { method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({ id: sid, pinned: !srv.pinned }) });
-        fetchServers();
-      } catch (err) { alert("Failed to pin tab: " + err); }
     }
 
     async function removeServerTab(sid) {

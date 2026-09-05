@@ -50,15 +50,22 @@ class TestDashboardAPI(unittest.TestCase):
         )]
         self.assertLess(tabs_position, min(page_positions))
 
-    def test_server_tabs_keep_edit_and_drag_order_controls(self):
+    def test_server_tabs_keep_edit_and_drag_order_controls_without_extra_details(self):
         with urllib.request.urlopen(self.base_url + "/dashboard/app.js") as resp:
             app_js = resp.read().decode("utf-8")
         self.assertIn("editServer", app_js)
         self.assertIn('draggable="true"', app_js)
         self.assertIn("onTabDrop", app_js)
         self.assertIn("title=\"Edit server\"", app_js)
-        self.assertIn("${s.pinned ? 'Pinned' : 'Pin'}", app_js)
-        self.assertNotIn('const pinIcon =', app_js)
+        self.assertIn("tab-drop-shadow", app_js)
+        self.assertNotIn("s.active_count || 0", app_js)
+        self.assertNotIn("s.always_count || 0", app_js)
+        self.assertNotIn("togglePin('${s.id}')", app_js)
+
+        with urllib.request.urlopen(self.base_url + "/dashboard/styles.css") as resp:
+            css = resp.read().decode("utf-8")
+        self.assertIn(".tab-drop-shadow", css)
+        self.assertIn("box-shadow:", css)
 
     def test_docker_log_modal_keeps_pre_scrollable(self):
         with urllib.request.urlopen(self.base_url + "/dashboard/styles.css") as resp:
