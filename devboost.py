@@ -66,6 +66,39 @@ LAUNCH_AGENTS_DIR = os.path.expanduser("~/Library/LaunchAgents")
 LOG_DIR = os.path.expanduser(_env("DEVBOOST_LOG_DIR", "PORT_TRACKER_LOG_DIR", "~/Library/Logs"))
 SSH_CONFIG_PATH = os.path.expanduser("~/.ssh/config")
 
+# Favicon (assets/favicon.png) served at /favicon.png + /favicon.ico.
+# _FAVICON_FALLBACK_B64 is a 64x64 embedded copy so the icon works even when
+# the installed copy under CONFIG_DIR/assets/ is missing (e.g. old installs).
+_FAVICON_FALLBACK_B64 = (
+    "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"
+)
+
+
+def get_favicon_bytes():
+    """Returns favicon PNG bytes, preferring on-disk assets, else embedded fallback."""
+    candidates = [
+        os.path.join(os.path.dirname(os.path.realpath(__file__)), "assets", "favicon.png"),
+        os.path.join(CONFIG_DIR, "assets", "favicon.png"),
+        os.path.join(os.getcwd(), "assets", "favicon.png"),
+    ]
+    for fav_path in candidates:
+        try:
+            if os.path.exists(fav_path):
+                with open(fav_path, "rb") as f:
+                    data = f.read()
+                if data[:8] == b"\x89PNG\r\n\x1a\n":
+                    return data
+                # Accept any non-empty file; handler sends as image/png
+                if data:
+                    return data
+        except Exception:
+            continue
+    import base64 as _b64
+    try:
+        return _b64.b64decode(_FAVICON_FALLBACK_B64)
+    except Exception:
+        return b""
+
 
 def get_tunnel_executable():
     """Scoped wrapper so macOS Background Items shows DevBoost-tunnel instead of ssh."""
@@ -1291,6 +1324,9 @@ HTML_DASHBOARD = """<!DOCTYPE html>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>DevBoost • Port Forward Manager</title>
+  <link rel="icon" type="image/png" href="/favicon.png" />
+  <link rel="shortcut icon" type="image/png" href="/favicon.png" />
+  <link rel="apple-touch-icon" href="/favicon.png" />
   <style>
     :root {
       --bg: #0d1117;
@@ -2273,6 +2309,21 @@ class DashboardHandler(BaseHTTPRequestHandler):
             self.send_header("Content-Type", "text/html; charset=utf-8")
             self.end_headers()
             self.wfile.write(HTML_DASHBOARD.encode("utf-8"))
+        elif path in ("/favicon.png", "/favicon.ico", "/favicon-32x32.png", "/assets/favicon.png"):
+            try:
+                data = get_favicon_bytes()
+            except Exception:
+                data = b""
+            if not data:
+                self.send_response(404)
+                self.end_headers()
+                return
+            self.send_response(200)
+            self.send_header("Content-Type", "image/png")
+            self.send_header("Content-Length", str(len(data)))
+            self.send_header("Cache-Control", "public, max-age=86400")
+            self.end_headers()
+            self.wfile.write(data)
         elif path == "/api/status":
             srv = query.get("server", [None])[0] or query.get("server_id", [None])[0]
             data = get_all_forwards_status(srv)

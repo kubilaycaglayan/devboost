@@ -26,6 +26,8 @@ A lightweight, zero-dependency port forward manager and discovery dashboard for 
 ```text
 port_tracker/
 ├── devboost.py           # Core CLI, REST API & embedded Web Dashboard SPA
+├── assets/                 # Static web assets (favicon.png served at /favicon.png)
+│   └── favicon.png         # Dashboard favicon (with embedded fallback in devboost.py)
 ├── install.sh              # Installation & deployment script
 ├── .env.example            # Environment template for private credentials & host settings
 ├── config.example.json     # Sample port-to-service label definitions

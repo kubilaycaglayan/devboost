@@ -31,6 +31,13 @@ mkdir -p "$CONFIG_DIR" "$CONFIG_DIR/bin" "$HOME/.local/bin" "$HOME/Library/Launc
 cp "$SCRIPT_DIR/devboost.py" "$CONFIG_DIR/devboost.py"
 chmod +x "$CONFIG_DIR/devboost.py"
 
+# Copy favicon assets (dashboard serves /favicon.png from here or falls back
+# to the embedded copy inside devboost.py)
+if [ -d "$SCRIPT_DIR/assets" ]; then
+  mkdir -p "$CONFIG_DIR/assets"
+  cp "$SCRIPT_DIR"/assets/* "$CONFIG_DIR/assets/" 2>/dev/null || true
+fi
+
 # Install scoped DevBoost wrappers so macOS Background Items shows
 # DevBoost-dashboard / DevBoost-tunnel instead of python3 / ssh.
 # Global binaries are untouched; only this app's agents use these paths.
