@@ -17,15 +17,43 @@ import urllib.parse
 from http.server import HTTPServer, BaseHTTPRequestHandler
 
 
-def load_env():
+def _code_dir():
+    """Directory containing this file: repo root in dev, ~/.config/devboost when installed."""
+    return os.path.dirname(os.path.realpath(__file__))
+
+
+def _default_app_dir():
+    """Untracked per-checkout state dir. TCC-safe: sibling `app/` of the running copy."""
+    return os.path.join(_code_dir(), "app")
+
+
+def load_env(app_dir=None):
     """Loads key-value pairs from .env files without requiring external libraries."""
-    candidates = [
-        os.path.join(os.path.dirname(os.path.realpath(__file__)), ".env"),
+    code_dir = _code_dir()
+    resolved_app = app_dir or os.path.join(code_dir, "app")
+    candidates = []
+    # Explicit override via environment always wins (set externally, before .env load).
+    for _override_key in ("DEVBOOST_APP_DIR", "PORT_TRACKER_APP_DIR",
+                          "DEVBOOST_CONFIG_DIR", "PORT_TRACKER_CONFIG_DIR"):
+        _override_val = os.getenv(_override_key, "")
+        if _override_val:
+            candidates.append(os.path.join(os.path.expanduser(_override_val), ".env"))
+    candidates += [
+        # Canonical: untracked sibling app/ state (repo/app in dev, ~/.config/devboost/app installed)
+        os.path.join(resolved_app, ".env"),
+        # Legacy fallbacks (migration period)
+        os.path.join(code_dir, ".env"),
+        os.path.expanduser("~/.config/devboost/app/.env"),
         os.path.expanduser("~/.config/devboost/.env"),
         os.path.expanduser("~/.config/port-tracker/.env"),
+        os.path.join(os.getcwd(), "app", ".env"),
         os.path.join(os.getcwd(), ".env"),
     ]
+    seen = set()
     for env_path in candidates:
+        if env_path in seen:
+            continue
+        seen.add(env_path)
         if os.path.exists(env_path):
             try:
                 with open(env_path, "r", encoding="utf-8") as f:
@@ -57,9 +85,31 @@ SERVER_IP = _env("DEVBOOST_SERVER_IP", "PORT_TRACKER_SERVER_IP", "")
 DEFAULT_DASHBOARD_PORT = int(_env("DEVBOOST_DASHBOARD_PORT", "PORT_TRACKER_DASHBOARD_PORT", "3080"))
 AGENT_DOMAIN = _env("DEVBOOST_AGENT_DOMAIN", "PORT_TRACKER_AGENT_DOMAIN", "com.user.devboost")
 AGENT_PREFIX = _env("DEVBOOST_AGENT_PREFIX", "PORT_TRACKER_AGENT_PREFIX", "com.user.devboost-forward")
-CONFIG_DIR = os.path.expanduser(_env("DEVBOOST_CONFIG_DIR", "PORT_TRACKER_CONFIG_DIR", "~/.config/devboost"))
-CONFIG_FILE = os.path.join(CONFIG_DIR, "config.json")
-BIN_DIR = os.path.join(CONFIG_DIR, "bin")
+# CODE_DIR holds the executable (repo root in dev, ~/.config/devboost when installed —
+# stays outside ~/Documents for the installed copy so launchd/TCC keeps working).
+CODE_DIR = _code_dir()
+# APP_DIR holds untracked state (.env, config.json). Sibling `app/` of the running copy:
+# repo/app/ in dev (gitignored), ~/.config/devboost/app/ when installed (TCC-safe).
+# DEVBOOST_APP_DIR / DEVBOOST_CONFIG_DIR (legacy) override it explicitly (tests, custom setups).
+_APP_DIR_OVERRIDE = _env("DEVBOOST_APP_DIR", "PORT_TRACKER_APP_DIR", "")
+_CONFIG_DIR_OVERRIDE = _env("DEVBOOST_CONFIG_DIR", "PORT_TRACKER_CONFIG_DIR", "")
+if _APP_DIR_OVERRIDE:
+    APP_DIR = os.path.expanduser(_APP_DIR_OVERRIDE)
+elif _CONFIG_DIR_OVERRIDE:
+    APP_DIR = os.path.expanduser(_CONFIG_DIR_OVERRIDE)
+else:
+    APP_DIR = _default_app_dir()
+# Backward compat: CONFIG_DIR aliases the state dir (old code/tests patch it).
+CONFIG_DIR = APP_DIR
+CONFIG_FILE = os.path.join(APP_DIR, "config.json")
+# Legacy state locations checked once for one-time migration into APP_DIR.
+LEGACY_CONFIG_FILES = [
+    os.path.join(CODE_DIR, "config.json"),
+    os.path.expanduser("~/.config/devboost/config.json"),
+    os.path.expanduser("~/.config/devboost/app/config.json"),
+    os.path.join(os.getcwd(), "config.json"),
+]
+BIN_DIR = os.path.join(CODE_DIR, "bin")
 DASHBOARD_WRAPPER_NAME = "DevBoost-dashboard"
 TUNNEL_WRAPPER_NAME = "DevBoost-tunnel"
 LAUNCH_AGENTS_DIR = os.path.expanduser("~/Library/LaunchAgents")
@@ -77,8 +127,8 @@ _FAVICON_FALLBACK_B64 = (
 def get_favicon_bytes():
     """Returns favicon PNG bytes, preferring on-disk assets, else embedded fallback."""
     candidates = [
-        os.path.join(os.path.dirname(os.path.realpath(__file__)), "assets", "favicon.png"),
-        os.path.join(CONFIG_DIR, "assets", "favicon.png"),
+        os.path.join(CODE_DIR, "assets", "favicon.png"),
+        os.path.join(APP_DIR, "assets", "favicon.png"),
         os.path.join(os.getcwd(), "assets", "favicon.png"),
     ]
     for fav_path in candidates:
@@ -127,8 +177,22 @@ DEFAULT_LABELS = {
 
 
 def ensure_dirs():
-    os.makedirs(CONFIG_DIR, exist_ok=True)
-    os.makedirs(BIN_DIR, exist_ok=True)
+    # Primary state dir follows CONFIG_FILE so tests/custom overrides stay isolated.
+    try:
+        state_dir = os.path.dirname(os.path.abspath(CONFIG_FILE))
+    except OSError:
+        state_dir = APP_DIR
+    os.makedirs(state_dir, exist_ok=True)
+    # CONFIG_DIR is a backward-compat alias of APP_DIR; makedirs is idempotent.
+    try:
+        if os.path.abspath(CONFIG_DIR) != os.path.abspath(state_dir):
+            os.makedirs(CONFIG_DIR, exist_ok=True)
+    except OSError:
+        pass
+    try:
+        os.makedirs(BIN_DIR, exist_ok=True)
+    except OSError:
+        pass
     os.makedirs(LAUNCH_AGENTS_DIR, exist_ok=True)
     os.makedirs(LOG_DIR, exist_ok=True)
 
@@ -207,8 +271,38 @@ def ensure_servers_migrated(cfg):
     return cfg, changed
 
 
+def _migrate_legacy_config():
+    """One-time copy of a legacy config.json into APP_DIR (never overwrites)."""
+    if os.path.exists(CONFIG_FILE):
+        return None
+    try:
+        # Custom/test overrides (CONFIG_FILE outside APP_DIR) never auto-migrate.
+        if os.path.abspath(os.path.dirname(os.path.abspath(CONFIG_FILE))) != os.path.abspath(APP_DIR):
+            return None
+    except OSError:
+        return None
+    for legacy_path in LEGACY_CONFIG_FILES:
+        try:
+            if not legacy_path or os.path.abspath(legacy_path) == os.path.abspath(CONFIG_FILE):
+                continue
+        except OSError:
+            continue
+        if os.path.exists(legacy_path):
+            try:
+                with open(legacy_path, "r") as f:
+                    json.load(f)  # validate before migrating
+                ensure_dirs()
+                with open(legacy_path, "r") as src, open(CONFIG_FILE, "w") as dst:
+                    dst.write(src.read())
+                return legacy_path
+            except Exception:
+                continue
+    return None
+
+
 def load_config():
     ensure_dirs()
+    _migrate_legacy_config()
     if os.path.exists(CONFIG_FILE):
         try:
             with open(CONFIG_FILE, "r") as f:
