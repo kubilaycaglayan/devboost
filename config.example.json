@@ -66,5 +66,28 @@
       "remote_path": "~/projects/app",
       "last_used": 0
     }
-  ]
+  ],
+  "usage_accounts": [
+    {
+      "id": "codex-work",
+      "provider": "codex",
+      "name": "Work",
+      "enabled": true,
+      "usage_command": ["your-provider-usage-command", "--json"],
+      "local_path": "~/.codex/sessions",
+      "api_mode": false,
+      "api_days": 1
+    },
+    {
+      "id": "api-personal",
+      "provider": "custom",
+      "name": "API credits",
+      "enabled": true,
+      "balance_url": "https://api.example.com/balance",
+      "token_env": "MY_API_TOKEN",
+      "api_mode": false,
+      "api_days": 1
+    }
+  ],
+  "usage_snapshots": {}
 }

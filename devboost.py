@@ -18,9 +18,10 @@ import shutil
 import subprocess
 import tempfile
 import urllib.parse
+import urllib.request
 import uuid
-import threading
 import datetime
+from concurrent.futures import ThreadPoolExecutor
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 
 from docker_monitor import DockerMonitor, collect_docker_snapshot, collect_docker_logs
@@ -2584,6 +2585,418 @@ def kill_listening_process(pid):
 
 
 # -----------------------------
+# AI PROVIDER USAGE MONITORING
+# -----------------------------
+
+USAGE_PROVIDERS = ("codex", "agy", "claude", "opencode")
+USAGE_TIMEOUT = 20
+
+
+def _provider_default_command(provider):
+    """Return a safe, read-only local adapter when the installed CLI supports one."""
+    if provider == "opencode" and shutil.which("opencode"):
+        return ["opencode", "stats"]
+    # agy-quota is the JSON quota helper used with the agy/Antigravity CLI.
+    if provider == "agy" and shutil.which("agy-quota"):
+        return ["agy-quota", "--json"]
+    return None
+
+
+def _local_usage_path(account, provider):
+    default = "~/.codex/sessions" if provider == "codex" else "~/.claude/projects"
+    return os.path.expanduser(str(account.get("local_path") or default))
+
+
+def _read_local_transcript_usage(account):
+    """Read local, non-secret usage records emitted by Codex or Claude Code."""
+    provider = account.get("provider")
+    root = _local_usage_path(account, provider)
+    paths = glob.glob(os.path.join(root, "**", "*.jsonl"), recursive=True)
+    if not paths:
+        raise ValueError(f"no {provider} usage records found at {root}")
+    paths = sorted(paths, key=lambda p: os.path.getmtime(p), reverse=True)[:500]
+    totals = {"input_tokens": 0, "output_tokens": 0, "cache_read": 0, "cache_write": 0}
+    latest_limits, latest_limit_mtime = None, -1
+    for path in paths:
+        try:
+            with open(path, "r", encoding="utf-8") as stream:
+                last_usage, last_limits = None, None
+                for line in stream:
+                    try:
+                        obj = json.loads(line)
+                    except (TypeError, ValueError):
+                        continue
+                    payload = obj.get("payload", obj) if isinstance(obj, dict) else {}
+                    if provider == "codex":
+                        usage = payload.get("thread_token_usage") or payload.get("usage")
+                        limits = payload.get("rate_limits")
+                    else:
+                        message = payload.get("message", payload) if isinstance(payload, dict) else {}
+                        usage = message.get("usage") if isinstance(message, dict) else None
+                        limits = None
+                    if isinstance(usage, dict):
+                        last_usage = usage
+                    if isinstance(limits, dict):
+                        last_limits = limits
+                if provider == "codex" and isinstance(last_usage, dict):
+                    for key, target in (("input_tokens", "input_tokens"), ("output_tokens", "output_tokens"),
+                                        ("cached_input_tokens", "cache_read"), ("cache_write_input_tokens", "cache_write")):
+                        totals[target] += _safe_number(last_usage.get(key)) or 0
+                elif provider == "claude" and isinstance(last_usage, dict):
+                    for key, target in (("input_tokens", "input_tokens"), ("output_tokens", "output_tokens"),
+                                        ("cache_read_input_tokens", "cache_read"), ("cache_creation_input_tokens", "cache_write")):
+                        totals[target] += _safe_number(last_usage.get(key)) or 0
+                mtime = os.path.getmtime(path)
+                if last_limits and mtime > latest_limit_mtime:
+                    latest_limits, latest_limit_mtime = last_limits, mtime
+        except (OSError, UnicodeError):
+            continue
+    result = {"source": f"{provider} local records", "quotas": [{"name": "tokens observed",
+              "used": sum(totals.values()), "unit": "tokens"}]}
+    if provider == "codex" and latest_limits:
+        result["quotas"] = []
+        for key, label in (("primary", "primary window"), ("secondary", "secondary window")):
+            window = latest_limits.get(key) or {}
+            used = _safe_number(window.get("used_percent"))
+            if used is not None:
+                result["quotas"].append({"name": label, "used": used, "limit": 100,
+                                         "remaining": max(0, 100 - used), "unit": "%",
+                                         "reset_at": window.get("resets_at"),
+                                         "window_minutes": window.get("window_minutes")})
+        credits = latest_limits.get("credits") or {}
+        balance = _safe_number(credits.get("balance"))
+        if balance is not None:
+            result["balances"] = [{"remaining": balance, "currency": "credits"}]
+        result["plan_type"] = latest_limits.get("plan_type")
+    return result
+
+
+def _usage_account_id(provider, name, existing=None):
+    base = re.sub(r"[^a-z0-9]+", "-", f"{provider}-{name}".lower()).strip("-") or provider
+    candidate, index = base, 2
+    existing = set(existing or [])
+    while candidate in existing:
+        candidate, index = f"{base}-{index}", index + 1
+    return candidate
+
+
+def _safe_number(value):
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _first(data, *keys):
+    if isinstance(data, dict):
+        for key in keys:
+            if data.get(key) is not None:
+                return data[key]
+    return None
+
+
+def _normalize_usage_payload(payload):
+    """Normalize common CLI/API response shapes for the dashboard and menu bar."""
+    if isinstance(payload, dict) and isinstance(payload.get("data"), list):
+        # OpenAI and Anthropic admin reports return paginated time buckets.
+        totals = {"input_tokens": 0, "output_tokens": 0, "cache_read": 0, "cache_write": 0}
+        for bucket in payload["data"]:
+            for row in (bucket.get("results", []) if isinstance(bucket, dict) else []):
+                if not isinstance(row, dict):
+                    continue
+                for keys, target in ((("input_tokens", "uncached_input_tokens"), "input_tokens"),
+                                     (("output_tokens",), "output_tokens"),
+                                     (("input_cached_tokens", "cache_read_input_tokens"), "cache_read"),
+                                     (("cache_creation_input_tokens",), "cache_write")):
+                    for key in keys:
+                        value = _safe_number(row.get(key))
+                        if value is not None:
+                            totals[target] += value
+                            break
+        return {"quotas": [{"name": "API tokens used", "used": sum(totals.values()), "unit": "tokens"}],
+                "balances": [], "source": "provider admin usage API"}
+    if isinstance(payload, dict) and any(key in payload for key in
+                                        ("remaining_fraction", "remaining_percent", "models", "providers")):
+        # agy-quota reports model and provider pools as percentages rather than
+        # the generic used/limit/remaining shape.
+        def remaining_percent(raw):
+            percent = _safe_number(_first(raw, "remaining_percent", "pool_remaining_percent"))
+            if percent is not None:
+                return percent
+            fraction = _safe_number(_first(raw, "remaining_fraction", "pool_remaining_fraction"))
+            return fraction * 100 if fraction is not None else None
+
+        quotas = []
+        for model in payload.get("models", []):
+            if not isinstance(model, dict):
+                continue
+            remaining = remaining_percent(model)
+            if remaining is None:
+                continue
+            name = _first(model, "model", "model_id", "name", "token_type") or "model quota"
+            quotas.append({"name": str(name), "used": 100 - remaining, "limit": 100,
+                           "remaining": remaining, "unit": "%",
+                           "reset_at": _first(model, "reset_time", "reset_at", "resets_at")})
+        for provider in payload.get("providers", []):
+            if not isinstance(provider, dict):
+                continue
+            remaining = remaining_percent(provider)
+            if remaining is None:
+                continue
+            name = _first(provider, "provider", "name", "id") or "provider pool"
+            quotas.append({"name": f"{name} pool", "used": 100 - remaining, "limit": 100,
+                           "remaining": remaining, "unit": "%",
+                           "reset_at": _first(provider, "reset_time", "reset_at", "resets_at")})
+        if not quotas:
+            remaining = remaining_percent(payload)
+            if remaining is not None:
+                quotas.append({"name": "Agy quota", "used": 100 - remaining, "limit": 100,
+                               "remaining": remaining, "unit": "%",
+                               "reset_at": _first(payload, "reset_time", "reset_at", "resets_at")})
+        result = {"quotas": quotas, "balances": [], "source": str(payload.get("source") or "agy-quota")}
+        return result
+    if isinstance(payload, dict):
+        quotas, balances = _first(payload, "quotas", "limits", "usage", "rate_limits"), _first(payload, "balances", "balance", "credits", "credits_remaining", "available_credits", "remaining_credits")
+        if balances is None:
+            granted = _safe_number(_first(payload, "total_granted", "credits_granted"))
+            spent = _safe_number(_first(payload, "total_used", "credits_used", "amount_used"))
+            if granted is not None and spent is not None:
+                balances = [{"remaining": granted - spent, "spent": spent}]
+    else:
+        quotas, balances = payload, None
+    if isinstance(quotas, dict):
+        quotas = [dict({"name": k}, **(v if isinstance(v, dict) else {"remaining": v})) for k, v in quotas.items()]
+    if not isinstance(quotas, list):
+        quotas = []
+    if isinstance(balances, (int, float, str)):
+        balances = [{"remaining": balances}]
+    elif isinstance(balances, dict):
+        balances = [balances]
+    if not isinstance(balances, list):
+        balances = []
+    normalized = []
+    for raw in quotas:
+        if not isinstance(raw, dict):
+            continue
+        used, limit, remaining = (_safe_number(_first(raw, "used", "consumed", "usage")),
+                                  _safe_number(_first(raw, "limit", "max", "total")),
+                                  _safe_number(_first(raw, "remaining", "left", "available")))
+        if remaining is None and limit is not None and used is not None:
+            remaining = limit - used
+        normalized.append({"name": str(_first(raw, "name", "window", "period") or "quota"), "used": used,
+                           "limit": limit, "remaining": remaining,
+                           "unit": str(_first(raw, "unit", "units") or "requests"),
+                           "reset_at": _first(raw, "reset_at", "resets_at", "reset")})
+    clean_balances = []
+    for raw in balances:
+        if not isinstance(raw, dict):
+            raw = {"remaining": raw}
+        clean_balances.append({"remaining": _safe_number(_first(raw, "remaining", "left", "balance", "available", "available_credits", "remaining_credits")),
+                               "currency": str(_first(raw, "currency", "unit") or "USD"),
+                               "spent": _safe_number(_first(raw, "spent", "used"))})
+    result = {"quotas": normalized, "balances": clean_balances}
+    if isinstance(payload, dict) and payload.get("source"):
+        result["source"] = str(payload["source"])
+    return result
+
+
+def _read_usage_command(account):
+    command = account.get("usage_command") or account.get("command") or _provider_default_command(account.get("provider"))
+    if not command:
+        raise ValueError(f"{account.get('provider', 'provider')} has no safe machine-readable usage adapter; configure a JSON command or endpoint")
+    argv = shlex.split(command) if isinstance(command, str) else list(command)
+    if not argv or len(argv) > 32:
+        raise ValueError("usage command is invalid")
+    env = os.environ.copy()
+    for key, source in (account.get("env") or {}).items():
+        env[str(key)] = os.environ.get(str(source), "")
+    result = subprocess.run(argv, capture_output=True, text=True, timeout=USAGE_TIMEOUT, env=env, check=False)
+    if result.returncode:
+        raise RuntimeError((result.stderr or result.stdout or "command failed").strip()[:400])
+    output = result.stdout if result.stdout.strip() else result.stderr
+    try:
+        return json.loads(output)
+    except json.JSONDecodeError as exc:
+        if account.get("provider") == "opencode":
+            return _parse_opencode_stats(output)
+    raise ValueError("usage command must print JSON") from exc
+
+
+def _parse_opencode_stats(text):
+    """Parse the table emitted by current `opencode stats` versions."""
+    def amount(label):
+        match = re.search(rf"(?:^|│)\s*{re.escape(label)}\s+([0-9]+(?:\.[0-9]+)?\s*[KMG]?)", text, re.I | re.M)
+        if not match:
+            return None
+        raw = match.group(1).replace(" ", "").upper()
+        multiplier = {"K": 1000, "M": 1000000, "G": 1000000000}.get(raw[-1], 1)
+        return float(raw[:-1]) * multiplier if raw[-1:] in "KMG" else float(raw)
+    cost_match = re.search(r"(?:^|│)\s*Total Cost\s+\$?([0-9]+(?:\.[0-9]+)?)", text, re.I | re.M)
+    cost = float(cost_match.group(1)) if cost_match else None
+    input_tokens, output_tokens = amount("Input"), amount("Output")
+    quotas = []
+    if input_tokens is not None or output_tokens is not None:
+        quotas.append({"name": "tokens used", "used": (input_tokens or 0) + (output_tokens or 0), "unit": "tokens"})
+    result = {"quotas": quotas, "source": "opencode stats"}
+    if cost is not None:
+        result["balances"] = [{"spent": cost, "currency": "USD"}]
+    return result
+
+
+def _read_usage_http(account):
+    url = str(account.get("balance_url") or account.get("usage_url") or "").strip()
+    if not url or not (url.startswith("https://") or url.startswith("http://localhost") or url.startswith("http://127.0.0.1")):
+        raise ValueError("balance/usage URL must use HTTPS (or localhost)")
+    headers = {"Accept": "application/json"}
+    token_env = account.get("token_env") or account.get("api_key_env")
+    token = os.environ.get(str(token_env), "") if token_env else ""
+    if token:
+        auth_header = account.get("auth_header") or ("x-api-key" if account.get("provider") == "claude" else "Authorization")
+        headers[str(auth_header)] = token if auth_header.lower() == "x-api-key" else "Bearer " + token
+    if account.get("provider") == "claude":
+        headers.setdefault("anthropic-version", "2023-06-01")
+    if account.get("organization"):
+        headers["OpenAI-Organization"] = str(account["organization"])
+    if account.get("project"):
+        headers["OpenAI-Project"] = str(account["project"])
+    with urllib.request.urlopen(urllib.request.Request(url, headers=headers), timeout=USAGE_TIMEOUT) as response:
+        payload = json.loads(response.read().decode("utf-8"))
+        response_headers = getattr(response, "headers", {})
+    header_quotas = []
+    # OpenAI-compatible and Anthropic-compatible APIs expose remaining limits
+    # in response headers even when the JSON body is a usage report.
+    for prefix, label in (("x-ratelimit", "rate limit"), ("anthropic-ratelimit-unified", "unified rate limit")):
+        for key, value in response_headers.items() if hasattr(response_headers, "items") else ():
+            lowered = key.lower()
+            if not lowered.startswith(prefix) or "remaining" not in lowered:
+                continue
+            remaining = _safe_number(value)
+            if remaining is None:
+                continue
+            suffix = lowered.rsplit("-", 1)[-1]
+            limit = _safe_number(response_headers.get(key.replace("remaining", "limit"))) if hasattr(response_headers, "get") else None
+            reset = response_headers.get(key.replace("remaining", "reset")) if hasattr(response_headers, "get") else None
+            header_quotas.append({"name": f"{label} {suffix}", "remaining": remaining,
+                                  "limit": limit, "unit": "requests", "reset_at": reset})
+    if header_quotas:
+        if isinstance(payload, dict):
+            payload = dict(payload)
+            payload["quotas"] = list(payload.get("quotas") or []) + header_quotas
+        else:
+            payload = {"quotas": header_quotas, "response": payload}
+    return payload
+
+
+def _read_provider_api(account):
+    """Read documented organization usage reports for API-backed accounts."""
+    provider = account.get("provider")
+    days = max(1, min(30, int(account.get("api_days", 1))))
+    now = int(time.time())
+    if provider == "codex":
+        query = urllib.parse.urlencode({"start_time": now - days * 86400, "limit": 1})
+        url = "https://api.openai.com/v1/organization/usage/completions?" + query
+    elif provider == "claude":
+        end = datetime.datetime.now(datetime.timezone.utc)
+        start = end - datetime.timedelta(days=days)
+        query = urllib.parse.urlencode({"starting_at": start.isoformat().replace("+00:00", "Z"),
+                                        "ending_at": end.isoformat().replace("+00:00", "Z"), "limit": 100})
+        url = "https://api.anthropic.com/v1/organizations/usage_report/messages?" + query
+    else:
+        raise ValueError("provider API mode is supported for codex and claude only")
+    api_account = dict(account, balance_url=url)
+    return _read_usage_http(api_account)
+
+
+def get_usage_accounts(cfg=None):
+    cfg = cfg if cfg is not None else load_config()
+    return [{"id": a.get("id"), "provider": a.get("provider"), "name": a.get("name"),
+             "enabled": bool(a.get("enabled", True)),
+             "has_command": bool(a.get("usage_command") or a.get("command") or _provider_default_command(a.get("provider")) or a.get("provider") in ("codex", "claude")),
+             "has_balance_url": bool(a.get("balance_url") or a.get("usage_url")),
+             "token_env": a.get("token_env") or a.get("api_key_env"),
+             "organization": a.get("organization"), "project": a.get("project"),
+             "api_mode": bool(a.get("api_mode", False)), "api_days": a.get("api_days", 1)}
+            for a in cfg.get("usage_accounts", []) if isinstance(a, dict)]
+
+
+def refresh_usage_account(account):
+    started = time.time()
+    try:
+        explicit_url = account.get("balance_url") or account.get("usage_url")
+        explicit_command = account.get("usage_command") or account.get("command")
+        has_command = explicit_command or _provider_default_command(account.get("provider"))
+        # An account with neither source still goes through the command
+        # adapter so the user receives a provider-specific actionable error.
+        if account.get("api_mode"):
+            payload = _read_provider_api(account)
+        elif explicit_url and not has_command:
+            payload = _read_usage_http(account)
+        elif explicit_command or _provider_default_command(account.get("provider")):
+            payload = _read_usage_command(account)
+        elif account.get("provider") in ("codex", "claude"):
+            payload = _read_local_transcript_usage(account)
+        else:
+            payload = _read_usage_command(account)
+        result = {"ok": True, **_normalize_usage_payload(payload)}
+    except Exception as exc:
+        result = {"ok": False, "quotas": [], "balances": [], "message": str(exc)[:400]}
+    result["updated_at"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
+    result["duration_ms"] = int((time.time() - started) * 1000)
+    return result
+
+
+def get_usage_status(refresh=False, account_id=None):
+    cfg = load_config()
+    accounts = [a for a in cfg.get("usage_accounts", []) if isinstance(a, dict) and a.get("enabled", True)]
+    if account_id:
+        accounts = [a for a in accounts if a.get("id") == account_id]
+    snapshots = cfg.setdefault("usage_snapshots", {})
+    due = [a for a in accounts if refresh or a.get("id") not in snapshots]
+    changed = bool(due)
+    if due:
+        # A broken/slow provider must not serialize all other accounts.
+        with ThreadPoolExecutor(max_workers=min(8, len(due))) as pool:
+            results = pool.map(refresh_usage_account, due)
+            for account, result in zip(due, results):
+                snapshots[account.get("id")] = result
+    if changed:
+        save_config(cfg)
+    return {"accounts": get_usage_accounts(cfg), "snapshots": {a.get("id"): snapshots.get(a.get("id"), {}) for a in accounts}}
+
+
+def save_usage_account(data):
+    provider, name = str(data.get("provider") or "").strip().lower(), str(data.get("name") or "").strip()
+    if provider not in USAGE_PROVIDERS and provider != "custom":
+        raise ValueError("provider must be codex, agy, claude, opencode, or custom")
+    if not name:
+        raise ValueError("account name is required")
+    cfg, accounts = load_config(), None
+    accounts = cfg.setdefault("usage_accounts", [])
+    aid = str(data.get("id") or _usage_account_id(provider, name, [a.get("id") for a in accounts]))
+    allowed = ("id", "provider", "name", "enabled", "usage_command", "balance_url", "token_env", "env", "local_path", "auth_header", "organization", "project", "api_mode", "api_days")
+    account = {key: data[key] for key in allowed if key in data}
+    account.update({"id": aid, "provider": provider, "name": name, "enabled": bool(data.get("enabled", True))})
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}", aid):
+        raise ValueError("account id may contain only letters, numbers, dot, underscore, and hyphen")
+    accounts[:] = [a for a in accounts if a.get("id") != aid]
+    accounts.append(account)
+    cfg.setdefault("usage_snapshots", {}).pop(aid, None)
+    save_config(cfg)
+    return next(a for a in get_usage_accounts(cfg) if a["id"] == aid)
+
+
+def remove_usage_account(account_id):
+    cfg = load_config()
+    before = len(cfg.get("usage_accounts", []))
+    cfg["usage_accounts"] = [a for a in cfg.get("usage_accounts", []) if a.get("id") != account_id]
+    cfg.get("usage_snapshots", {}).pop(account_id, None)
+    if len(cfg["usage_accounts"]) == before:
+        return False
+    save_config(cfg)
+    return True
+
+
+# -----------------------------
 # HTML & JS DASHBOARD TEMPLATE
 # -----------------------------
 
@@ -3029,6 +3442,21 @@ HTML_DASHBOARD = """<!DOCTYPE html>
       </div>
     </div>
 
+    <!-- AI quota and API balance monitoring -->
+    <div class="section-card">
+      <div class="section-header">
+        <h2>AI Usage &amp; Balances</h2>
+        <div style="display:flex; gap:8px;">
+          <button class="btn btn-sm" onclick="fetchUsage(true)">↻ Refresh</button>
+          <button class="btn btn-sm btn-primary" onclick="openUsageModal()">+ Add Account</button>
+        </div>
+      </div>
+      <table>
+        <thead><tr><th>PROVIDER</th><th>ACCOUNT</th><th>QUOTAS</th><th>BALANCES</th><th>UPDATED</th><th style="text-align:right;">ACTIONS</th></tr></thead>
+        <tbody id="usage-body"><tr><td colspan="6" style="text-align:center; color:var(--text-muted); padding:24px;">No AI accounts configured.</td></tr></tbody>
+      </table>
+    </div>
+
     <!-- Docker monitoring (cached snapshots from the active server) -->
     <div class="section-card">
       <div class="section-header">
@@ -3356,6 +3784,23 @@ HTML_DASHBOARD = """<!DOCTYPE html>
 
   <div id="toast"></div>
 
+  <div class="modal-overlay" id="usage-modal">
+    <div class="modal" style="max-width:520px;">
+      <div class="modal-header"><h3>Add AI Usage Account</h3><button class="btn btn-sm" onclick="closeUsageModal()" style="border:none; background:transparent;">✕</button></div>
+      <div class="modal-body">
+        <div class="form-group"><label>Provider</label><select id="usage-provider"><option value="codex">Codex</option><option value="agy">Agy</option><option value="claude">Claude</option><option value="opencode">OpenCode</option><option value="custom">Custom</option></select></div>
+        <div class="form-group"><label>Account name</label><input type="text" id="usage-name" placeholder="e.g. Work" /></div>
+        <div class="form-group"><label>JSON command (optional)</label><input type="text" id="usage-command" placeholder="command --usage --json" /><div class="form-hint">Runs locally; output must be JSON. Use this for CLI-authenticated accounts.</div></div>
+        <div class="form-group"><label>HTTPS usage/balance URL (optional)</label><input type="text" id="usage-url" placeholder="https://provider.example/usage" /></div>
+        <div class="form-group"><label>Token environment variable (optional)</label><input type="text" id="usage-token-env" placeholder="PROVIDER_API_KEY" /><div class="form-hint">Only the variable name is stored; the token itself is never saved.</div></div>
+        <div class="form-group"><label>Organization / project (optional)</label><div style="display:flex; gap:8px;"><input type="text" id="usage-organization" placeholder="OpenAI organization" /><input type="text" id="usage-project" placeholder="OpenAI project" /></div></div>
+        <div class="form-group"><label class="form-checkbox"><input type="checkbox" id="usage-api-mode" /><span>Use provider admin usage API (Codex / Claude)</span></label><div class="form-hint">Requires an admin key in the token variable; reports the last <input type="number" id="usage-api-days" value="1" min="1" max="30" style="width:55px;" /> day(s).</div></div>
+        <div class="form-group"><label>Local records directory (optional)</label><input type="text" id="usage-local-path" placeholder="Uses the provider default" /><div class="form-hint">Useful when separate accounts use separate CLI profiles or data roots.</div></div>
+      </div>
+      <div class="modal-footer"><button class="btn" onclick="closeUsageModal()">Cancel</button><button class="btn btn-primary" onclick="saveUsageFromModal()">Save Account</button></div>
+    </div>
+  </div>
+
   <script>
     let currentForwards = [];
     let currentServerHost = "";
@@ -3370,6 +3815,43 @@ HTML_DASHBOARD = """<!DOCTYPE html>
     let editingSyncId = null;
     let browserLocalCur = "";
     let browserRemoteCur = "";
+
+    function openUsageModal() { document.getElementById("usage-modal").style.display = "flex"; }
+    function closeUsageModal() { document.getElementById("usage-modal").style.display = "none"; }
+    function usageNumber(value) { return value == null ? "—" : String(value); }
+    function usageUpdated(snapshot) {
+      if (!snapshot || !snapshot.updated_at) return "—";
+      return new Date(snapshot.updated_at).toLocaleTimeString();
+    }
+    function renderUsage(data) {
+      const body = document.getElementById("usage-body");
+      const snapshots = data.snapshots || {};
+      if (!data.accounts || !data.accounts.length) {
+        body.innerHTML = '<tr><td colspan="6" style="text-align:center; color:var(--text-muted); padding:24px;">No AI accounts configured.</td></tr>'; return;
+      }
+      body.innerHTML = data.accounts.map(a => {
+        const s = snapshots[a.id] || {};
+        const quotas = (s.quotas || []).map(q => `${escapeHtml(q.name)}: ${usageNumber(q.remaining)} ${escapeHtml(q.unit || "")}`).join("<br>") || (s.ok ? "No quota data" : escapeHtml(s.message || "Unavailable"));
+        const balances = (s.balances || []).map(b => b.remaining != null ? `${usageNumber(b.remaining)} ${escapeHtml(b.currency || "USD")}` : (b.spent != null ? `spent ${usageNumber(b.spent)} ${escapeHtml(b.currency || "USD")}` : "—")).join("<br>") || "—";
+        return `<tr><td>${escapeHtml(a.provider)}</td><td>${escapeHtml(a.name)}</td><td>${quotas}</td><td>${balances}</td><td class="mono">${usageUpdated(s)}</td><td style="text-align:right;"><button class="btn btn-sm" onclick="removeUsageAccount('${escapeHtml(a.id)}')">Remove</button></td></tr>`;
+      }).join("");
+    }
+    async function fetchUsage(refresh = false) {
+      try { const response = await fetch("/api/usage" + (refresh ? "?refresh=1" : "")); renderUsage(await response.json()); }
+      catch (err) { document.getElementById("usage-body").innerHTML = '<tr><td colspan="6" class="muted">Usage monitor unavailable</td></tr>'; }
+    }
+    async function saveUsageFromModal() {
+      const payload = {provider: document.getElementById("usage-provider").value, name: document.getElementById("usage-name").value.trim(), usage_command: document.getElementById("usage-command").value.trim(), balance_url: document.getElementById("usage-url").value.trim(), token_env: document.getElementById("usage-token-env").value.trim(), local_path: document.getElementById("usage-local-path").value.trim(), organization: document.getElementById("usage-organization").value.trim(), project: document.getElementById("usage-project").value.trim(), api_mode: document.getElementById("usage-api-mode").checked, api_days: parseInt(document.getElementById("usage-api-days").value, 10) || 1};
+      const autoSource = ["codex", "agy", "claude", "opencode"].includes(payload.provider);
+      if (!payload.name || (!payload.usage_command && !payload.balance_url && !autoSource)) { alert("Enter an account name and a command or HTTPS URL."); return; }
+      const response = await fetch("/api/usage/accounts", {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(payload)});
+      const data = await response.json(); if (!data.ok) { alert(data.message || "Could not save account"); return; }
+      closeUsageModal(); fetchUsage(true);
+    }
+    async function removeUsageAccount(id) {
+      if (!confirm("Remove this usage account?")) return;
+      await fetch("/api/usage/accounts/remove", {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({id:id})}); fetchUsage();
+    }
 
     function escapeHtml(s) {
       return String(s == null ? "" : s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
@@ -3915,10 +4397,10 @@ HTML_DASHBOARD = """<!DOCTYPE html>
       const raw = output.dataset.content || "";
       const query = document.getElementById("docker-log-search").value;
       saveDockerLogProfile({search: query});
-      const lines = raw ? raw.split("\n") : [];
+      const lines = raw ? raw.split("\\n") : [];
       const matching = query ? lines.filter(line => line.toLowerCase().includes(query.toLowerCase())) : lines;
       const needle = query ? new RegExp(query.replace(/[.*+?^${}()|[\\]\\\\]/g, "\\\\$&"), "ig") : null;
-      const rendered = matching.map(line => escapeHtml(line).replace(needle, match => `<mark>${match}</mark>`)).join("\n");
+      const rendered = matching.map(line => escapeHtml(line).replace(needle, match => `<mark>${match}</mark>`)).join("\\n");
       output.innerHTML = rendered || (query ? "(no matching log lines)" : "(no logs yet — waiting for the container)");
       document.getElementById("docker-log-count").innerText = query ? `${matching.length}/${lines.length} lines` : `${lines.length} lines`;
     }
@@ -4742,11 +5224,12 @@ HTML_DASHBOARD = """<!DOCTYPE html>
       }
     }
 
-    fetchServers().then(() => { fetchStatus(); fetchDocker(); fetchSyncs(); });
+    fetchServers().then(() => { fetchStatus(); fetchDocker(); fetchSyncs(); fetchUsage(); });
     setInterval(fetchStatus, 4000);
     setInterval(fetchDocker, 5000);
     setInterval(fetchSyncs, 8000);
     setInterval(fetchLocalPorts, 10000);
+    setInterval(fetchUsage, 60000);
     setInterval(fetchServers, 15000);
   </script>
 </body>
@@ -4814,6 +5297,13 @@ class DashboardHandler(BaseHTTPRequestHandler):
             data = get_all_forwards_status(srv)
             data["servers"] = get_servers_status()
             self._send_json(data)
+        elif path == "/api/usage":
+            try:
+                aid = query.get("account", [None])[0]
+                refresh = query.get("refresh", ["0"])[0].lower() in ("1", "true", "yes")
+                self._send_json(get_usage_status(refresh=refresh, account_id=aid))
+            except Exception as e:
+                self._send_json({"accounts": [], "snapshots": {}, "message": str(e)}, status=500)
         elif path == "/api/servers":
             self._send_json({"servers": get_servers_status()})
         elif path == "/api/ssh-hosts":
@@ -4934,6 +5424,22 @@ class DashboardHandler(BaseHTTPRequestHandler):
             cfg["docker_labels"] = clean
             save_config(cfg)
             self._send_json({"ok": True, "labels": clean})
+        elif path == "/api/usage/accounts":
+            try:
+                self._send_json({"ok": True, "account": save_usage_account(body)})
+            except ValueError as e:
+                self._send_json({"ok": False, "message": str(e)}, status=400)
+        elif path == "/api/usage/refresh":
+            try:
+                self._send_json({"ok": True, **get_usage_status(refresh=True, account_id=body.get("account_id"))})
+            except Exception as e:
+                self._send_json({"ok": False, "message": str(e)}, status=500)
+        elif path == "/api/usage/accounts/remove":
+            aid = body.get("id") or body.get("account_id")
+            if not aid or not remove_usage_account(aid):
+                self._send_json({"ok": False, "message": "Usage account not found"}, status=404)
+            else:
+                self._send_json({"ok": True})
         elif path == "/api/local-ports/kill":
             pid = body.get("pid")
             if pid is None:
@@ -5310,6 +5816,23 @@ def cli_sync_list(server_ref=None, show_all=False):
     print(f"Dashboard: http://localhost:{DEFAULT_DASHBOARD_PORT}\n")
 
 
+def cli_usage(refresh=False):
+    status = get_usage_status(refresh=refresh)
+    if not status["accounts"]:
+        print("No AI usage accounts configured. Add them from the dashboard API.")
+        return
+    for account in status["accounts"]:
+        snapshot = status["snapshots"].get(account["id"], {})
+        print(f"\n{account['name']} ({account['provider']})")
+        if not snapshot.get("ok"):
+            print(f"  unavailable: {snapshot.get('message', 'not checked')}")
+            continue
+        for quota in snapshot.get("quotas", []):
+            print(f"  {quota['name']}: {quota.get('remaining')} {quota.get('unit', '')} remaining")
+        for balance in snapshot.get("balances", []):
+            print(f"  balance: {balance.get('remaining')} {balance.get('currency', 'USD')}")
+
+
 def print_help():
     print("""DevBoost • SSH Port Forward Manager
 
@@ -5322,6 +5845,7 @@ Usage:
   devboost clean [--server ID]   Kill lingering duplicate/orphaned SSH processes
   devboost scan [--server ID]    Scan listening ports on a remote server
   devboost docker [--server ID]  Show cached Docker container stats on a remote server
+  devboost usage [--refresh]    Show configured AI provider quotas and balances
   devboost lazydocker [--server ID]  Open the interactive lazydocker TUI over SSH
   devboost server list           List SSH connection tabs
   devboost server add <ssh-host> [display-name]   Add a tab (host should exist in ~/.ssh/config)
@@ -5423,6 +5947,8 @@ def main():
     elif cmd == "lazydocker":
         server_ref, _ = _extract_server_flag(args[1:])
         cli_lazydocker(server_ref=server_ref)
+    elif cmd == "usage":
+        cli_usage(refresh="--refresh" in args)
     elif cmd in ("add", "forward"):
         server_ref, filtered = _extract_server_flag(args[1:])
         fargs = [cmd] + filtered

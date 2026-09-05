@@ -28,6 +28,10 @@ A lightweight, zero-dependency port forward manager and discovery dashboard for 
    - Open a persistent log watch by container name; it refreshes through rebuilds that reuse the same name.
    - Manage case-insensitive container-name label rules with custom colors; `dev` → `Dev` and `production` → `production` are included by default.
    - The dashboard refreshes in the background without blocking other local requests; the CLI exposes the same capability with `devboost docker`.
+8. **AI quota and balance monitoring**:
+   - Track multiple named accounts for Codex, Agy, Claude, OpenCode, or a custom provider.
+   - Accounts can read JSON from an authenticated HTTPS balance endpoint or a locally installed CLI command.
+   - The macOS menu bar exposes each account’s latest remaining quota and refreshes it every minute.
 
 ---
 
@@ -102,6 +106,23 @@ Once deployed, access the dashboard anytime at:
 - **Scan Ports**: Remotely detect listening services on your server and forward them with one click.
 - **Clean Orphans**: Kill lingering duplicate SSH tunnel processes with one click.
 
+### AI usage accounts
+
+Usage accounts live in the per-user `config.json`; secrets remain in environment variables. Add one with either a JSON-producing local command or an HTTPS endpoint:
+
+```bash
+curl -X POST http://127.0.0.1:3080/api/usage/accounts \
+  -H 'Content-Type: application/json' \
+  -d '{"provider":"claude","name":"Personal","balance_url":"https://api.example.com/balance","token_env":"MY_API_TOKEN"}'
+curl -X POST http://127.0.0.1:3080/api/usage/refresh
+```
+
+Responses are normalized into `quotas` (`used`, `limit`, `remaining`, reset time) and `balances` (`remaining`, currency), allowing multiple accounts per provider.
+
+Codex accounts automatically read local rollout rate-limit records from `~/.codex/sessions`; Claude accounts read observed token usage from `~/.claude/projects`; OpenCode accounts use `opencode stats`; Agy accounts use `agy-quota --json` when that helper is installed. Set `local_path` per account when separate CLI profiles use separate data roots. Local Claude token totals are observed usage, not a provider-reported remaining subscription quota.
+
+For API-backed Codex or Claude accounts, enable `api_mode` and set `token_env`. DevBoost then queries the provider’s organization usage report for the configured `api_days` window. These require provider-admin credentials and report usage/spend; they do not imply remaining subscription credits.
+
 ---
 
 ## 📁 Folder Sync — semantics
@@ -153,6 +174,9 @@ devboost scan
 
 # Show Docker containers and resource snapshots on the remote server
 devboost docker [--server ID]
+
+# Show AI provider quotas and API balances (use --refresh for a live check)
+devboost usage [--refresh]
 
 # Open the interactive lazydocker terminal UI on the remote server
 devboost lazydocker [--server ID]
