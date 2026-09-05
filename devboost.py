@@ -445,8 +445,16 @@ def parse_ssh_config_file(path):
                 pending_aliases = None
                 current_opts = {}
                 for pat in value.split():
+                    # Strip optional quotes (Include "~/.ssh/config.d/*") and
+                    # expand ~ BEFORE the isabs check — os.path.isabs("~/.ssh/..")
+                    # is False, so checking first would wrongly join it onto base_dir
+                    # and break forms like `Include ~/.ssh/config.d/xyz`.
+                    pat = pat.strip().strip("'\"")
+                    if not pat:
+                        continue
+                    pat = os.path.expanduser(pat)
                     full = pat if os.path.isabs(pat) else os.path.join(base_dir, pat)
-                    for expanded in sorted(glob.glob(os.path.expanduser(full))):
+                    for expanded in sorted(glob.glob(full)):
                         _parse_file(expanded, depth + 1)
             elif key_low in ("hostname", "user", "port"):
                 if pending_aliases:
