@@ -1,0 +1,419 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>DevBoost • Port Forward Manager</title>
+  <link rel="icon" type="image/png" href="/favicon.png" />
+  <link rel="shortcut icon" type="image/png" href="/favicon.png" />
+  <link rel="apple-touch-icon" href="/favicon.png" />
+  <link rel="stylesheet" href="/dashboard/styles.css" />
+</head>
+<body>
+  <div class="container">
+    <header>
+      <div class="title-group">
+        <h1 id="header-server-title">DevBoost • Port Forward Manager</h1>
+        <div class="server-tag">
+          <span class="status-dot" id="server-status-dot"></span>
+          <span id="server-status-text">Checking server...</span> •
+          <span id="header-server-host">Connecting...</span>
+        </div>
+      </div>
+      <div style="display:flex; gap:10px;">
+        <button class="btn" onclick="cleanOrphans()" id="clean-orphans-btn" title="Clean up lingering duplicate ssh processes">
+          🧹 Clean Orphans <span id="orphans-badge" style="font-size:11px; opacity:0.8;"></span>
+        </button>
+        <button class="btn btn-primary" onclick="openAddModal()">
+          + Add Port Forward
+        </button>
+      </div>
+    </header>
+
+    <!-- SSH connection tabs -->
+    <div class="tabs-bar" id="tabs-bar">
+      <span style="font-size:12px; color:var(--text-muted);">Loading servers...</span>
+    </div>
+
+    <!-- Stats -->
+    <div class="stats-bar">
+      <div class="stat-card">
+        <div class="label">Active Forwards</div>
+        <div class="value" id="stat-active">0</div>
+      </div>
+      <div class="stat-card">
+        <div class="label">Always Forward (Persistent)</div>
+        <div class="value" id="stat-always">0</div>
+      </div>
+      <div class="stat-card">
+        <div class="label">Folder Syncs (Auto)</div>
+        <div class="value" id="stat-syncs">0</div>
+      </div>
+      <div class="stat-card">
+        <div class="label">Discovered Remote Ports</div>
+        <div class="value" id="stat-remote">-</div>
+      </div>
+    </div>
+
+    <!-- AI quota and API balance monitoring -->
+    <div class="section-card">
+      <div class="section-header">
+        <h2>AI Usage &amp; Balances</h2>
+        <div style="display:flex; gap:8px;">
+          <button class="btn btn-sm" onclick="fetchUsage(true)">↻ Refresh</button>
+          <button class="btn btn-sm btn-primary" onclick="openUsageModal()">+ Add Account</button>
+        </div>
+      </div>
+      <table>
+        <thead><tr><th>PROVIDER</th><th>ACCOUNT</th><th>QUOTAS</th><th>BALANCES</th><th>UPDATED</th><th style="text-align:right;">ACTIONS</th></tr></thead>
+        <tbody id="usage-body"><tr><td colspan="6" style="text-align:center; color:var(--text-muted); padding:24px;">No AI accounts configured.</td></tr></tbody>
+      </table>
+    </div>
+
+    <!-- Docker monitoring (cached snapshots from the active server) -->
+    <div class="section-card">
+      <div class="section-header">
+        <h2>Docker Containers <span class="muted" style="font-weight:400; font-size:12px;" id="docker-subtitle"></span></h2>
+        <div style="display:flex; gap:8px;">
+          <button class="btn btn-sm" onclick="openDockerLabelsModal()">🏷 Labels</button>
+          <button class="btn btn-sm" onclick="fetchDocker()">↻ Refresh</button>
+        </div>
+      </div>
+      <table>
+        <thead>
+          <tr>
+            <th class="docker-sort" onclick="sortDocker('name', event)">CONTAINER <span id="sort-name"></span></th>
+            <th class="docker-sort" onclick="sortDocker('labels', event)">LABELS <span id="sort-labels"></span></th>
+            <th class="docker-sort" onclick="sortDocker('status', event)">STATUS <span id="sort-status"></span></th>
+            <th class="docker-sort" onclick="sortDocker('cpu', event)">CPU <span id="sort-cpu"></span></th>
+            <th class="docker-sort" onclick="sortDocker('memory', event)">MEMORY <span id="sort-memory"></span></th>
+            <th class="docker-sort" onclick="sortDocker('memory_percent', event)">MEM % <span id="sort-memory_percent"></span></th>
+            <th class="docker-sort" onclick="sortDocker('network', event)">NET I/O <span id="sort-network"></span></th>
+            <th>IMAGE</th>
+          </tr>
+        </thead>
+        <tbody id="docker-body">
+          <tr><td colspan="8" style="text-align:center; color:var(--text-muted); padding:30px;">Checking Docker on the active server...</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Active Port Forwards Table -->
+    <div class="section-card">
+      <div class="section-header">
+        <h2>Configured Port Forwards</h2>
+        <button class="btn btn-sm" onclick="fetchStatus()">↻ Refresh</button>
+      </div>
+      <table>
+        <thead>
+          <tr>
+            <th>LOCAL PORT</th>
+            <th>REMOTE</th>
+            <th>SERVICE / LABEL</th>
+            <th>MODE</th>
+            <th>STATUS</th>
+            <th style="text-align:right;">ACTIONS</th>
+          </tr>
+        </thead>
+        <tbody id="forwards-body">
+          <tr><td colspan="6" style="text-align:center; color:var(--text-muted); padding:30px;">Loading forwards...</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Folder Syncs (tracked mirrors, managed like ports) -->
+    <div class="section-card">
+      <div class="section-header">
+        <h2>Folder Syncs <span class="muted" style="font-weight:400; font-size:12px;" id="syncs-subtitle"></span></h2>
+        <div style="display:flex; gap:8px;">
+          <button class="btn btn-sm" onclick="fetchSyncs()">↻ Refresh</button>
+          <button class="btn btn-sm btn-primary" onclick="openSyncModal()">+ Add Folder Sync</button>
+        </div>
+      </div>
+      <table>
+        <thead>
+          <tr>
+            <th>LOCAL FOLDER</th>
+            <th>REMOTE FOLDER</th>
+            <th>MODE</th>
+            <th>STATUS</th>
+            <th style="text-align:right;">ACTIONS</th>
+          </tr>
+        </thead>
+        <tbody id="syncs-body">
+          <tr><td colspan="5" style="text-align:center; color:var(--text-muted); padding:30px;">Loading folder syncs...</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Discovered Services: Remote Server / This Mac tabs -->
+    <div class="section-card">
+      <div class="section-header">
+        <div style="display:flex; align-items:center; gap:12px; flex-wrap:wrap;">
+          <h2 id="services-section-title">Discovered Services on Remote Server</h2>
+          <div class="mini-tabs">
+            <button class="mini-tab active" id="tab-remote" onclick="switchServicesTab('remote')" title="Listening services on the active server">🌐 Remote Server</button>
+            <button class="mini-tab" id="tab-local" onclick="switchServicesTab('local')" title="Listening ports on this Mac, with kill">💻 This Mac</button>
+          </div>
+        </div>
+        <div style="display:flex; gap:8px;">
+          <button class="btn btn-sm" id="scan-remote-btn" onclick="scanRemoteServices()">🔍 Scan Ports</button>
+          <button class="btn btn-sm" id="refresh-local-btn" onclick="fetchLocalPorts()" style="display:none;">↻ Refresh</button>
+        </div>
+      </div>
+      <div id="remote-services-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>PORT</th>
+            <th>PROCESS</th>
+            <th>IDENTIFIED SERVICE</th>
+            <th>FORWARD STATUS</th>
+            <th style="text-align:right;">ACTION</th>
+          </tr>
+        </thead>
+        <tbody id="remote-services-body">
+          <tr><td colspan="5" style="text-align:center; color:var(--text-muted); padding:20px;">Click "Scan Ports" to detect running services on the remote server.</td></tr>
+        </tbody>
+      </table>
+      </div>
+      <div id="local-services-wrap" style="display:none;">
+      <table>
+        <thead>
+          <tr>
+            <th>PORT</th>
+            <th>PROCESS</th>
+            <th>SOURCE</th>
+            <th style="text-align:right;">ACTION</th>
+          </tr>
+        </thead>
+        <tbody id="local-services-body">
+          <tr><td colspan="4" style="text-align:center; color:var(--text-muted); padding:20px;">Loading listening ports on this Mac...</td></tr>
+        </tbody>
+      </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- Add Forward Modal -->
+  <div class="modal-overlay" id="add-modal">
+    <div class="modal">
+      <div class="modal-header">
+        <h3>Add Port Forward</h3>
+        <button class="btn btn-sm" onclick="closeAddModal()" style="border:none; background:transparent;">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group" id="recent-ports-section" style="display:none;">
+          <label class="recent-hint" id="recent-ports-title">Previously used — click to quick select</label>
+          <div class="recent-chips" id="recent-ports-chips"></div>
+        </div>
+        <div class="form-group">
+          <label>Local Port</label>
+          <input type="number" id="modal-local-port" placeholder="e.g. 3030" oninput="syncRemotePort(); maybeAutofillLabel()" />
+        </div>
+        <div class="form-group">
+          <label id="modal-remote-label">Remote Port</label>
+          <input type="number" id="modal-remote-port" placeholder="defaults to local port" />
+        </div>
+        <div class="form-group">
+          <label>Service Description / Label</label>
+          <input type="text" id="modal-label" placeholder="e.g. Grafana Dashboard" oninput="this.dataset.autoFilled='false'" />
+        </div>
+        <div class="form-group">
+          <label class="form-checkbox">
+            <input type="checkbox" id="modal-always" checked />
+            <span>Always forward (Persistent LaunchAgent / Auto-reconnect)</span>
+          </label>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn" onclick="closeAddModal()">Cancel</button>
+        <button class="btn btn-primary" onclick="submitAddForward()">Forward Port</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Add Folder Sync Modal (dual file-system path matcher) -->
+  <div class="modal-overlay" id="sync-modal">
+    <div class="modal" style="max-width:560px;">
+      <div class="modal-header">
+        <h3 id="sync-modal-title">Add Folder Sync</h3>
+        <button class="btn btn-sm" onclick="closeSyncModal()" style="border:none; background:transparent;">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group" id="recent-folders-section" style="display:none;">
+          <label class="recent-hint">Recently synced — click to quick select</label>
+          <div class="recent-chips" id="recent-folders-chips"></div>
+        </div>
+        <div class="form-group">
+          <label>Local folder (this Mac) <span class="form-hint">Type to match folders; Tab / Shift+Tab cycles matches.</span></label>
+          <div class="path-row">
+            <div class="suggest-wrap">
+              <input type="text" id="sync-local-path" placeholder="e.g. /Users/you/projects/app — type to search" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false"
+                     oninput="onSyncPathInput('local')" onkeydown="onSuggestKey(event, 'local')" onblur="hideSuggest('local')" onfocus="onSyncPathInput('local')" />
+              <div class="suggest-list" id="suggest-local"></div>
+            </div>
+            <button class="btn btn-sm" onclick="toggleBrowser('local')">📂 Browse</button>
+          </div>
+          <div class="browser" id="browser-local">
+            <div class="browser-bar">
+              <button class="btn btn-sm" onclick="browseLocalGo('..')" title="Up one level">⬆</button>
+              <button class="btn btn-sm" onclick="browseLocalGo('~')" title="Home">⌂</button>
+              <div class="suggest-wrap">
+                <input class="browser-path" id="browser-local-path" value="~" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false"
+                       title="Type to match folders. Tab / Shift+Tab cycles matches; Enter opens one."
+                       oninput="onBrowserPathInput('local')" onkeydown="onBrowserSuggestKey(event, 'local')" onblur="hideBrowserSuggest('local')" />
+                <div class="suggest-list" id="browser-suggest-local"></div>
+              </div>
+              <button class="btn btn-sm" onclick="browserGo('local')" title="Go to typed path">Go</button>
+              <button class="btn btn-sm" onclick="mkdirBrowser('local')" title="Create new folder here">＋</button>
+              <button class="btn btn-sm btn-primary" onclick="pickBrowserPath('local')">Select</button>
+            </div>
+            <div class="browser-list" id="browser-local-list"></div>
+          </div>
+        </div>
+        <div class="form-group">
+          <label><span id="sync-remote-label">Remote folder (on server)</span> <span class="form-hint">Type to match folders; Tab / Shift+Tab cycles matches.</span></label>
+          <div class="path-row">
+            <div class="suggest-wrap">
+              <input type="text" id="sync-remote-path" placeholder="e.g. ~/projects/app — type to search" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false"
+                     oninput="onSyncPathInput('remote')" onkeydown="onSuggestKey(event, 'remote')" onblur="hideSuggest('remote')" onfocus="onSyncPathInput('remote')" />
+              <div class="suggest-list" id="suggest-remote"></div>
+            </div>
+            <button class="btn btn-sm" onclick="toggleBrowser('remote')">📂 Browse</button>
+          </div>
+          <div class="browser" id="browser-remote">
+            <div class="browser-bar">
+              <button class="btn btn-sm" onclick="browseRemoteGo('..')" title="Up one level">⬆</button>
+              <button class="btn btn-sm" onclick="browseRemoteGo('~')" title="Home">⌂</button>
+              <div class="suggest-wrap">
+                <input class="browser-path" id="browser-remote-path" value="~" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false"
+                       title="Type to match folders. Tab / Shift+Tab cycles matches; Enter opens one."
+                       oninput="onBrowserPathInput('remote')" onkeydown="onBrowserSuggestKey(event, 'remote')" onblur="hideBrowserSuggest('remote')" />
+                <div class="suggest-list" id="browser-suggest-remote"></div>
+              </div>
+              <button class="btn btn-sm" onclick="browserGo('remote')" title="Go to typed path">Go</button>
+              <button class="btn btn-sm" onclick="mkdirBrowser('remote')" title="Create new folder here">＋</button>
+              <button class="btn btn-sm btn-primary" onclick="pickBrowserPath('remote')">Select</button>
+            </div>
+            <div class="browser-list" id="browser-remote-list"></div>
+          </div>
+        </div>
+        <div class="form-group">
+          <label>Direction</label>
+          <select id="sync-direction" onchange="onSyncDirectionChange()">
+            <option value="two-way" selected>⇄ Two-way merge (newer wins, safe)</option>
+            <option value="push">⬆ Push — local → remote</option>
+            <option value="pull">⬇ Pull — remote → local</option>
+          </select>
+          <div class="form-hint" id="sync-direction-hint">Two-way keeps both sides merged. Newer file wins. Deletions never propagate.</div>
+        </div>
+        <div class="form-group" id="sync-mirror-group">
+          <label class="form-checkbox">
+            <input type="checkbox" id="sync-mirror" />
+            <span>Mirror — exact copy (delete extra files on destination)</span>
+          </label>
+          <div class="form-hint" id="sync-mirror-hint">One-way only: destination becomes an exact copy via rsync --delete. Disabled for two-way (always a safe merge).</div>
+        </div>
+        <div class="form-group">
+          <label class="form-checkbox">
+            <input type="checkbox" id="sync-always" checked onchange="document.getElementById('sync-interval-group').style.display = this.checked ? 'block' : 'none'" />
+            <span>Auto — keep in sync continuously (persistent agent)</span>
+          </label>
+          <div class="form-hint">Auto = LaunchAgent with instant local triggers + polling for remote changes (the Always equivalent for ports). Unchecked = one-time sync: runs now + on-demand via Sync Now.</div>
+        </div>
+        <div class="form-group" id="sync-interval-group">
+          <label>Poll interval (seconds, 5–600)</label>
+          <input type="number" id="sync-interval" value="15" min="5" max="600" />
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn" onclick="closeSyncModal()">Cancel</button>
+        <button class="btn btn-primary" id="sync-submit-btn" onclick="submitAddSync()">Start Sync</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Add Server Modal (selective import from ~/.ssh/config) -->
+  <div class="modal-overlay" id="server-modal">
+    <div class="modal" style="max-width:520px;">
+      <div class="modal-header">
+        <h3>Add SSH Connection Tab</h3>
+        <button class="btn btn-sm" onclick="closeServerModal()" style="border:none; background:transparent;">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label>Search ~/.ssh/config hosts</label>
+          <input type="text" id="server-search" class="search-input" placeholder="e.g. prod, ubuntu..." oninput="renderSshHostList()" />
+        </div>
+        <div class="server-list" id="ssh-host-list">
+          <div style="color:var(--text-muted); font-size:13px;">Loading SSH hosts...</div>
+        </div>
+        <div style="border-top:1px solid var(--border); margin:16px 0;"></div>
+        <div class="form-group">
+          <label>Or add manually (SSH Host alias)</label>
+          <input type="text" id="manual-ssh-host" placeholder="e.g. my-remote-server" />
+        </div>
+        <div class="form-group">
+          <label>Display name (optional)</label>
+          <input type="text" id="manual-server-name" placeholder="e.g. Production Server" />
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn" onclick="closeServerModal()">Cancel</button>
+        <button class="btn btn-primary" onclick="submitManualServer()">Add Manually</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="docker-labels-modal">
+    <div class="modal" style="max-width:620px;">
+      <div class="modal-header"><h3>Docker label rules</h3><button class="btn btn-sm" onclick="closeDockerLabelsModal()" style="border:none; background:transparent;">✕</button></div>
+      <div class="modal-body">
+        <div class="form-hint" style="margin-bottom:12px;">A rule matches text contained in a container name. Matching rules are shown as compact labels.</div>
+        <div id="docker-label-list"></div>
+        <button class="btn btn-sm" onclick="addDockerLabelRow()" style="margin-top:12px;">＋ Add rule</button>
+      </div>
+      <div class="modal-footer"><button class="btn" onclick="closeDockerLabelsModal()">Cancel</button><button class="btn btn-primary" onclick="saveDockerLabels()">Save labels</button></div>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="docker-log-modal">
+    <div class="modal" id="docker-log-window">
+      <div class="modal-header">
+        <h3 id="docker-log-title">Container logs</h3>
+        <div class="docker-log-tools">
+          <input id="docker-log-search" class="docker-log-search" type="search" placeholder="Search logs…" oninput="renderDockerLog()" />
+          <span id="docker-log-count" class="docker-log-count"></span>
+          <button class="btn btn-sm" onclick="changeDockerLogFont(-1)" title="Decrease font size" aria-label="Decrease font size">A−</button>
+          <button class="btn btn-sm" onclick="changeDockerLogFont(1)" title="Increase font size" aria-label="Increase font size">A＋</button>
+          <button class="btn btn-sm" onclick="resetDockerLogView()" title="Reset log window size and font" aria-label="Reset log window size and font">↺</button>
+        </div>
+        <button class="btn btn-sm" onclick="closeDockerLog()" style="border:none; background:transparent;">✕</button>
+      </div>
+      <div class="modal-body" style="padding:0; flex:1; min-height:0;"><pre id="docker-log-output" class="docker-log-output">Connecting...</pre></div>
+    </div>
+  </div>
+
+  <div id="toast"></div>
+
+  <div class="modal-overlay" id="usage-modal">
+    <div class="modal" style="max-width:520px;">
+      <div class="modal-header"><h3 id="usage-modal-title">Add AI Usage Account</h3><button class="btn btn-sm" onclick="closeUsageModal()" style="border:none; background:transparent;">✕</button></div>
+      <div class="modal-body">
+        <div class="form-group"><label>Provider</label><select id="usage-provider"><option value="codex">Codex</option><option value="agy">Agy</option><option value="claude">Claude</option><option value="opencode">OpenCode</option><option value="custom">Custom</option></select></div>
+        <div class="form-group"><label>Account name</label><input type="text" id="usage-name" placeholder="e.g. Work" /></div>
+        <div class="form-group"><label>JSON command (optional)</label><input type="text" id="usage-command" placeholder="command --usage --json" /><div class="form-hint">Runs locally; output must be JSON. Use this for CLI-authenticated accounts.</div></div>
+        <div class="form-group"><label>HTTPS usage/balance URL (optional)</label><input type="text" id="usage-url" placeholder="https://provider.example/usage" /></div>
+        <div class="form-group"><label>Token environment variable (optional)</label><input type="text" id="usage-token-env" placeholder="PROVIDER_API_KEY" /><div class="form-hint">Only the variable name is stored; the token itself is never saved.</div></div>
+        <div class="form-group"><label>Organization / project (optional)</label><div style="display:flex; gap:8px;"><input type="text" id="usage-organization" placeholder="OpenAI organization" /><input type="text" id="usage-project" placeholder="OpenAI project" /></div></div>
+        <div class="form-group"><label class="form-checkbox"><input type="checkbox" id="usage-api-mode" /><span>Use provider admin usage API (Codex / Claude)</span></label><div class="form-hint">Requires an admin key in the token variable; reports the last <input type="number" id="usage-api-days" value="1" min="1" max="30" style="width:55px;" /> day(s).</div></div>
+        <div class="form-group"><label>Local records directory (optional)</label><input type="text" id="usage-local-path" placeholder="Uses the provider default" /><div class="form-hint">Useful when separate accounts use separate CLI profiles or data roots.</div></div>
+      </div>
+      <div class="modal-footer"><button class="btn" onclick="closeUsageModal()">Cancel</button><button class="btn btn-primary" id="usage-save-button" onclick="saveUsageFromModal()">Save Account</button></div>
+    </div>
+  </div>
+
+  <script src="/dashboard/app.js"></script>
+</body>
+</html>

@@ -39,7 +39,27 @@ A lightweight, zero-dependency port forward manager and discovery dashboard for 
 
 ```text
 devboost/
-├── devboost.py           # Core CLI, REST API & embedded Web Dashboard SPA
+├── devboost.py           # Compatibility entry point, REST API wiring & CLI
+├── dashboard/            # Dashboard document and browser assets
+│   ├── index.html
+│   ├── styles.css
+│   ├── app.js
+│   ├── http.py            # Dashboard HTTP handler and API routing
+│   └── __init__.py       # Asset loading and serving helpers
+├── devboost_app/         # Python domain modules extracted from the legacy entry point
+│   ├── __init__.py
+│   ├── configuration.py  # Config persistence, atomic writes, and migrations
+│   ├── docker_service.py # Docker discovery and container labels
+│   ├── folder_sync.py    # Folder-sync orchestration and rsync lifecycle
+│   ├── forwarding.py     # SSH forwards and LaunchAgent lifecycle
+│   ├── cli.py            # CLI commands and help output
+│   ├── history.py        # SSH discovery and port history
+│   ├── local_ports.py    # Local listener inspection and safe process control
+│   ├── server_helpers.py # Server-tab lookup and label helpers
+│   ├── server_management.py # Server-tab lifecycle and migrations
+│   ├── sync_helpers.py   # Pure folder-sync and SSH-config helpers
+│   ├── usage.py          # Provider-agnostic usage normalization helpers
+│   └── usage_service.py  # Local command, HTTPS, and provider API adapters
 ├── remote_transport.py   # Shared SSH subprocess transport
 ├── docker_monitor.py     # Cached remote Docker snapshots and parsers
 ├── build-app.sh          # Builds the self-contained macOS app bundle

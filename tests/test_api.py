@@ -6,6 +6,7 @@ import urllib.error
 from http.server import HTTPServer
 import sys
 import os
+import types
 from unittest.mock import patch
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
@@ -35,6 +36,18 @@ class TestDashboardAPI(unittest.TestCase):
             self.assertIn("text/html", resp.headers.get("Content-Type"))
             html = resp.read().decode("utf-8")
             self.assertIn("DevBoost", html)
+            self.assertIn('/dashboard/styles.css', html)
+            self.assertIn('/dashboard/app.js', html)
+
+    def test_dashboard_assets_are_served_separately(self):
+        for path, marker, content_type in (
+            ("/dashboard/styles.css", "--bg:", "text/css"),
+            ("/dashboard/app.js", "fetchServers", "text/javascript"),
+        ):
+            with urllib.request.urlopen(self.base_url + path) as resp:
+                self.assertEqual(resp.status, 200)
+                self.assertIn(content_type, resp.headers.get("Content-Type"))
+                self.assertIn(marker, resp.read().decode("utf-8"))
 
     def test_api_status(self):
         req = urllib.request.Request(f"{self.base_url}/api/status")
@@ -45,6 +58,17 @@ class TestDashboardAPI(unittest.TestCase):
             self.assertIn("forwards", data)
             self.assertIn("server_name", data)
             self.assertIn("server_host", data)
+
+    def test_service_binder_ignores_main_wrappers(self):
+        """Running the packaged script as __main__ must not recurse in /api/status."""
+        def wrapper(*args, **kwargs):
+            return None
+
+        wrapper.__module__ = "__main__"
+        runtime = types.SimpleNamespace(__name__="__main__", get_all_forwards_status=wrapper)
+        bound = devboost.forwarding._bound_functions(runtime)
+        self.assertIsNot(bound["get_all_forwards_status"], wrapper)
+        self.assertEqual(bound["get_all_forwards_status"].__module__, "devboost_app.forwarding")
 
     def test_api_scan(self):
         req = urllib.request.Request(f"{self.base_url}/api/scan")

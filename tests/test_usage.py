@@ -26,8 +26,23 @@ class TestUsageMonitoring(unittest.TestCase):
         self.assertNotEqual(one["id"], two["id"])
         accounts = devboost.get_usage_accounts()
         self.assertEqual(len(accounts), 2)
-        self.assertNotIn("usage_command", accounts[0])
+        self.assertEqual(accounts[0]["usage_command"][0], "python3")
         self.assertEqual(accounts[1]["token_env"], "CLAUDE_KEY")
+
+    def test_existing_account_can_be_updated_without_changing_id(self):
+        account = devboost.save_usage_account({
+            "provider": "custom", "name": "old", "balance_url": "https://example.test/old",
+        })
+        devboost.save_usage_account({
+            "id": account["id"], "provider": "custom", "name": "new",
+            "balance_url": "https://example.test/new", "token_env": "PROVIDER_KEY",
+        })
+        accounts = devboost.get_usage_accounts()
+        self.assertEqual(len(accounts), 1)
+        self.assertEqual(accounts[0]["id"], account["id"])
+        self.assertEqual(accounts[0]["name"], "new")
+        self.assertEqual(accounts[0]["balance_url"], "https://example.test/new")
+        self.assertEqual(accounts[0]["token_env"], "PROVIDER_KEY")
 
     def test_command_snapshot_is_normalized_and_persisted(self):
         account = devboost.save_usage_account({"provider": "opencode", "name": "local", "usage_command": ["python3", "-c", "import json; print(json.dumps({'usage': {'daily': {'used': 3, 'limit': 7}}, 'balance': 4.5}))"]})
