@@ -189,6 +189,44 @@ def get_dashboard_executable():
     """Scoped wrapper so macOS Background Items shows DevBoost-dashboard instead of python3."""
     return os.path.join(BIN_DIR, DASHBOARD_WRAPPER_NAME)
 
+
+def _installed_code_dir():
+    """Where the installed (launchd-safe) copy lives. Matches install.sh."""
+    override = _env("DEVBOOST_CONFIG_DIR", "PORT_TRACKER_CONFIG_DIR", "")
+    if override:
+        return os.path.expanduser(override)
+    return os.path.expanduser("~/.config/devboost")
+
+
+def is_tcc_protected_path(path):
+    """True for locations macOS privacy (TCC) shields from background daemons.
+
+    launchd agents can neither EXECUTE code nor freely READ/WRITE here without
+    an explicit access grant — ~/Documents, ~/Desktop, ~/Downloads, iCloud Drive.
+    """
+    try:
+        p = os.path.normpath(os.path.expanduser(path or ""))
+    except Exception:
+        return False
+    home = os.path.expanduser("~")
+    for protected in ("Documents", "Desktop", "Downloads"):
+        base = os.path.join(home, protected)
+        if p == base or p.startswith(base + os.sep):
+            return True
+    icloud = os.path.join(home, "Library", "Mobile Documents")
+    if p == icloud or p.startswith(icloud + os.sep):
+        return True
+    return False
+
+
+def _is_launchable(path):
+    """Whether launchd can exec this path (exists, executable, not TCC-shielded)."""
+    try:
+        return bool(path) and os.path.isfile(path) and os.access(path, os.X_OK) \
+            and not is_tcc_protected_path(path)
+    except OSError:
+        return False
+
 DEFAULT_LABELS = {
     3030: "Grafana Dashboard",
     3000: "Docker Web / App",
@@ -690,15 +728,27 @@ def get_sync_plist_path(sync_id):
 
 
 def get_sync_executable_args(sync_id):
-    """ProgramArguments for a sync LaunchAgent: runs `devboost.py sync-run <id>`."""
-    wrapper = get_dashboard_executable()
-    try:
-        if os.path.isfile(wrapper) and os.access(wrapper, os.X_OK):
-            return [wrapper, "sync-run", str(sync_id)]
-    except OSError:
-        pass
-    return [sys.executable or "/usr/bin/python3",
-            os.path.join(CODE_DIR, "devboost.py"), "sync-run", str(sync_id)]
+    """ProgramArguments for a sync LaunchAgent: runs `devboost.py sync-run <id>`.
+
+    Prefers the running copy (latest code), but NEVER points launchd at an
+    executable under a TCC-protected location (e.g. a repo checkout inside
+    ~/Documents) — launchd cannot exec there and the agent would die with
+    exit 126. Falls back to the installed copy, which exists exactly for that.
+    """
+    sid = str(sync_id)
+    candidates = [get_dashboard_executable()]
+    inst = _installed_code_dir()
+    if os.path.abspath(inst) != os.path.abspath(CODE_DIR):
+        candidates.append(os.path.join(inst, "bin", DASHBOARD_WRAPPER_NAME))
+    for wrapper in candidates:
+        if _is_launchable(wrapper):
+            return [wrapper, "sync-run", sid]
+    # Last resort: direct python on the installed script (or running copy).
+    for script in (os.path.join(inst, "devboost.py"),
+                   os.path.join(CODE_DIR, "devboost.py")):
+        if os.path.isfile(script) and not is_tcc_protected_path(script):
+            return [sys.executable or "/usr/bin/python3", script, "sync-run", sid]
+    return [get_dashboard_executable(), "sync-run", sid]
 
 
 def _scan_sync_agents_raw():
@@ -1150,6 +1200,7 @@ def get_syncs_status(server_ref=None):
             "always": bool(s.get("always", False)),
             "agent_installed": agent is not None,
             "active": bool(s.get("always", False)) and agent is not None,
+            "local_protected": is_tcc_protected_path(s.get("local_path", "")),
             "interval": s.get("interval", SYNC_DEFAULT_INTERVAL),
             "created_at": s.get("created_at"),
             "last_sync": s.get("last_sync"),
@@ -3719,6 +3770,9 @@ HTML_DASHBOARD = """<!DOCTYPE html>
       }
       tbody.innerHTML = currentSyncs.map(s => {
         const msg = s.last_message ? `<br/><span class="muted" style="font-size:11px;">${escapeHtml((s.last_message || '').slice(0, 120))}</span>` : "";
+        const protectedWarn = s.local_protected
+          ? `<br/><span style="font-size:11px; color:var(--warning);">⚠️ Background runs can't access this folder (macOS privacy) — move it out of ~/Documents or grant access.</span>`
+          : "";
         const lastSyncLine = (s.last_status === "ok" && s.last_sync)
           ? `<br/><span class="muted mono" style="font-size:11px;" title="Exact time of the last successful sync">Last synced: ${escapeHtml(formatSyncTime(s.last_sync))}</span>`
           : "";
@@ -3727,7 +3781,7 @@ HTML_DASHBOARD = """<!DOCTYPE html>
             <td><span class="sync-path">${escapeHtml(s.local_path)}</span><br/><span class="muted" style="font-size:11px;">this Mac</span></td>
             <td><span class="sync-path">${escapeHtml(s.remote_path)}</span><br/><span class="muted" style="font-size:11px;">${escapeHtml(data.server_host || currentServerHost || 'server')}</span></td>
             <td>${directionBadge(s.direction, s.mirror)}<br/><span style="display:inline-block; margin-top:4px;">${modeBadge(s)}</span></td>
-            <td>${syncStatusBadge(s)}${lastSyncLine}${msg}</td>
+            <td>${syncStatusBadge(s)}${lastSyncLine}${protectedWarn}${msg}</td>
             <td>
               <div class="actions-cell">
                 <button class="btn btn-sm" onclick="openSyncModal('${s.id}')" title="Edit paths and options">Edit</button>

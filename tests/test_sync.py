@@ -297,6 +297,60 @@ class TestFolderSync(unittest.TestCase):
     def test_update_sync_unknown_id(self):
         self.assertIsNone(devboost.update_sync("does-not-exist", direction="push"))
 
+    def test_is_tcc_protected_path(self):
+        home = os.path.expanduser("~")
+        for sub in ("Documents", "Desktop", "Downloads"):
+            self.assertTrue(devboost.is_tcc_protected_path(os.path.join(home, sub, "proj")))
+            self.assertTrue(devboost.is_tcc_protected_path(os.path.join(home, sub)))
+        self.assertTrue(devboost.is_tcc_protected_path(
+            os.path.join(home, "Library", "Mobile Documents", "x")))
+        self.assertFalse(devboost.is_tcc_protected_path(home))
+        self.assertFalse(devboost.is_tcc_protected_path("/tmp/proj"))
+        self.assertFalse(devboost.is_tcc_protected_path(
+            os.path.join(home, ".config", "devboost")))
+        self.assertFalse(devboost.is_tcc_protected_path(""))
+
+    def _make_wrapper(self, directory):
+        os.makedirs(os.path.join(directory, "bin"), exist_ok=True)
+        wrapper = os.path.join(directory, "bin", devboost.DASHBOARD_WRAPPER_NAME)
+        with open(wrapper, "w") as f:
+            f.write("#!/bin/sh\nexec true\n")
+        os.chmod(wrapper, 0o755)
+        return wrapper
+
+    def test_sync_executable_prefers_running_copy(self):
+        repo_dir = os.path.join(self.temp_dir.name, "repo")
+        repo_wrapper = self._make_wrapper(repo_dir)
+        with patch.object(devboost, "BIN_DIR", os.path.join(repo_dir, "bin")), \
+                patch.object(devboost, "_installed_code_dir",
+                             return_value=os.path.join(self.temp_dir.name, "nonexistent")):
+            args = devboost.get_sync_executable_args("abc123")
+        self.assertEqual(args, [repo_wrapper, "sync-run", "abc123"])
+
+    def test_sync_executable_avoids_protected_running_copy(self):
+        repo_dir = os.path.join(self.temp_dir.name, "repo")
+        repo_wrapper = self._make_wrapper(repo_dir)
+        inst_dir = os.path.join(self.temp_dir.name, "installed")
+        inst_wrapper = self._make_wrapper(inst_dir)
+        real_protected = devboost.is_tcc_protected_path
+        with patch.object(devboost, "BIN_DIR", os.path.join(repo_dir, "bin")), \
+                patch.object(devboost, "_installed_code_dir", return_value=inst_dir), \
+                patch.object(devboost, "is_tcc_protected_path",
+                             side_effect=lambda p: os.path.abspath(p) == os.path.abspath(repo_wrapper) or real_protected(p)):
+            args = devboost.get_sync_executable_args("abc123")
+        self.assertEqual(args, [inst_wrapper, "sync-run", "abc123"])
+
+    def test_syncs_status_flags_protected_local(self):
+        sid = self._server_id()
+        home = os.path.expanduser("~")
+        devboost.add_sync(server_ref=sid, local_path=os.path.join(home, "Documents", "proj"),
+                          remote_path="~/r", run_now=False)
+        devboost.add_sync(server_ref=sid, local_path="/tmp/plain",
+                          remote_path="~/r2", run_now=False)
+        rows = {r["local_path"]: r for r in devboost.get_syncs_status(sid)["syncs"]}
+        self.assertTrue(rows[os.path.join(home, "Documents", "proj")]["local_protected"])
+        self.assertFalse(rows["/tmp/plain"]["local_protected"])
+
     def test_update_sync_refreshes_agent_interval(self):
         sid = self._server_id()
         res = devboost.add_sync(server_ref=sid, local_path="/tmp/a",
