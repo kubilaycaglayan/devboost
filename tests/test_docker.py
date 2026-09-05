@@ -7,11 +7,30 @@ import os
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-from docker_monitor import collect_docker_snapshot, parse_docker_output
+from docker_monitor import collect_docker_snapshot, parse_docker_output, collect_docker_logs
 import devboost
 
 
 class TestDockerMonitor(unittest.TestCase):
+    def test_apply_docker_labels_matches_case_insensitively(self):
+        containers = [{"name": "api-dev-production"}]
+        labels = [
+            {"id": "dev", "name": "Dev", "match": "dev", "color": "#58a6ff", "enabled": True},
+            {"id": "prod", "name": "Prod", "match": "production", "color": "#f85149", "enabled": True},
+        ]
+        self.assertEqual(
+            [label["name"] for label in devboost.apply_docker_labels(containers, labels)[0]["labels"]],
+            ["Dev", "Prod"],
+        )
+
+    @patch("docker_monitor.run_ssh_command")
+    def test_collect_docker_logs_uses_container_name_and_timestamps(self, mock_ssh):
+        mock_ssh.return_value = subprocess.CompletedProcess(args=[], returncode=0, stdout="2026-01-01T00:00:00Z hello\n", stderr="")
+        result = collect_docker_logs("myhost", "api-dev", tail=50)
+        self.assertTrue(result["ok"])
+        self.assertIn("hello", result["logs"])
+        self.assertIn("docker logs --timestamps --tail 50 api-dev", mock_ssh.call_args.args[1])
+
     def test_parse_docker_output(self):
         stdout = (
             '{"ID":"abc123","Names":"web","Image":"nginx:latest","Status":"Up 2 minutes"}\n'

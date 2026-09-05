@@ -5,6 +5,7 @@ import json
 import subprocess
 import threading
 import time
+import shlex
 
 from remote_transport import run_ssh_command
 
@@ -117,6 +118,25 @@ def collect_docker_snapshot(host, timeout=30):
         "updated_at": now,
         "message": "",
     }
+
+
+def collect_docker_logs(host, container, tail=200, timeout=30):
+    """Read recent logs by container name. Names survive rebuilds, unlike IDs."""
+    try:
+        tail = max(1, min(int(tail), 2000))
+    except (TypeError, ValueError):
+        tail = 200
+    command = "docker logs --timestamps --tail %d %s" % (tail, shlex.quote(str(container)))
+    try:
+        result = run_ssh_command(host, command, timeout=timeout, connect_timeout=5)
+    except subprocess.TimeoutExpired:
+        return {"ok": False, "message": f"Docker logs timed out on {host}", "logs": ""}
+    except Exception as exc:
+        return {"ok": False, "message": f"Docker logs failed on {host}: {exc}", "logs": ""}
+    if result.returncode != 0:
+        detail = (result.stderr or result.stdout or "container logs unavailable").strip()
+        return {"ok": False, "message": detail[:500], "logs": result.stdout or ""}
+    return {"ok": True, "message": "", "logs": result.stdout or ""}
 
 
 class DockerMonitor:

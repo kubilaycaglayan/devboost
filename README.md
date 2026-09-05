@@ -24,6 +24,9 @@ A lightweight, zero-dependency port forward manager and discovery dashboard for 
    - Built exclusively with Python standard library (`http.server`, `urllib`, `plistlib`, `subprocess`).
 7. **Docker Monitoring**:
    - Shows cached `docker ps` and `docker stats --no-stream` snapshots for the active SSH server.
+   - Container rows support default alphabetical name sorting and shift-click multi-column sorting, including CPU and label count.
+   - Open a persistent log watch by container name; it refreshes through rebuilds that reuse the same name.
+   - Manage case-insensitive container-name label rules with custom colors; `dev` → `Dev` and `production` → `production` are included by default.
    - The dashboard refreshes in the background without blocking other local requests; the CLI exposes the same capability with `devboost docker`.
 
 ---

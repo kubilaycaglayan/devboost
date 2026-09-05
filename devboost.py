@@ -21,7 +21,7 @@ import urllib.parse
 import uuid
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 
-from docker_monitor import DockerMonitor, collect_docker_snapshot
+from docker_monitor import DockerMonitor, collect_docker_snapshot, collect_docker_logs
 from remote_transport import run_ssh_command
 
 
@@ -421,6 +421,10 @@ def load_config():
                 cfg = json.load(f)
                 cfg.setdefault("labels", {})
                 cfg.setdefault("rules", {})
+                cfg.setdefault("docker_labels", [
+                    {"id": "dev", "name": "Dev", "match": "dev", "color": "#58a6ff", "enabled": True},
+                    {"id": "production", "name": "production", "match": "production", "color": "#f85149", "enabled": True},
+                ])
                 cfg.setdefault("history", [])
                 cfg, changed = ensure_servers_migrated(cfg)
                 cfg, changed2 = ensure_syncs_migrated(cfg)
@@ -433,7 +437,10 @@ def load_config():
                 return cfg
         except Exception:
             pass
-    cfg = {"labels": {}, "rules": {}, "history": [], "server_labels": {},
+    cfg = {"labels": {}, "rules": {}, "docker_labels": [
+               {"id": "dev", "name": "Dev", "match": "dev", "color": "#58a6ff", "enabled": True},
+               {"id": "production", "name": "production", "match": "production", "color": "#f85149", "enabled": True},
+           ], "history": [], "server_labels": {},
            "servers": [default_server_from_env(order=0)], "syncs": [],
            "folder_history": []}
     return cfg
@@ -2393,17 +2400,48 @@ def clean_orphaned_tunnels(server_ref=None):
 DOCKER_MONITOR = DockerMonitor(interval=5)
 
 
+def get_docker_labels():
+    cfg = load_config()
+    return [dict(label) for label in cfg.get("docker_labels", []) if isinstance(label, dict)]
+
+
+def apply_docker_labels(containers, labels):
+    """Attach all matching case-insensitive name rules, preserving rule order."""
+    for container in containers:
+        name = str(container.get("name") or "").lower()
+        matched = []
+        for label in labels:
+            needle = str(label.get("match") or "").strip().lower()
+            if label.get("enabled", True) and needle and needle in name:
+                matched.append({
+                    "id": str(label.get("id") or label.get("name") or needle),
+                    "name": str(label.get("name") or needle),
+                    "color": str(label.get("color") or "#8b949e"),
+                })
+        container["labels"] = matched
+    return containers
+
+
 def get_docker_status(server_ref=None):
     """Returns the cached Docker snapshot for one configured server."""
     cfg = load_config()
     server = resolve_server(cfg, server_ref)
     snapshot = DOCKER_MONITOR.get(server.get("id"), server.get("ssh_host"))
+    apply_docker_labels(snapshot.get("containers", []), get_docker_labels())
     snapshot.update({
         "server_id": server.get("id"),
         "server_name": server.get("name") or server.get("ssh_host"),
         "server_host": server.get("ssh_host"),
     })
     return snapshot
+
+
+def get_docker_logs(server_ref, container, tail=200):
+    cfg = load_config()
+    server = resolve_server(cfg, server_ref)
+    result = collect_docker_logs(server.get("ssh_host"), container, tail=tail)
+    result.update({"server_id": server.get("id"), "container": container})
+    return result
 
 
 def scan_remote_services(server_ref=None):
@@ -2901,6 +2939,10 @@ HTML_DASHBOARD = """<!DOCTYPE html>
       justify-content: flex-end;
       gap: 10px;
     }
+    .docker-sort { cursor: pointer; user-select: none; white-space: nowrap; }
+    .docker-sort:hover { color: #fff; }
+    .docker-label { display: inline-flex; align-items: center; gap: 4px; padding: 2px 6px; margin: 1px 3px 1px 0; border-radius: 9px; font-size: 10px; color: #fff; border: 1px solid rgba(255,255,255,.25); white-space: nowrap; }
+    .docker-log-output { height: 60vh; overflow: auto; background: #0d1117; color: #c9d1d9; padding: 14px; font: 12px/1.5 var(--font-mono); white-space: pre-wrap; word-break: break-word; }
 
     #toast {
       position: fixed; bottom: 20px; right: 20px;
@@ -2966,22 +3008,26 @@ HTML_DASHBOARD = """<!DOCTYPE html>
     <div class="section-card">
       <div class="section-header">
         <h2>Docker Containers <span class="muted" style="font-weight:400; font-size:12px;" id="docker-subtitle"></span></h2>
-        <button class="btn btn-sm" onclick="fetchDocker()">↻ Refresh</button>
+        <div style="display:flex; gap:8px;">
+          <button class="btn btn-sm" onclick="openDockerLabelsModal()">🏷 Labels</button>
+          <button class="btn btn-sm" onclick="fetchDocker()">↻ Refresh</button>
+        </div>
       </div>
       <table>
         <thead>
           <tr>
-            <th>CONTAINER</th>
-            <th>STATUS</th>
-            <th>CPU</th>
-            <th>MEMORY</th>
-            <th>MEM %</th>
-            <th>NET I/O</th>
+            <th class="docker-sort" onclick="sortDocker('name', event)">CONTAINER <span id="sort-name"></span></th>
+            <th class="docker-sort" onclick="sortDocker('labels', event)">LABELS <span id="sort-labels"></span></th>
+            <th class="docker-sort" onclick="sortDocker('status', event)">STATUS <span id="sort-status"></span></th>
+            <th class="docker-sort" onclick="sortDocker('cpu', event)">CPU <span id="sort-cpu"></span></th>
+            <th class="docker-sort" onclick="sortDocker('memory', event)">MEMORY <span id="sort-memory"></span></th>
+            <th class="docker-sort" onclick="sortDocker('memory_percent', event)">MEM % <span id="sort-memory_percent"></span></th>
+            <th class="docker-sort" onclick="sortDocker('network', event)">NET I/O <span id="sort-network"></span></th>
             <th>IMAGE</th>
           </tr>
         </thead>
         <tbody id="docker-body">
-          <tr><td colspan="7" style="text-align:center; color:var(--text-muted); padding:30px;">Checking Docker on the active server...</td></tr>
+          <tr><td colspan="8" style="text-align:center; color:var(--text-muted); padding:30px;">Checking Docker on the active server...</td></tr>
         </tbody>
       </table>
     </div>
@@ -3252,6 +3298,22 @@ HTML_DASHBOARD = """<!DOCTYPE html>
         <button class="btn btn-primary" onclick="submitManualServer()">Add Manually</button>
       </div>
     </div>
+  </div>
+
+  <div class="modal-overlay" id="docker-labels-modal">
+    <div class="modal" style="max-width:620px;">
+      <div class="modal-header"><h3>Docker label rules</h3><button class="btn btn-sm" onclick="closeDockerLabelsModal()" style="border:none; background:transparent;">✕</button></div>
+      <div class="modal-body">
+        <div class="form-hint" style="margin-bottom:12px;">A rule matches text contained in a container name. Matching rules are shown as compact labels.</div>
+        <div id="docker-label-list"></div>
+        <button class="btn btn-sm" onclick="addDockerLabelRow()" style="margin-top:12px;">＋ Add rule</button>
+      </div>
+      <div class="modal-footer"><button class="btn" onclick="closeDockerLabelsModal()">Cancel</button><button class="btn btn-primary" onclick="saveDockerLabels()">Save labels</button></div>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="docker-log-modal">
+    <div class="modal" style="max-width:1000px;"><div class="modal-header"><h3 id="docker-log-title">Container logs</h3><button class="btn btn-sm" onclick="closeDockerLog()" style="border:none; background:transparent;">✕</button></div><div class="modal-body" style="padding:0;"><pre id="docker-log-output" class="docker-log-output">Connecting...</pre></div></div>
   </div>
 
   <div id="toast"></div>
@@ -3784,6 +3846,65 @@ HTML_DASHBOARD = """<!DOCTYPE html>
       }
     }
 
+    let dockerRows = [];
+    let dockerSorts = [{key: "name", dir: 1}];
+    let dockerLogTimer = null;
+    let dockerLogContainer = "";
+
+    function numericDockerValue(value) {
+      const m = String(value || "").replace(/,/g, "").match(/-?[0-9]+(?:\\.[0-9]+)?/);
+      return m ? Number(m[0]) : -Infinity;
+    }
+    function dockerSortValue(row, key) {
+      const s = row.stats || {};
+      if (key === "name") return String(row.name || row.id || "").toLowerCase();
+      if (key === "labels") return (row.labels || []).length;
+      if (key === "status") return String(row.status || "").toLowerCase();
+      if (key === "cpu") return numericDockerValue(s.cpu_percent);
+      if (key === "memory") return numericDockerValue(s.memory_usage);
+      if (key === "memory_percent") return numericDockerValue(s.memory_percent);
+      if (key === "network") return numericDockerValue(s.network_io);
+      return "";
+    }
+    function sortDocker(key, event) {
+      const multi = event && event.shiftKey;
+      const current = dockerSorts.find(s => s.key === key);
+      if (!multi) dockerSorts = [{key, dir: current ? -current.dir : (key === "name" ? 1 : -1)}];
+      else if (current) current.dir *= -1;
+      else dockerSorts.push({key, dir: key === "name" ? 1 : -1});
+      renderDockerRows();
+    }
+    function renderDockerSortIndicators() {
+      ["name", "labels", "status", "cpu", "memory", "memory_percent", "network"].forEach(key => {
+        const el = document.getElementById("sort-" + key);
+        if (!el) return;
+        const i = dockerSorts.findIndex(s => s.key === key);
+        el.innerText = i < 0 ? "" : (dockerSorts[i].dir > 0 ? "↑" : "↓") + (dockerSorts.length > 1 ? (i + 1) : "");
+      });
+    }
+    function renderDockerRows() {
+      const tbody = document.getElementById("docker-body");
+      const rows = dockerRows.slice().sort((a, b) => {
+        for (const sort of dockerSorts) {
+          const av = dockerSortValue(a, sort.key), bv = dockerSortValue(b, sort.key);
+          if (av < bv) return -1 * sort.dir;
+          if (av > bv) return 1 * sort.dir;
+        }
+        return dockerSortValue(a, "name").localeCompare(dockerSortValue(b, "name"));
+      });
+      tbody.innerHTML = rows.map(c => {
+        const s = c.stats || {};
+        const labels = (c.labels || []).map(l => `<span class="docker-label" style="background:${escapeHtml(l.color || '#8b949e')}" title="matches: ${escapeHtml(l.name || '')}">${escapeHtml(l.name || '')}</span>`).join("") || '<span class="muted">—</span>';
+        return `<tr>
+          <td><button class="btn btn-sm" onclick='openDockerLog(${JSON.stringify(c.name || c.id)})' title="Watch logs">▣</button> <strong>${escapeHtml(c.name || c.id)}</strong><div class="sync-sub">${escapeHtml(c.id || "")}</div></td>
+          <td>${labels}</td><td>${escapeHtml(c.status || "")}</td>
+          <td class="mono">${escapeHtml(s.cpu_percent || "-")}</td><td class="mono">${escapeHtml(s.memory_usage || "-")}</td>
+          <td class="mono">${escapeHtml(s.memory_percent || "-")}</td><td class="mono">${escapeHtml(s.network_io || "-")}</td>
+          <td class="mono" style="max-width:220px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="${escapeHtml(c.image || "")}">${escapeHtml(c.image || "")}</td>
+        </tr>`;
+      }).join("");
+      renderDockerSortIndicators();
+    }
     async function fetchDocker() {
       const tbody = document.getElementById("docker-body");
       const subtitle = document.getElementById("docker-subtitle");
@@ -3796,31 +3917,65 @@ HTML_DASHBOARD = """<!DOCTYPE html>
         }
         if (!data.available) {
           subtitle.innerText = "unavailable";
-          tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; color:var(--warning); padding:30px;">${escapeHtml(data.message || "Docker is unavailable on this server.")}</td></tr>`;
+          tbody.innerHTML = `<tr><td colspan="8" style="text-align:center; color:var(--warning); padding:30px;">${escapeHtml(data.message || "Docker is unavailable on this server.")}</td></tr>`;
           return;
         }
         const age = data.age_seconds == null ? "just now" : `${data.age_seconds}s ago`;
         subtitle.innerText = `${data.containers.length} running • updated ${age}`;
         if (!data.containers.length) {
-          tbody.innerHTML = '<tr><td colspan="7" style="text-align:center; color:var(--text-muted); padding:30px;">Docker is available, but no containers are running.</td></tr>';
+          tbody.innerHTML = '<tr><td colspan="8" style="text-align:center; color:var(--text-muted); padding:30px;">Docker is available, but no containers are running.</td></tr>';
           return;
         }
-        tbody.innerHTML = data.containers.map(c => {
-          const s = c.stats || {};
-          return `<tr>
-            <td><strong>${escapeHtml(c.name || c.id)}</strong><div class="sync-sub">${escapeHtml(c.id || "")}</div></td>
-            <td>${escapeHtml(c.status || "")}</td>
-            <td class="mono">${escapeHtml(s.cpu_percent || "-")}</td>
-            <td class="mono">${escapeHtml(s.memory_usage || "-")}</td>
-            <td class="mono">${escapeHtml(s.memory_percent || "-")}</td>
-            <td class="mono">${escapeHtml(s.network_io || "-")}</td>
-            <td class="mono" style="max-width:220px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="${escapeHtml(c.image || "")}">${escapeHtml(c.image || "")}</td>
-          </tr>`;
-        }).join("");
+        dockerRows = data.containers || [];
+        renderDockerRows();
       } catch (err) {
         subtitle.innerText = "error";
-        tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; color:var(--danger); padding:30px;">Docker query failed: ${escapeHtml(String(err))}</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="8" style="text-align:center; color:var(--danger); padding:30px;">Docker query failed: ${escapeHtml(String(err))}</td></tr>`;
       }
+    }
+
+    function dockerLabelRow(label = {}) {
+      const id = escapeHtml(label.id || "");
+      return `<div class="docker-label-edit" data-id="${id}" style="display:grid; grid-template-columns:1.1fr 1.3fr 72px 28px 28px; gap:8px; align-items:center; margin-bottom:8px;">
+        <input type="text" value="${escapeHtml(label.name || "")}" placeholder="Label name" data-field="name" />
+        <input type="text" value="${escapeHtml(label.match || "")}" placeholder="name contains..." data-field="match" />
+        <input type="color" value="${/^#[0-9a-fA-F]{6}$/.test(label.color || '') ? label.color : '#8b949e'}" data-field="color" title="Label color" />
+        <input type="checkbox" ${label.enabled === false ? "" : "checked"} data-field="enabled" title="Enabled" />
+        <button class="btn btn-sm btn-danger" onclick="this.parentElement.remove()" title="Remove">✕</button></div>`;
+    }
+    function addDockerLabelRow() { document.getElementById("docker-label-list").insertAdjacentHTML("beforeend", dockerLabelRow()); }
+    async function openDockerLabelsModal() {
+      const res = await fetch("/api/docker/labels"); const data = await res.json();
+      document.getElementById("docker-label-list").innerHTML = (data.labels || []).map(dockerLabelRow).join("");
+      document.getElementById("docker-labels-modal").style.display = "flex";
+    }
+    function closeDockerLabelsModal() { document.getElementById("docker-labels-modal").style.display = "none"; }
+    async function saveDockerLabels() {
+      const labels = [...document.querySelectorAll(".docker-label-edit")].map(row => {
+        const get = field => row.querySelector(`[data-field="${field}"]`);
+        return {id: row.dataset.id, name: get("name").value, match: get("match").value, color: get("color").value, enabled: get("enabled").checked};
+      });
+      const res = await fetch("/api/docker/labels", {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({labels})});
+      const data = await res.json(); if (!data.ok) { alert(data.message || "Could not save labels"); return; }
+      closeDockerLabelsModal(); fetchDocker(); showToast("Docker labels saved");
+    }
+    async function openDockerLog(container) {
+      closeDockerLog(); dockerLogContainer = container; document.getElementById("docker-log-title").innerText = `Logs • ${container}`;
+      document.getElementById("docker-log-output").innerText = "Connecting..."; document.getElementById("docker-log-modal").style.display = "flex";
+      await refreshDockerLog(); dockerLogTimer = setInterval(refreshDockerLog, 2000);
+    }
+    function closeDockerLog() { if (dockerLogTimer) clearInterval(dockerLogTimer); dockerLogTimer = null; document.getElementById("docker-log-modal").style.display = "none"; }
+    async function refreshDockerLog() {
+      if (!dockerLogContainer) return;
+      try {
+        const query = serverQuery();
+        const res = await fetch("/api/docker/logs" + (query ? query + "&" : "?") + "container=" + encodeURIComponent(dockerLogContainer) + "&tail=300");
+        const data = await res.json(); const output = document.getElementById("docker-log-output");
+        if (!data.ok) { output.innerText = data.message || "Logs unavailable"; return; }
+        const previous = output.dataset.content || ""; const next = data.logs || "";
+        output.dataset.content = next; output.innerText = next || "(no logs yet — waiting for the container)"; output.scrollTop = output.scrollHeight;
+        if (previous && next && next.length < previous.length && !next.includes(previous)) output.innerText = `[container restarted or rebuilt]\n${next}`;
+      } catch (err) { document.getElementById("docker-log-output").innerText = String(err); }
     }
 
     let servicesTab = "remote";
@@ -4588,6 +4743,15 @@ class DashboardHandler(BaseHTTPRequestHandler):
         elif path == "/api/docker":
             srv = query.get("server", [None])[0] or query.get("server_id", [None])[0]
             self._send_json(get_docker_status(srv))
+        elif path == "/api/docker/logs":
+            srv = query.get("server", [None])[0] or query.get("server_id", [None])[0]
+            container = query.get("container", [""])[0]
+            if not container:
+                self._send_json({"ok": False, "message": "container is required", "logs": ""}, status=400)
+            else:
+                self._send_json(get_docker_logs(srv, container, query.get("tail", [200])[0]))
+        elif path == "/api/docker/labels":
+            self._send_json({"labels": get_docker_labels()})
         elif path == "/api/history":
             srv = query.get("server", [None])[0] or query.get("server_id", [None])[0]
             self._send_json({"history": get_port_history(limit=10, server_id=srv)})
@@ -4653,6 +4817,32 @@ class DashboardHandler(BaseHTTPRequestHandler):
             srv = body.get("server_id") or body.get("server")
             killed = clean_orphaned_tunnels(server_ref=srv)
             self._send_json({"ok": True, "killed": killed})
+        elif path == "/api/docker/labels":
+            labels = body.get("labels")
+            if not isinstance(labels, list):
+                self._send_json({"ok": False, "message": "labels must be a list"}, status=400)
+                return
+            clean = []
+            seen = set()
+            for raw in labels:
+                if not isinstance(raw, dict):
+                    continue
+                name = str(raw.get("name") or "").strip()
+                match = str(raw.get("match") or "").strip()
+                color = str(raw.get("color") or "#8b949e").strip()
+                if not name or not match:
+                    continue
+                ident = str(raw.get("id") or re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-") or uuid.uuid4().hex[:8])
+                if ident in seen:
+                    continue
+                seen.add(ident)
+                if not re.fullmatch(r"#[0-9a-fA-F]{6}", color):
+                    color = "#8b949e"
+                clean.append({"id": ident, "name": name[:80], "match": match[:120], "color": color, "enabled": bool(raw.get("enabled", True))})
+            cfg = load_config()
+            cfg["docker_labels"] = clean
+            save_config(cfg)
+            self._send_json({"ok": True, "labels": clean})
         elif path == "/api/local-ports/kill":
             pid = body.get("pid")
             if pid is None:
