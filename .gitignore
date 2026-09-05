@@ -1,4 +1,8 @@
-# Environment and credentials
+# Local untracked state (per-checkout): app/.env, app/config.json
+# Executable stays in ~/.config/devboost (TCC-safe); only state lives here.
+/app/
+
+# Environment and credentials (legacy root locations, kept ignored for migration)
 .env
 *.env.local
 
