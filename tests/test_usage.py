@@ -44,6 +44,18 @@ class TestUsageMonitoring(unittest.TestCase):
         self.assertEqual(accounts[0]["balance_url"], "https://example.test/new")
         self.assertEqual(accounts[0]["token_env"], "PROVIDER_KEY")
 
+    def test_edit_with_unknown_id_cannot_create_an_account(self):
+        original = devboost.save_usage_account({
+            "provider": "custom", "name": "original", "balance_url": "https://example.test/original",
+        })
+        with self.assertRaisesRegex(ValueError, "usage account not found"):
+            devboost.save_usage_account({
+                "id": "stale-id", "provider": "custom", "name": "accidental-new-row",
+                "balance_url": "https://example.test/new",
+            })
+        accounts = devboost.get_usage_accounts()
+        self.assertEqual([account["id"] for account in accounts], [original["id"]])
+
     def test_command_snapshot_is_normalized_and_persisted(self):
         account = devboost.save_usage_account({"provider": "opencode", "name": "local", "usage_command": ["python3", "-c", "import json; print(json.dumps({'usage': {'daily': {'used': 3, 'limit': 7}}, 'balance': 4.5}))"]})
         status = devboost.get_usage_status(refresh=True)

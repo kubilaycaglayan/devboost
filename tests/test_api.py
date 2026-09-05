@@ -270,6 +270,15 @@ process.stdout.write(JSON.stringify([
             self._post_json("/api/usage/accounts", {"provider": "invalid", "name": "x"})
         self.assertEqual(ctx.exception.code, 400)
 
+    @patch("dashboard.http.save_usage_account", side_effect=ValueError("usage account not found"))
+    def test_api_usage_edit_with_stale_id_returns_error(self, save):
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            self._post_json("/api/usage/accounts", {
+                "id": "stale-id", "provider": "custom", "name": "Changed", "balance_url": "https://example.test/new",
+            })
+        self.assertEqual(ctx.exception.code, 400)
+        save.assert_called_once()
+
     @patch("dashboard.http.remove_usage_account", return_value=False)
     def test_api_usage_remove_reports_missing_account(self, remove):
         with self.assertRaises(urllib.error.HTTPError) as ctx:

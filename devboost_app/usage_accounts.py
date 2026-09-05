@@ -89,9 +89,12 @@ def save_usage_account(data):
         raise ValueError("account name is required")
     cfg, accounts = load_config(), None
     accounts = cfg.setdefault("usage_accounts", [])
-    aid = str(data.get("id") or _usage_account_id(provider, name, [a.get("id") for a in accounts]))
+    requested_id = str(data.get("id") or "").strip()
+    existing = next((a for a in accounts if a.get("id") == requested_id), None) if requested_id else None
+    if requested_id and existing is None:
+        raise ValueError("usage account not found")
+    aid = requested_id or _usage_account_id(provider, name, [a.get("id") for a in accounts])
     allowed = ("id", "provider", "name", "enabled", "usage_command", "balance_url", "token_env", "env", "local_path", "auth_header", "organization", "project", "api_mode", "api_days")
-    existing = next((a for a in accounts if a.get("id") == aid), None)
     account = dict(existing) if isinstance(existing, dict) else {}
     account.update({key: data[key] for key in allowed if key in data})
     # The canonical fields supersede legacy aliases when an account is edited.
