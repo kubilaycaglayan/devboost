@@ -34,15 +34,15 @@ A lightweight, zero-dependency port forward manager and discovery dashboard for 
 ## 📁 Repository Structure
 
 ```text
-port_tracker/
+devboost/
 ├── devboost.py           # Core CLI, REST API & embedded Web Dashboard SPA
 ├── remote_transport.py   # Shared SSH subprocess transport
 ├── docker_monitor.py     # Cached remote Docker snapshots and parsers
 ├── build-app.sh          # Builds the self-contained macOS app bundle
 ├── run-app.sh            # Rebuilds and launches the development app
-├── assets/                 # Static web assets (favicon.png served at /favicon.png)
-│   └── favicon.png         # Dashboard favicon (with embedded fallback in devboost.py)
-├── .env.example            # Environment template for private credentials & host settings
+├── assets/                # Static web assets (favicon.png served at /favicon.png)
+│   └── favicon.png        # Dashboard favicon (with embedded fallback in devboost.py)
+├── .env.example           # Environment template for private credentials & host settings
 ├── config.example.json     # Sample port-to-service label definitions
 ├── launchagents/           # LaunchAgent plist templates
 │   ├── dashboard.plist.template   # Dashboard background daemon template
@@ -55,6 +55,8 @@ port_tracker/
 │   ├── test_config.py
 │   ├── test_env.py
 │   ├── test_manager.py
+│   ├── test_docker.py
+│   ├── test_localports.py
 │   └── test_sync.py
 └── .github/workflows/      # Automated CI workflow running on macOS
 ```
@@ -113,7 +115,7 @@ Only the logical parameter combinations are exposed (the names map 1:1 to the po
 | Run mode | `Once` (one-time sync) / `Auto` (always) | Once = runs now + on-demand via Sync Now, no background agent (the Session equivalent). Auto = persistent LaunchAgent with `WatchPaths` (instant local triggers) + polling every `interval` seconds for remote changes (the Always equivalent). |
 | Interval | 5–600 s (default 15, Auto only) | How often the background agent re-syncs (covers remote-side changes). |
 
-Syncs are stored per server tab in `app/config.json` (`syncs` + `folder_history`), shown in the **Folder Syncs** section below **Configured Port Forwards**, and removable together with their tab. Transport is `rsync -az --update` over the same key-based SSH the tunnels use; the remote folder is created automatically (`mkdir -p`).
+Syncs are stored per server tab in `~/Library/Application Support/DevBoost/config.json` (`syncs` + `folder_history`), shown in the **Folder Syncs** section below **Configured Port Forwards**, and removable together with their tab. Transport is `rsync -az --update` over the same key-based SSH the tunnels use; the remote folder is created automatically (`mkdir -p`).
 
 > **macOS privacy (TCC) note**: browsing or syncing protected folders (`~/Documents`, `~/Desktop`, …) fails with *Operation not permitted* unless the dashboard process is allowed to read them. Fix: System Settings → Privacy & Security → **Full Disk Access** → add your terminal app (Terminal, iTerm, VS Code, …) and restart the dashboard. If the dashboard runs as a background LaunchAgent, add the Python binary that runs it instead.
 
