@@ -68,6 +68,13 @@ class TestDashboardAPI(unittest.TestCase):
         self.assertIn('document.getElementById("header-server-name").innerText = data.server_name', app_js)
         self.assertIn('header-server-name', app_js)
 
+    def test_mirror_syncs_warn_before_destructive_runs(self):
+        with urllib.request.urlopen(self.base_url + "/dashboard/app.js") as resp:
+            app_js = resp.read().decode("utf-8")
+        self.assertIn('Continue with rsync --delete?', app_js)
+        self.assertIn('if (sync && sync.mirror && sync.direction !== "two-way")', app_js)
+        self.assertIn('if (mirror && direction !== "two-way")', app_js)
+
     def test_quotas_can_query_this_mac(self):
         with urllib.request.urlopen(self.base_url + "/") as resp:
             html = resp.read().decode("utf-8")
