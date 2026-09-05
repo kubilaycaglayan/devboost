@@ -63,6 +63,18 @@ class TestDashboardAPI(unittest.TestCase):
         self.assertIn('document.querySelectorAll(".workspace-tab")', app_js)
         self.assertIn('tab.dataset.page === valid', app_js)
 
+    def test_home_tiles_use_readable_emphasized_summary_parts(self):
+        with urllib.request.urlopen(self.base_url + "/dashboard/app.js") as resp:
+            app_js = resp.read().decode("utf-8")
+        self.assertIn("setHomeSummaryParts", app_js)
+        for class_name in ("tile-summary-count", "tile-port", "tile-docker", "tile-sync", "tile-usage"):
+            self.assertIn(class_name, app_js)
+        with urllib.request.urlopen(self.base_url + "/dashboard/styles.css") as resp:
+            css = resp.read().decode("utf-8")
+        self.assertIn("font-size: 19px", css)
+        self.assertIn("font-size: 14px", css)
+        self.assertIn("font-weight: 800", css)
+
     def test_server_tabs_keep_edit_and_drag_order_controls_without_extra_details(self):
         with urllib.request.urlopen(self.base_url + "/dashboard/app.js") as resp:
             app_js = resp.read().decode("utf-8")

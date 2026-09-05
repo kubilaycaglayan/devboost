@@ -30,8 +30,15 @@
       text-decoration: none; transition: transform .16s ease, border-color .16s ease, background .16s ease;
     }
     .feature-tile:hover { transform: translateY(-3px); border-color: #8b949e; color: #fff; }
-    .feature-tile strong { display: block; color: #fff; font-size: 16px; margin-bottom: 5px; }
-    .feature-tile small { display: block; color: var(--text-muted); font-size: 12px; line-height: 1.4; }
+    .feature-tile strong { display: block; color: #fff; font-size: 19px; margin-bottom: 8px; letter-spacing: .1px; }
+    .feature-tile small { display: block; color: #d5dbe3; font-size: 14px; line-height: 1.55; font-weight: 500; }
+    .feature-tile .tile-summary-count { color: #fff; font-weight: 800; }
+    .feature-tile .tile-separator { color: rgba(255,255,255,.48); font-weight: 400; }
+    .feature-tile .tile-detail { font-weight: 700; }
+    .feature-tile .tile-port { color: #b9dcff; font-family: var(--font-mono); }
+    .feature-tile .tile-docker { color: #d8c2ff; }
+    .feature-tile .tile-sync { color: #b9efc1; }
+    .feature-tile .tile-usage { color: #ffc6e4; }
     .feature-icon { width: 48px; height: 48px; display: grid; place-items: center; border-radius: 14px; color: #fff; font-size: 25px; font-weight: 500; background: rgba(255,255,255,.13); }
     .feature-arrow { position: absolute; right: 24px; top: 22px; color: rgba(255,255,255,.65); font-size: 27px; text-align: right; }
     .tile-blue { background: linear-gradient(135deg, rgba(35,134,214,.32), rgba(35,134,214,.10)); }

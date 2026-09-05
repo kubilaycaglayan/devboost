@@ -59,9 +59,25 @@
       const el = document.getElementById(id);
       if (el) el.textContent = text;
     }
+    function setHomeSummaryParts(id, parts) {
+      const el = document.getElementById(id);
+      if (!el) return;
+      el.replaceChildren(...parts.map(part => {
+        const span = document.createElement("span");
+        span.className = part.className || "tile-detail";
+        span.textContent = part.text;
+        return span;
+      }));
+    }
+    function summarySeparator() { return {text: " · ", className: "tile-separator"}; }
     function renderHomeForwardsSummary(forwards) {
       const ports = (forwards || []).map(f => `:${f.local_port}`);
-      setHomeSummary("home-forwards-summary", ports.length ? `${ports.length} forwarded · ${ports.join(", ")}` : "No forwarded ports");
+      if (!ports.length) { setHomeSummary("home-forwards-summary", "No forwarded ports"); return; }
+      const parts = [{text: `${ports.length} forwarded`, className: "tile-summary-count"}];
+      ports.forEach((port, index) => {
+        parts.push(summarySeparator(), {text: port, className: "tile-detail tile-port"});
+      });
+      setHomeSummaryParts("home-forwards-summary", parts);
     }
     function renderHomeDockerSummary(containers) {
       const groups = {};
@@ -69,14 +85,20 @@
         const labels = (container.labels || []).map(label => label.name).filter(Boolean);
         (labels.length ? labels : ["Untagged"]).forEach(label => { groups[label] = (groups[label] || 0) + 1; });
       });
-      const tags = Object.entries(groups).map(([label, count]) => `${count} ${label}`);
-      setHomeSummary("home-docker-summary", containers && containers.length ? `${containers.length} running · ${tags.join(" · ")}` : "No running containers");
+      const tags = Object.entries(groups);
+      if (!containers || !containers.length) { setHomeSummary("home-docker-summary", "No running containers"); return; }
+      const parts = [{text: `${containers.length} running`, className: "tile-summary-count"}];
+      tags.forEach(([label, count]) => parts.push(summarySeparator(), {text: `${count} ${label}`, className: "tile-detail tile-docker"}));
+      setHomeSummaryParts("home-docker-summary", parts);
     }
     function renderHomeSyncSummary(syncs) {
       const paths = (syncs || []).map(sync => `${sync.local_path} → ${sync.remote_path}`);
       const shown = paths.slice(0, 2);
       if (paths.length > shown.length) shown.push(`+${paths.length - shown.length} more`);
-      setHomeSummary("home-syncs-summary", shown.length ? `${paths.length} active · ${shown.join(" · ")}` : "No active folder syncs");
+      if (!shown.length) { setHomeSummary("home-syncs-summary", "No active folder syncs"); return; }
+      const parts = [{text: `${paths.length} active`, className: "tile-summary-count"}];
+      shown.forEach(path => parts.push(summarySeparator(), {text: path, className: "tile-detail tile-sync"}));
+      setHomeSummaryParts("home-syncs-summary", parts);
     }
     function renderHomeUsageSummary(accounts, snapshots) {
       const summaries = (accounts || []).map(account => {
@@ -86,7 +108,10 @@
         (snapshot.balances || []).filter(b => b.remaining != null).forEach(b => left.push(`${b.remaining} ${b.currency || "USD"} left`));
         return left.length ? `${account.name}: ${left.join(", ")}` : null;
       }).filter(Boolean);
-      setHomeSummary("home-usage-summary", summaries.length ? summaries.join(" · ") : "No remaining usage data");
+      if (!summaries.length) { setHomeSummary("home-usage-summary", "No remaining usage data"); return; }
+      const parts = [];
+      summaries.forEach(summary => parts.push(...(parts.length ? [summarySeparator()] : []), {text: summary, className: "tile-detail tile-usage"}));
+      setHomeSummaryParts("home-usage-summary", parts);
     }
     function renderUsage(data) {
       const body = document.getElementById("usage-body");
