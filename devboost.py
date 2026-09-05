@@ -19,6 +19,8 @@ import subprocess
 import tempfile
 import urllib.parse
 import uuid
+import threading
+import datetime
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 
 from docker_monitor import DockerMonitor, collect_docker_snapshot, collect_docker_logs
@@ -426,6 +428,8 @@ def load_config():
                     {"id": "production", "name": "production", "match": "production", "color": "#f85149", "enabled": True},
                 ])
                 cfg.setdefault("history", [])
+                cfg.setdefault("usage_accounts", [])
+                cfg.setdefault("usage_snapshots", {})
                 cfg, changed = ensure_servers_migrated(cfg)
                 cfg, changed2 = ensure_syncs_migrated(cfg)
                 changed = changed or changed2
@@ -440,7 +444,8 @@ def load_config():
     cfg = {"labels": {}, "rules": {}, "docker_labels": [
                {"id": "dev", "name": "Dev", "match": "dev", "color": "#58a6ff", "enabled": True},
                {"id": "production", "name": "production", "match": "production", "color": "#f85149", "enabled": True},
-           ], "history": [], "server_labels": {},
+           ], "history": [], "server_labels": {}, "usage_accounts": [],
+           "usage_snapshots": {},
            "servers": [default_server_from_env(order=0)], "syncs": [],
            "folder_history": []}
     return cfg
@@ -2942,7 +2947,27 @@ HTML_DASHBOARD = """<!DOCTYPE html>
     .docker-sort { cursor: pointer; user-select: none; white-space: nowrap; }
     .docker-sort:hover { color: #fff; }
     .docker-label { display: inline-flex; align-items: center; gap: 4px; padding: 2px 6px; margin: 1px 3px 1px 0; border-radius: 9px; font-size: 10px; color: #fff; border: 1px solid rgba(255,255,255,.25); white-space: nowrap; }
-    .docker-log-output { height: 60vh; overflow: auto; background: #0d1117; color: #c9d1d9; padding: 14px; font: 12px/1.5 var(--font-mono); white-space: pre-wrap; word-break: break-word; }
+    #docker-log-modal { padding: 16px; }
+    #docker-log-modal .modal {
+      width: min(1000px, 92vw);
+      height: min(720px, 78vh);
+      min-width: 360px;
+      min-height: 260px;
+      max-width: 96vw;
+      max-height: 92vh;
+      display: flex;
+      flex-direction: column;
+      resize: both;
+      overflow: hidden;
+    }
+    #docker-log-modal .modal-header { flex: 0 0 auto; gap: 12px; }
+    #docker-log-modal .modal-header h3 { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .docker-log-tools { display: flex; align-items: center; gap: 6px; flex: 1; min-width: 0; }
+    .docker-log-search { flex: 1; min-width: 80px; padding: 5px 8px; background: #0d1117; border: 1px solid var(--border); border-radius: 6px; color: var(--text); font-size: 12px; }
+    .docker-log-search:focus { outline: none; border-color: var(--accent); }
+    .docker-log-count { color: var(--text-muted); font-size: 11px; white-space: nowrap; }
+    .docker-log-output { flex: 1; min-height: 0; overflow: auto; margin: 0; background: #0d1117; color: #c9d1d9; padding: 14px; font: 12px/1.5 var(--font-mono); white-space: pre-wrap; word-break: break-word; }
+    .docker-log-output mark { background: rgba(210, 153, 34, 0.45); color: #fff; border-radius: 2px; }
 
     #toast {
       position: fixed; bottom: 20px; right: 20px;
@@ -3313,7 +3338,20 @@ HTML_DASHBOARD = """<!DOCTYPE html>
   </div>
 
   <div class="modal-overlay" id="docker-log-modal">
-    <div class="modal" style="max-width:1000px;"><div class="modal-header"><h3 id="docker-log-title">Container logs</h3><button class="btn btn-sm" onclick="closeDockerLog()" style="border:none; background:transparent;">✕</button></div><div class="modal-body" style="padding:0;"><pre id="docker-log-output" class="docker-log-output">Connecting...</pre></div></div>
+    <div class="modal" id="docker-log-window">
+      <div class="modal-header">
+        <h3 id="docker-log-title">Container logs</h3>
+        <div class="docker-log-tools">
+          <input id="docker-log-search" class="docker-log-search" type="search" placeholder="Search logs…" oninput="renderDockerLog()" />
+          <span id="docker-log-count" class="docker-log-count"></span>
+          <button class="btn btn-sm" onclick="changeDockerLogFont(-1)" title="Decrease font size" aria-label="Decrease font size">A−</button>
+          <button class="btn btn-sm" onclick="changeDockerLogFont(1)" title="Increase font size" aria-label="Increase font size">A＋</button>
+          <button class="btn btn-sm" onclick="resetDockerLogView()" title="Reset log window size and font" aria-label="Reset log window size and font">↺</button>
+        </div>
+        <button class="btn btn-sm" onclick="closeDockerLog()" style="border:none; background:transparent;">✕</button>
+      </div>
+      <div class="modal-body" style="padding:0; flex:1; min-height:0;"><pre id="docker-log-output" class="docker-log-output">Connecting...</pre></div>
+    </div>
   </div>
 
   <div id="toast"></div>
@@ -3850,6 +3888,50 @@ HTML_DASHBOARD = """<!DOCTYPE html>
     let dockerSorts = [{key: "name", dir: 1}];
     let dockerLogTimer = null;
     let dockerLogContainer = "";
+    let dockerLogProfileKey = "";
+    let dockerLogResizeObserver = null;
+    const DOCKER_LOG_DEFAULTS = {fontSize: 12, width: 1000, height: 720, search: ""};
+
+    function dockerLogStorageKey() {
+      return `devboost-docker-log:${currentServerId || currentServerHost || "default"}:${dockerLogContainer}`;
+    }
+    function getDockerLogProfile() {
+      try { return {...DOCKER_LOG_DEFAULTS, ...(JSON.parse(localStorage.getItem(dockerLogProfileKey) || "{}"))}; }
+      catch (_) { return {...DOCKER_LOG_DEFAULTS}; }
+    }
+    function saveDockerLogProfile(changes) {
+      try { localStorage.setItem(dockerLogProfileKey, JSON.stringify({...getDockerLogProfile(), ...changes})); } catch (_) {}
+    }
+    function applyDockerLogProfile() {
+      const profile = getDockerLogProfile();
+      const windowEl = document.getElementById("docker-log-window");
+      const search = document.getElementById("docker-log-search");
+      windowEl.style.width = `${profile.width}px`; windowEl.style.height = `${profile.height}px`;
+      document.getElementById("docker-log-output").style.fontSize = `${profile.fontSize}px`;
+      search.value = profile.search;
+    }
+    function renderDockerLog() {
+      const output = document.getElementById("docker-log-output");
+      const raw = output.dataset.content || "";
+      const query = document.getElementById("docker-log-search").value;
+      saveDockerLogProfile({search: query});
+      const lines = raw ? raw.split("\n") : [];
+      const matching = query ? lines.filter(line => line.toLowerCase().includes(query.toLowerCase())) : lines;
+      const needle = query ? new RegExp(query.replace(/[.*+?^${}()|[\\]\\\\]/g, "\\\\$&"), "ig") : null;
+      const rendered = matching.map(line => escapeHtml(line).replace(needle, match => `<mark>${match}</mark>`)).join("\n");
+      output.innerHTML = rendered || (query ? "(no matching log lines)" : "(no logs yet — waiting for the container)");
+      document.getElementById("docker-log-count").innerText = query ? `${matching.length}/${lines.length} lines` : `${lines.length} lines`;
+    }
+    function changeDockerLogFont(delta) {
+      const profile = getDockerLogProfile();
+      const fontSize = Math.max(9, Math.min(24, profile.fontSize + delta));
+      saveDockerLogProfile({fontSize});
+      document.getElementById("docker-log-output").style.fontSize = `${fontSize}px`;
+    }
+    function resetDockerLogView() {
+      saveDockerLogProfile(DOCKER_LOG_DEFAULTS);
+      applyDockerLogProfile(); renderDockerLog();
+    }
 
     function numericDockerValue(value) {
       const m = String(value || "").replace(/,/g, "").match(/-?[0-9]+(?:\\.[0-9]+)?/);
@@ -3960,11 +4042,19 @@ HTML_DASHBOARD = """<!DOCTYPE html>
       closeDockerLabelsModal(); fetchDocker(); showToast("Docker labels saved");
     }
     async function openDockerLog(container) {
-      closeDockerLog(); dockerLogContainer = container; document.getElementById("docker-log-title").innerText = `Logs • ${container}`;
-      document.getElementById("docker-log-output").innerText = "Connecting..."; document.getElementById("docker-log-modal").style.display = "flex";
+      closeDockerLog(); dockerLogContainer = container; dockerLogProfileKey = dockerLogStorageKey();
+      document.getElementById("docker-log-title").innerText = `Logs • ${container}`;
+      const output = document.getElementById("docker-log-output"); output.dataset.content = ""; output.innerText = "Connecting...";
+      applyDockerLogProfile(); document.getElementById("docker-log-modal").style.display = "flex";
+      if (dockerLogResizeObserver) dockerLogResizeObserver.disconnect();
+      dockerLogResizeObserver = new ResizeObserver(() => {
+        const windowEl = document.getElementById("docker-log-window");
+        saveDockerLogProfile({width: Math.round(windowEl.getBoundingClientRect().width), height: Math.round(windowEl.getBoundingClientRect().height)});
+      });
+      dockerLogResizeObserver.observe(document.getElementById("docker-log-window"));
       await refreshDockerLog(); dockerLogTimer = setInterval(refreshDockerLog, 2000);
     }
-    function closeDockerLog() { if (dockerLogTimer) clearInterval(dockerLogTimer); dockerLogTimer = null; document.getElementById("docker-log-modal").style.display = "none"; }
+    function closeDockerLog() { if (dockerLogTimer) clearInterval(dockerLogTimer); dockerLogTimer = null; if (dockerLogResizeObserver) dockerLogResizeObserver.disconnect(); document.getElementById("docker-log-modal").style.display = "none"; }
     async function refreshDockerLog() {
       if (!dockerLogContainer) return;
       try {
@@ -3973,8 +4063,9 @@ HTML_DASHBOARD = """<!DOCTYPE html>
         const data = await res.json(); const output = document.getElementById("docker-log-output");
         if (!data.ok) { output.innerText = data.message || "Logs unavailable"; return; }
         const previous = output.dataset.content || ""; const next = data.logs || "";
-        output.dataset.content = next; output.innerText = next || "(no logs yet — waiting for the container)"; output.scrollTop = output.scrollHeight;
-        if (previous && next && next.length < previous.length && !next.includes(previous)) output.innerText = `[container restarted or rebuilt]\n${next}`;
+        output.dataset.content = previous && next && next.length < previous.length && !next.includes(previous) ? `[container restarted or rebuilt]\n${next}` : next;
+        renderDockerLog();
+        if (!document.getElementById("docker-log-search").value) output.scrollTop = output.scrollHeight;
       } catch (err) { document.getElementById("docker-log-output").innerText = String(err); }
     }
 
