@@ -65,6 +65,22 @@ class TestDashboardAPI(unittest.TestCase):
         self.assertIn('document.querySelectorAll(".workspace-tab")', app_js)
         self.assertIn('tab.dataset.page === valid', app_js)
 
+    def test_usage_bar_assets_are_served_and_rendered(self):
+        with urllib.request.urlopen(self.base_url + "/dashboard/usage_metrics.js") as resp:
+            self.assertEqual(resp.status, 200)
+            self.assertIn("usageGrade", resp.read().decode("utf-8"))
+        with urllib.request.urlopen(self.base_url + "/dashboard/app.js") as resp:
+            app_js = resp.read().decode("utf-8")
+        self.assertIn("role=\"meter\"", app_js)
+        self.assertIn("usageMetrics.usageGrade", app_js)
+        with urllib.request.urlopen(self.base_url + "/dashboard/usage_metrics.js") as resp:
+            metrics_js = resp.read().decode("utf-8")
+        self.assertIn("usage-grade-green", metrics_js)
+        with urllib.request.urlopen(self.base_url + "/dashboard/styles.css") as resp:
+            css = resp.read().decode("utf-8")
+        for grade in ("green", "yellow", "orange", "red"):
+            self.assertIn(f".usage-grade-{grade} span", css)
+
     def test_home_tiles_use_readable_emphasized_summary_parts(self):
         with urllib.request.urlopen(self.base_url + "/dashboard/app.js") as resp:
             app_js = resp.read().decode("utf-8")
@@ -83,6 +99,8 @@ class TestDashboardAPI(unittest.TestCase):
         self.assertIn("editServer", app_js)
         self.assertIn('draggable="true"', app_js)
         self.assertIn("onTabDrop", app_js)
+        self.assertIn("source.style.display = \"none\"", app_js)
+        self.assertIn("source.parentNode.insertBefore(shadow, source)", app_js)
         self.assertIn("Manage servers", app_js)
         self.assertIn("renderServerManagement", app_js)
         self.assertIn("onclick=\"editServer('${s.id}')\"", app_js)
@@ -306,6 +324,12 @@ process.stdout.write(JSON.stringify([
         with urllib.request.urlopen(self.base_url + "/api/usage?refresh=true&account=work") as response:
             self.assertEqual(response.status, 200)
         get_usage.assert_called_once_with(refresh=True, account_id="work")
+
+    @patch("dashboard.http.get_usage_status", return_value={"accounts": [], "snapshots": {}, "server_id": "box"})
+    def test_api_usage_get_targets_selected_server(self, get_usage):
+        with urllib.request.urlopen(self.base_url + "/api/usage?server=box&refresh=1") as response:
+            self.assertEqual(response.status, 200)
+        get_usage.assert_called_once_with(refresh=True, account_id=None, server_ref="box")
 
     @patch("dashboard.http.get_docker_logs", return_value={"ok": True, "logs": "hello"})
     def test_api_docker_logs_delegates_container_and_tail(self, get_logs):

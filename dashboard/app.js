@@ -12,6 +12,7 @@
     let editingUsageId = null;
     let usageAccounts = [];
     let usageRequestInFlight = false;
+    const usageMetrics = globalThis.DevBoostUsageMetrics;
     let browserLocalCur = "";
     let browserRemoteCur = "";
     let serversLoaded = false;
@@ -43,19 +44,10 @@
     }
     function usageNumber(value) { return value == null ? "—" : String(value); }
     function usagePercent(quota) {
-      const limit = Number(quota && quota.limit);
-      if (!Number.isFinite(limit) || limit <= 0) return null;
-      const used = Number(quota.used);
-      if (Number.isFinite(used)) return Math.max(0, Math.min(100, used / limit * 100));
-      const remaining = Number(quota.remaining);
-      if (Number.isFinite(remaining)) return Math.max(0, Math.min(100, (limit - remaining) / limit * 100));
-      return null;
+      return usageMetrics.usagePercent(quota);
     }
     function usageGrade(percent) {
-      if (percent <= 50) return "usage-grade-green";
-      if (percent <= 75) return "usage-grade-yellow";
-      if (percent <= 90) return "usage-grade-orange";
-      return "usage-grade-red";
+      return usageMetrics.usageGrade(percent);
     }
     function renderUsageQuota(quota) {
       const percent = usagePercent(quota);

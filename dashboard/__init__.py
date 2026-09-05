@@ -17,7 +17,8 @@ def load_dashboard_html():
 
 def read_asset(name):
     """Return a dashboard asset, raising FileNotFoundError for unknown names."""
-    allowed = {"styles.css": "text/css; charset=utf-8", "app.js": "text/javascript; charset=utf-8"}
+    allowed = {"styles.css": "text/css; charset=utf-8", "app.js": "text/javascript; charset=utf-8",
+               "usage_metrics.js": "text/javascript; charset=utf-8"}
     if name not in allowed:
         raise FileNotFoundError(name)
     return _read_asset(name), allowed[name]
