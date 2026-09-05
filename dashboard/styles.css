@@ -109,6 +109,19 @@
     .btn-danger { color: var(--danger); }
     .btn-danger:hover { background: rgba(248, 81, 73, 0.15); border-color: var(--danger); }
     .btn-sm { padding: 4px 8px; font-size: 12px; }
+    .docker-logs-button {
+      margin-right: 9px;
+      padding: 3px 6px;
+      color: #d8c2ff;
+      border-color: rgba(166, 126, 255, .35);
+      background: rgba(137, 87, 229, .10);
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: .7px;
+      line-height: 1.2;
+      vertical-align: middle;
+    }
+    .docker-logs-button:hover { color: #fff; border-color: #a77bff; background: rgba(137, 87, 229, .22); }
     @media (max-width: 650px) {
       body { padding: 14px; }
       .feature-grid { grid-template-columns: 1fr; }

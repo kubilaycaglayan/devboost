@@ -1128,7 +1128,7 @@
         const s = c.stats || {};
         const labels = (c.labels || []).map(l => `<span class="docker-label" style="background:${escapeHtml(l.color || '#8b949e')}" title="matches: ${escapeHtml(l.name || '')}">${escapeHtml(l.name || '')}</span>`).join("") || '<span class="muted">—</span>';
         return `<tr>
-          <td><button class="btn btn-sm" onclick='openDockerLog(${JSON.stringify(c.name || c.id)})' title="Watch logs">▣</button> <strong>${escapeHtml(c.name || c.id)}</strong><div class="sync-sub">${escapeHtml(c.id || "")}</div></td>
+          <td><button class="btn btn-sm docker-logs-button" onclick='openDockerLog(${JSON.stringify(c.name || c.id)})' title="Watch logs">LOGS</button><strong>${escapeHtml(c.name || c.id)}</strong><div class="sync-sub">${escapeHtml(c.id || "")}</div></td>
           <td>${labels}</td><td>${escapeHtml(c.status || "")}</td>
           <td class="mono">${escapeHtml(s.cpu_percent || "-")}</td><td class="mono">${escapeHtml(s.memory_usage || "-")}</td>
           <td class="mono">${escapeHtml(s.memory_percent || "-")}</td><td class="mono">${escapeHtml(s.network_io || "-")}</td>
