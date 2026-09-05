@@ -384,6 +384,7 @@
       overflow: hidden;
     }
     #docker-log-modal .modal-header { flex: 0 0 auto; gap: 12px; }
+    #docker-log-modal .modal-body { display: flex; flex: 1 1 auto; flex-direction: column; min-height: 0; overflow: hidden; }
     #docker-log-modal .modal-header h3 { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .docker-log-tools { display: flex; align-items: center; gap: 6px; flex: 1; min-width: 0; }
     .docker-log-search { flex: 1; min-width: 80px; padding: 5px 8px; background: #0d1117; border: 1px solid var(--border); border-radius: 6px; color: var(--text); font-size: 12px; }
