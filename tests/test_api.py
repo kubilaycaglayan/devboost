@@ -70,6 +70,11 @@ class TestDashboardAPI(unittest.TestCase):
         self.assertIsNot(bound["get_all_forwards_status"], wrapper)
         self.assertEqual(bound["get_all_forwards_status"].__module__, "devboost_app.forwarding")
 
+        sync_runtime = types.SimpleNamespace(__name__="__main__", check_rsync_prereqs=wrapper)
+        sync_bound = devboost.folder_sync._bound_functions(sync_runtime)
+        self.assertIsNot(sync_bound["check_rsync_prereqs"], wrapper)
+        self.assertEqual(sync_bound["check_rsync_prereqs"].__module__, "devboost_app.folder_sync")
+
     def test_api_scan(self):
         req = urllib.request.Request(f"{self.base_url}/api/scan")
         with urllib.request.urlopen(req) as resp:

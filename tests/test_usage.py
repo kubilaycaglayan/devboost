@@ -130,6 +130,13 @@ class TestUsageMonitoring(unittest.TestCase):
     def test_provider_default_command_detects_installed_cli(self, _which):
         self.assertEqual(devboost._provider_default_command("opencode"), ["opencode", "stats"])
 
+    @patch.object(devboost.usage_helpers.shutil, "which", return_value=None)
+    def test_usage_refresh_without_adapter_has_actionable_error(self, _which):
+        snapshot = devboost.refresh_usage_account({"provider": "opencode", "name": "local"})
+        self.assertFalse(snapshot["ok"])
+        self.assertIn("no safe machine-readable usage adapter", snapshot["message"])
+        self.assertNotIn("shutil", snapshot["message"])
+
     def test_codex_local_rate_limits_are_native_quota_data(self):
         records = os.path.join(self.tmp.name, "codex")
         os.makedirs(records)
