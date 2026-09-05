@@ -4962,6 +4962,20 @@ def cli_docker(server_ref=None):
     print("=" * 120)
 
 
+def cli_lazydocker(server_ref=None):
+    """Open the interactive lazydocker TUI on the selected SSH server."""
+    cfg = load_config()
+    server = resolve_server(cfg, server_ref)
+    host = server.get("ssh_host")
+    print(f"Opening lazydocker on {host}...")
+    result = subprocess.run([
+        "ssh", "-t", "-o", "BatchMode=yes", "-o", "ConnectTimeout=5",
+        host, "lazydocker",
+    ])
+    if result.returncode != 0:
+        print("Could not start lazydocker. Check that it is installed on the server and that SSH works.")
+
+
 def print_history_hint(server_ref=None):
     history = get_port_history(limit=10, server_id=server_ref)
     if not history:
@@ -5027,6 +5041,7 @@ Usage:
   devboost clean [--server ID]   Kill lingering duplicate/orphaned SSH processes
   devboost scan [--server ID]    Scan listening ports on a remote server
   devboost docker [--server ID]  Show cached Docker container stats on a remote server
+  devboost lazydocker [--server ID]  Open the interactive lazydocker TUI over SSH
   devboost server list           List SSH connection tabs
   devboost server add <ssh-host> [display-name]   Add a tab (host should exist in ~/.ssh/config)
   devboost server rm <id>        Remove a tab (stops its tunnels)
@@ -5124,6 +5139,9 @@ def main():
     elif cmd == "docker":
         server_ref, _ = _extract_server_flag(args[1:])
         cli_docker(server_ref=server_ref)
+    elif cmd == "lazydocker":
+        server_ref, _ = _extract_server_flag(args[1:])
+        cli_lazydocker(server_ref=server_ref)
     elif cmd in ("add", "forward"):
         server_ref, filtered = _extract_server_flag(args[1:])
         fargs = [cmd] + filtered

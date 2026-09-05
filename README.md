@@ -149,6 +149,9 @@ devboost scan
 # Show Docker containers and resource snapshots on the remote server
 devboost docker [--server ID]
 
+# Open the interactive lazydocker terminal UI on the remote server
+devboost lazydocker [--server ID]
+
 # Clean up duplicate / orphaned background SSH processes
 devboost clean
 

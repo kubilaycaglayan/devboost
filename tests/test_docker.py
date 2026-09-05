@@ -8,6 +8,7 @@ import os
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from docker_monitor import collect_docker_snapshot, parse_docker_output
+import devboost
 
 
 class TestDockerMonitor(unittest.TestCase):
@@ -49,6 +50,19 @@ class TestDockerMonitor(unittest.TestCase):
         self.assertFalse(result["ok"])
         self.assertFalse(result["available"])
         self.assertIn("not installed", result["message"])
+
+    @patch("devboost.subprocess.run")
+    @patch("devboost.load_config")
+    def test_lazydocker_uses_interactive_ssh(self, mock_load_config, mock_run):
+        mock_run.return_value = subprocess.CompletedProcess(args=[], returncode=0)
+        mock_load_config.return_value = {
+            "servers": [{"id": "myhost", "ssh_host": "myhost", "name": "My host", "order": 0}],
+            "labels": {}, "server_labels": {}, "syncs": [], "history": [],
+        }
+        devboost.cli_lazydocker("myhost")
+        args = mock_run.call_args.args[0]
+        self.assertEqual(args[-2:], ["myhost", "lazydocker"])
+        self.assertIn("-t", args)
 
 
 if __name__ == "__main__":
