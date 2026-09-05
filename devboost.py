@@ -2754,6 +2754,16 @@ HTML_DASHBOARD = """<!DOCTYPE html>
     }
     .modal-header h3 { font-size: 16px; color: #fff; }
     .modal-body { padding: 20px; }
+    /* The folder-sync form can be taller than short laptop viewports. Keep
+       its title and actions in view while only the form fields scroll. */
+    #sync-modal .modal {
+      max-height: calc(100vh - 32px);
+      max-height: calc(100dvh - 32px);
+      display: flex;
+      flex-direction: column;
+    }
+    #sync-modal .modal-header, #sync-modal .modal-footer { flex: 0 0 auto; }
+    #sync-modal .modal-body { min-height: 0; overflow-y: auto; }
     .form-group { margin-bottom: 16px; }
     .form-group label { display: block; font-size: 12px; color: var(--text-muted); margin-bottom: 6px; font-weight: 500; }
     .form-group input[type="text"], .form-group input[type="number"] {
@@ -2823,6 +2833,8 @@ HTML_DASHBOARD = """<!DOCTYPE html>
       color: var(--text-muted);
     }
     .browser-bar .cur { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); }
+    .browser-bar .suggest-wrap { flex: 1; min-width: 0; }
+    .browser-bar .suggest-list { max-height: 160px; z-index: 70; }
     .browser-path {
       flex: 1; min-width: 0;
       padding: 5px 8px;
@@ -3069,7 +3081,7 @@ HTML_DASHBOARD = """<!DOCTYPE html>
     </div>
   </div>
 
-  <!-- Add Folder Sync Modal (dual file-system quick select) -->
+  <!-- Add Folder Sync Modal (dual file-system path matcher) -->
   <div class="modal-overlay" id="sync-modal">
     <div class="modal" style="max-width:560px;">
       <div class="modal-header">
@@ -3082,10 +3094,10 @@ HTML_DASHBOARD = """<!DOCTYPE html>
           <div class="recent-chips" id="recent-folders-chips"></div>
         </div>
         <div class="form-group">
-          <label>Local folder (this Mac)</label>
+          <label>Local folder (this Mac) <span class="form-hint">Type to match folders; Tab / Shift+Tab cycles matches.</span></label>
           <div class="path-row">
             <div class="suggest-wrap">
-              <input type="text" id="sync-local-path" placeholder="e.g. /Users/you/projects/app — type to search" autocomplete="off" spellcheck="false"
+              <input type="text" id="sync-local-path" placeholder="e.g. /Users/you/projects/app — type to search" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false"
                      oninput="onSyncPathInput('local')" onkeydown="onSuggestKey(event, 'local')" onblur="hideSuggest('local')" onfocus="onSyncPathInput('local')" />
               <div class="suggest-list" id="suggest-local"></div>
             </div>
@@ -3095,9 +3107,12 @@ HTML_DASHBOARD = """<!DOCTYPE html>
             <div class="browser-bar">
               <button class="btn btn-sm" onclick="browseLocalGo('..')" title="Up one level">⬆</button>
               <button class="btn btn-sm" onclick="browseLocalGo('~')" title="Home">⌂</button>
-              <input class="browser-path" id="browser-local-path" value="~" spellcheck="false"
-                     title="Type a path and press Enter to jump there"
-                     onkeydown="if (event.key === 'Enter') browserGo('local')" />
+              <div class="suggest-wrap">
+                <input class="browser-path" id="browser-local-path" value="~" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false"
+                       title="Type to match folders. Tab / Shift+Tab cycles matches; Enter opens one."
+                       oninput="onBrowserPathInput('local')" onkeydown="onBrowserSuggestKey(event, 'local')" onblur="hideBrowserSuggest('local')" />
+                <div class="suggest-list" id="browser-suggest-local"></div>
+              </div>
               <button class="btn btn-sm" onclick="browserGo('local')" title="Go to typed path">Go</button>
               <button class="btn btn-sm" onclick="mkdirBrowser('local')" title="Create new folder here">＋</button>
               <button class="btn btn-sm btn-primary" onclick="pickBrowserPath('local')">Select</button>
@@ -3106,10 +3121,10 @@ HTML_DASHBOARD = """<!DOCTYPE html>
           </div>
         </div>
         <div class="form-group">
-          <label id="sync-remote-label">Remote folder (on server)</label>
+          <label><span id="sync-remote-label">Remote folder (on server)</span> <span class="form-hint">Type to match folders; Tab / Shift+Tab cycles matches.</span></label>
           <div class="path-row">
             <div class="suggest-wrap">
-              <input type="text" id="sync-remote-path" placeholder="e.g. ~/projects/app — type to search" autocomplete="off" spellcheck="false"
+              <input type="text" id="sync-remote-path" placeholder="e.g. ~/projects/app — type to search" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false"
                      oninput="onSyncPathInput('remote')" onkeydown="onSuggestKey(event, 'remote')" onblur="hideSuggest('remote')" onfocus="onSyncPathInput('remote')" />
               <div class="suggest-list" id="suggest-remote"></div>
             </div>
@@ -3119,9 +3134,12 @@ HTML_DASHBOARD = """<!DOCTYPE html>
             <div class="browser-bar">
               <button class="btn btn-sm" onclick="browseRemoteGo('..')" title="Up one level">⬆</button>
               <button class="btn btn-sm" onclick="browseRemoteGo('~')" title="Home">⌂</button>
-              <input class="browser-path" id="browser-remote-path" value="~" spellcheck="false"
-                     title="Type a path and press Enter to jump there"
-                     onkeydown="if (event.key === 'Enter') browserGo('remote')" />
+              <div class="suggest-wrap">
+                <input class="browser-path" id="browser-remote-path" value="~" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false"
+                       title="Type to match folders. Tab / Shift+Tab cycles matches; Enter opens one."
+                       oninput="onBrowserPathInput('remote')" onkeydown="onBrowserSuggestKey(event, 'remote')" onblur="hideBrowserSuggest('remote')" />
+                <div class="suggest-list" id="browser-suggest-remote"></div>
+              </div>
               <button class="btn btn-sm" onclick="browserGo('remote')" title="Go to typed path">Go</button>
               <button class="btn btn-sm" onclick="mkdirBrowser('remote')" title="Create new folder here">＋</button>
               <button class="btn btn-sm btn-primary" onclick="pickBrowserPath('remote')">Select</button>
@@ -3869,8 +3887,8 @@ HTML_DASHBOARD = """<!DOCTYPE html>
       }
       tbody.innerHTML = currentSyncs.map(s => {
         const msg = s.last_message ? `<br/><span class="muted" style="font-size:11px;">${escapeHtml((s.last_message || '').slice(0, 120))}</span>` : "";
-        const protectedWarn = s.local_protected
-          ? `<br/><span style="font-size:11px; color:var(--warning);">⚠️ Background runs can't access this folder (macOS privacy) — move it out of ~/Documents or grant access.</span>`
+        const protectedWarn = s.local_protected && s.last_status !== "ok"
+          ? `<br/><span style="font-size:11px; color:var(--warning);">⚠️ ${data.packaged_app ? 'Allow DevBoost to access this protected folder in macOS Privacy & Security before background sync can write here.' : 'Background runs from a source checkout cannot access this folder — run the packaged DevBoost app.'}</span>`
           : "";
         const lastSyncLine = (s.last_status === "ok" && s.last_sync)
           ? `<br/><span class="muted mono" style="font-size:11px;" title="Exact time of the last successful sync">Last synced: ${escapeHtml(formatSyncTime(s.last_sync))}</span>`
@@ -3963,6 +3981,8 @@ HTML_DASHBOARD = """<!DOCTYPE html>
       document.getElementById("browser-remote").classList.remove("open");
       hideSuggest("local");
       hideSuggest("remote");
+      hideBrowserSuggest("local");
+      hideBrowserSuggest("remote");
       renderFolderChips();
       document.getElementById("sync-modal").style.display = "flex";
       // Refresh recent pairs in background (per active tab)
@@ -3974,6 +3994,8 @@ HTML_DASHBOARD = """<!DOCTYPE html>
     }
 
     function closeSyncModal() {
+      hideBrowserSuggest("local");
+      hideBrowserSuggest("remote");
       document.getElementById("sync-modal").style.display = "none";
       editingSyncId = null;
     }
@@ -4002,6 +4024,7 @@ HTML_DASHBOARD = """<!DOCTYPE html>
     function toggleBrowser(which) {
       const el = document.getElementById(which === "local" ? "browser-local" : "browser-remote");
       el.classList.toggle("open");
+      if (!el.classList.contains("open")) hideBrowserSuggest(which);
     }
 
     function pickBrowserPath(which) {
@@ -4019,6 +4042,7 @@ HTML_DASHBOARD = """<!DOCTYPE html>
     }
 
     function browserGo(which) {
+      hideBrowserSuggest(which);
       const typed = (browserPathEl(which).value || "").trim();
       if (which === "local") browseLocalGo(typed || "~");
       else browseRemoteGo(typed || "~");
@@ -4130,7 +4154,115 @@ HTML_DASHBOARD = """<!DOCTYPE html>
       }
     }
 
-    let suggestState = { local: { active: 0, req: 0, timer: null }, remote: { active: 0, req: 0, timer: null } };
+    let browserSuggestState = { local: { active: -1, req: 0, timer: null }, remote: { active: -1, req: 0, timer: null } };
+    let browserSuggestCache = { local: [], remote: [] };
+
+    function browserSuggestListEl(which) {
+      return document.getElementById(which === "local" ? "browser-suggest-local" : "browser-suggest-remote");
+    }
+
+    function onBrowserPathInput(which) {
+      const st = browserSuggestState[which];
+      clearTimeout(st.timer);
+      hideBrowserSuggest(which);
+      st.timer = setTimeout(() => fetchBrowserSuggest(which), 250);
+    }
+
+    function hideBrowserSuggest(which) {
+      const st = browserSuggestState[which];
+      clearTimeout(st.timer);
+      st.timer = null;
+      st.req++;
+      st.active = -1;
+      browserSuggestCache[which] = [];
+      browserSuggestListEl(which).classList.remove("open");
+    }
+
+    async function fetchBrowserSuggest(which) {
+      const input = browserPathEl(which);
+      const listEl = browserSuggestListEl(which);
+      const val = (input.value || "").trim();
+      if (!val) { hideBrowserSuggest(which); return; }
+      let dir, prefix;
+      if (val.endsWith("/")) { dir = val; prefix = ""; }
+      else {
+        const idx = val.lastIndexOf("/");
+        if (idx < 0) { dir = "~"; prefix = val; }
+        else if (idx === 0) { dir = "/"; prefix = val.slice(1); }
+        else { dir = val.slice(0, idx) || "/"; prefix = val.slice(idx + 1); }
+      }
+      const myReq = ++browserSuggestState[which].req;
+      const url = which === "local"
+        ? "/api/browse/local?path=" + encodeURIComponent(dir)
+        : "/api/browse/remote" + serverQuery() + (serverQuery() ? "&" : "?") + "path=" + encodeURIComponent(dir);
+      try {
+        const res = await fetch(url);
+        const data = await res.json();
+        if (myReq !== browserSuggestState[which].req) return;
+        if (!data || data.ok === false) { hideBrowserSuggest(which); return; }
+        const pl = prefix.toLowerCase();
+        const items = (data.entries || [])
+          .filter(e => !prefix || e.name.toLowerCase().startsWith(pl))
+          .slice(0, 8);
+        if (!items.length) { hideBrowserSuggest(which); return; }
+        browserSuggestCache[which] = items;
+        browserSuggestState[which].active = -1;
+        listEl.innerHTML = items.map((e, i) =>
+          `<button class="suggest-item${e.hidden ? ' is-hidden' : ''}" onmousedown="event.preventDefault(); pickBrowserSuggest('${which}', ${i})" title="${escapeHtml(e.path)}"><span>📁</span><span style="flex:1; overflow:hidden; text-overflow:ellipsis;">${escapeHtml(e.path)}</span></button>`
+        ).join("");
+        listEl.classList.add("open");
+      } catch (err) {
+        hideBrowserSuggest(which);
+      }
+    }
+
+    function setActiveBrowserSuggest(which, i) {
+      browserSuggestState[which].active = i;
+      [...browserSuggestListEl(which).children].forEach((child, index) => {
+        child.classList.toggle("active", index === i);
+      });
+    }
+
+    function pickBrowserSuggest(which, i, keepSuggestions = false) {
+      const e = (browserSuggestCache[which] || [])[i];
+      if (!e) return;
+      browserPathEl(which).value = e.path;
+      setActiveBrowserSuggest(which, i);
+      if (!keepSuggestions) browserGo(which);
+    }
+
+    function onBrowserSuggestKey(ev, which) {
+      const listEl = browserSuggestListEl(which);
+      const items = browserSuggestCache[which] || [];
+      if (!listEl.classList.contains("open")) {
+        if (ev.key === "Enter") { ev.preventDefault(); browserGo(which); }
+        return;
+      }
+      if (ev.key === "ArrowDown" || ev.key === "ArrowUp") {
+        ev.preventDefault();
+        if (!items.length) return;
+        let a = browserSuggestState[which].active + (ev.key === "ArrowDown" ? 1 : -1);
+        if (browserSuggestState[which].active < 0) a = ev.key === "ArrowDown" ? 0 : items.length - 1;
+        a = (a + items.length) % items.length;
+        setActiveBrowserSuggest(which, a);
+      } else if (ev.key === "Tab") {
+        if (!items.length) return;
+        ev.preventDefault();
+        const current = browserSuggestState[which].active;
+        const step = ev.shiftKey ? -1 : 1;
+        const a = current < 0
+          ? (step > 0 ? 0 : items.length - 1)
+          : (current + step + items.length) % items.length;
+        pickBrowserSuggest(which, a, true);
+      } else if (ev.key === "Enter") {
+        ev.preventDefault();
+        pickBrowserSuggest(which, browserSuggestState[which].active < 0 ? 0 : browserSuggestState[which].active);
+      } else if (ev.key === "Escape") {
+        hideBrowserSuggest(which);
+      }
+    }
+
+    let suggestState = { local: { active: -1, req: 0, timer: null }, remote: { active: -1, req: 0, timer: null } };
     let suggestCache = { local: [], remote: [] };
 
     function suggestInputEl(which) {
@@ -4144,11 +4276,19 @@ HTML_DASHBOARD = """<!DOCTYPE html>
     function onSyncPathInput(which) {
       const st = suggestState[which];
       clearTimeout(st.timer);
+      // Never leave results for a previous query visible while the new query
+      // is being debounced. This also ensures Tab only cycles current matches.
+      hideSuggest(which);
       st.timer = setTimeout(() => fetchSuggest(which), 250);
     }
 
     function hideSuggest(which) {
-      suggestState[which].req++; // invalidate in-flight requests
+      const st = suggestState[which];
+      clearTimeout(st.timer);
+      st.timer = null;
+      st.req++; // invalidate in-flight requests
+      st.active = -1;
+      suggestCache[which] = [];
       suggestListEl(which).classList.remove("open");
     }
 
@@ -4181,9 +4321,9 @@ HTML_DASHBOARD = """<!DOCTYPE html>
           .slice(0, 8);
         if (!items.length) { hideSuggest(which); return; }
         suggestCache[which] = items;
-        suggestState[which].active = 0;
+        suggestState[which].active = -1;
         listEl.innerHTML = items.map((e, i) =>
-          `<button class="suggest-item${e.hidden ? ' is-hidden' : ''}${i === 0 ? ' active' : ''}" onmousedown="event.preventDefault(); pickSuggest('${which}', ${i})" title="${escapeHtml(e.path)}"><span>📁</span><span style="flex:1; overflow:hidden; text-overflow:ellipsis;">${escapeHtml(e.name)}</span></button>`
+          `<button class="suggest-item${e.hidden ? ' is-hidden' : ''}" onmousedown="event.preventDefault(); pickSuggest('${which}', ${i})" title="${escapeHtml(e.path)}"><span>📁</span><span style="flex:1; overflow:hidden; text-overflow:ellipsis;">${escapeHtml(e.path)}</span></button>`
         ).join("");
         listEl.classList.add("open");
       } catch (err) {
@@ -4191,13 +4331,23 @@ HTML_DASHBOARD = """<!DOCTYPE html>
       }
     }
 
-    function pickSuggest(which, i) {
+    function setActiveSuggest(which, i) {
+      suggestState[which].active = i;
+      [...suggestListEl(which).children].forEach((child, index) => {
+        child.classList.toggle("active", index === i);
+      });
+    }
+
+    function pickSuggest(which, i, keepSuggestions = false) {
       const e = (suggestCache[which] || [])[i];
       if (!e) return;
-      suggestInputEl(which).value = e.path + "/";
-      fetchSuggest(which); // keep drilling into children
-      if (which === "local") browseLocalGo(e.path);
-      else browseRemoteGo(e.path);
+      suggestInputEl(which).value = e.path;
+      setActiveSuggest(which, i);
+      if (!keepSuggestions) {
+        hideSuggest(which);
+        if (which === "local") browseLocalGo(e.path);
+        else browseRemoteGo(e.path);
+      }
     }
 
     function onSuggestKey(ev, which) {
@@ -4208,11 +4358,23 @@ HTML_DASHBOARD = """<!DOCTYPE html>
         ev.preventDefault();
         if (!items.length) return;
         let a = suggestState[which].active + (ev.key === "ArrowDown" ? 1 : -1);
+        if (suggestState[which].active < 0) a = ev.key === "ArrowDown" ? 0 : items.length - 1;
         a = (a + items.length) % items.length;
-        suggestState[which].active = a;
-        [...listEl.children].forEach((c, i) => c.classList.toggle("active", i === a));
+        setActiveSuggest(which, a);
+      } else if (ev.key === "Tab") {
+        if (!items.length) return;
+        ev.preventDefault();
+        const current = suggestState[which].active;
+        const step = ev.shiftKey ? -1 : 1;
+        const a = current < 0
+          ? (step > 0 ? 0 : items.length - 1)
+          : (current + step + items.length) % items.length;
+        pickSuggest(which, a, true);
       } else if (ev.key === "Enter") {
-        if (items.length) { ev.preventDefault(); pickSuggest(which, suggestState[which].active); }
+        if (items.length) {
+          ev.preventDefault();
+          pickSuggest(which, suggestState[which].active < 0 ? 0 : suggestState[which].active);
+        }
       } else if (ev.key === "Escape") {
         hideSuggest(which);
       }
