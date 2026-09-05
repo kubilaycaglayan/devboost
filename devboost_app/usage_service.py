@@ -37,6 +37,31 @@ def _window_label(key, window):
         return f"{key.capitalize()} ({duration} window)"
     return f"{key.capitalize()} window"
 
+
+def _codex_rate_limit_result(limits, now=None):
+    """Convert Codex rate-limit state, treating elapsed windows as reset."""
+    now = time.time() if now is None else now
+    quotas = []
+    for key in ("primary", "secondary"):
+        window = limits.get(key) or {}
+        used = safe_number(window.get("used_percent"))
+        if used is None:
+            continue
+        reset_at = safe_number(window.get("resets_at"))
+        if reset_at is not None and reset_at <= now:
+            used, reset_at = 0, None
+        quotas.append({"name": _window_label(key, window), "used": used, "limit": 100,
+                       "remaining": max(0, 100 - used), "unit": "%",
+                       "reset_at": reset_at,
+                       "window_minutes": window.get("window_minutes")})
+    result = {"quotas": quotas}
+    credits = limits.get("credits") or {}
+    balance = safe_number(credits.get("balance"))
+    if balance is not None:
+        result["balances"] = [{"remaining": balance, "currency": "credits"}]
+    result["plan_type"] = limits.get("plan_type")
+    return result
+
 def read_local_transcript_usage(runtime, account):
     """Read local, non-secret usage records emitted by Codex or Claude Code."""
     provider = account.get("provider")
@@ -84,20 +109,7 @@ def read_local_transcript_usage(runtime, account):
     result = {"source": f"{provider} local records", "quotas": [{"name": "tokens observed",
               "used": sum(totals.values()), "unit": "tokens"}]}
     if provider == "codex" and latest_limits:
-        result["quotas"] = []
-        for key in ("primary", "secondary"):
-            window = latest_limits.get(key) or {}
-            used = safe_number(window.get("used_percent"))
-            if used is not None:
-                result["quotas"].append({"name": _window_label(key, window), "used": used, "limit": 100,
-                                         "remaining": max(0, 100 - used), "unit": "%",
-                                         "reset_at": window.get("resets_at"),
-                                         "window_minutes": window.get("window_minutes")})
-        credits = latest_limits.get("credits") or {}
-        balance = safe_number(credits.get("balance"))
-        if balance is not None:
-            result["balances"] = [{"remaining": balance, "currency": "credits"}]
-        result["plan_type"] = latest_limits.get("plan_type")
+        result.update(_codex_rate_limit_result(latest_limits))
     return result
 
 
@@ -169,20 +181,7 @@ def read_remote_transcript_usage(runtime, account, ssh_host):
     result = {"source": f"{provider} remote records ({ssh_host})",
               "quotas": [{"name": "tokens observed", "used": sum(totals.values()), "unit": "tokens"}]}
     if provider == "codex" and latest_limits:
-        result["quotas"] = []
-        for key in ("primary", "secondary"):
-            window = latest_limits.get(key) or {}
-            used = safe_number(window.get("used_percent"))
-            if used is not None:
-                result["quotas"].append({"name": _window_label(key, window), "used": used, "limit": 100,
-                                         "remaining": max(0, 100 - used), "unit": "%",
-                                         "reset_at": window.get("resets_at"),
-                                         "window_minutes": window.get("window_minutes")})
-        credits = latest_limits.get("credits") or {}
-        balance = safe_number(credits.get("balance"))
-        if balance is not None:
-            result["balances"] = [{"remaining": balance, "currency": "credits"}]
-        result["plan_type"] = latest_limits.get("plan_type")
+        result.update(_codex_rate_limit_result(latest_limits))
     return result
 
 

@@ -195,11 +195,26 @@ class TestUsageMonitoring(unittest.TestCase):
         records = os.path.join(self.tmp.name, "codex")
         os.makedirs(records)
         with open(os.path.join(records, "rollout.jsonl"), "w", encoding="utf-8") as stream:
-            stream.write(json.dumps({"payload": {"thread_token_usage": {"input_tokens": 10, "output_tokens": 4}, "rate_limits": {"primary": {"used_percent": 25, "resets_at": 123, "window_minutes": 300}, "secondary": {"used_percent": 40, "resets_at": 456, "window_minutes": 10080}, "credits": {"balance": "3"}, "plan_type": "plus"}}}) + "\n")
+            stream.write(json.dumps({"payload": {"thread_token_usage": {"input_tokens": 10, "output_tokens": 4}, "rate_limits": {"primary": {"used_percent": 25, "resets_at": 4102444800, "window_minutes": 300}, "secondary": {"used_percent": 40, "resets_at": 4102444800, "window_minutes": 10080}, "credits": {"balance": "3"}, "plan_type": "plus"}}}) + "\n")
         snapshot = devboost.refresh_usage_account({"provider": "codex", "name": "local", "local_path": records})
         self.assertTrue(snapshot["ok"])
         self.assertEqual(snapshot["quotas"][0]["remaining"], 75)
         self.assertEqual(snapshot["balances"][0]["remaining"], 3)
+
+    @patch.object(devboost.usage_service.time, "time", return_value=2000)
+    def test_codex_expired_rate_limit_window_is_shown_as_reset(self, _time):
+        records = os.path.join(self.tmp.name, "codex-expired")
+        os.makedirs(records)
+        with open(os.path.join(records, "rollout.jsonl"), "w", encoding="utf-8") as stream:
+            stream.write(json.dumps({"payload": {"rate_limits": {
+                "primary": {"used_percent": 91, "resets_at": 1000, "window_minutes": 300},
+                "secondary": {"used_percent": 40, "resets_at": 3000, "window_minutes": 10080},
+            }}}) + "\n")
+        snapshot = devboost.refresh_usage_account({"provider": "codex", "name": "local", "local_path": records})
+        self.assertEqual(snapshot["quotas"][0]["used"], 0)
+        self.assertEqual(snapshot["quotas"][0]["remaining"], 100)
+        self.assertIsNone(snapshot["quotas"][0]["reset_at"])
+        self.assertEqual(snapshot["quotas"][1]["used"], 40)
 
 
 if __name__ == "__main__":

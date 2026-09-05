@@ -45,7 +45,7 @@ class TestUsageAdapters(unittest.TestCase):
                     + json.dumps({"payload": {"thread_token_usage": {
                         "input_tokens": 10, "output_tokens": 4,
                         "cached_input_tokens": 2, "cache_write_input_tokens": 1},
-                        "rate_limits": {"primary": {"used_percent": 20},
+                        "rate_limits": {"primary": {"used_percent": 20, "resets_at": 4102444800},
                                          "credits": {"balance": "3"}}}}) + "\n"),
             stderr="",
         )
@@ -85,7 +85,7 @@ class TestUsageAdapters(unittest.TestCase):
                 stream.write(json.dumps({"payload": {"thread_token_usage": {
                     "input_tokens": 10, "output_tokens": 4, "cached_input_tokens": 2,
                     "cache_write_input_tokens": 1}, "rate_limits": {
-                        "primary": {"used_percent": 20, "resets_at": 123, "window_minutes": 300},
+                        "primary": {"used_percent": 20, "resets_at": 4102444800, "window_minutes": 300},
                         "credits": {"balance": "3"}, "plan_type": "plus"}}}) + "\n")
             result = usage_service.read_local_transcript_usage(devboost, {
                 "provider": "codex", "local_path": root,
