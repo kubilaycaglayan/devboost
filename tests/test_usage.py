@@ -126,6 +126,10 @@ class TestUsageMonitoring(unittest.TestCase):
         self.assertFalse(snapshot["ok"])
         self.assertIn("no codex usage records", snapshot["message"])
 
+    @patch.object(devboost.usage_helpers.shutil, "which", return_value="/usr/local/bin/opencode")
+    def test_provider_default_command_detects_installed_cli(self, _which):
+        self.assertEqual(devboost._provider_default_command("opencode"), ["opencode", "stats"])
+
     def test_codex_local_rate_limits_are_native_quota_data(self):
         records = os.path.join(self.tmp.name, "codex")
         os.makedirs(records)

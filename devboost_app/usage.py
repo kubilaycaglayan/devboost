@@ -1,6 +1,7 @@
 """Pure helpers for normalizing provider usage data."""
 
 import re
+import shutil
 
 
 def provider_default_command(provider):
