@@ -144,6 +144,16 @@ class TestDashboardAPI(unittest.TestCase):
         self.assertIn(".usage-form-section-title", css)
         self.assertIn("font-size: 20px", css)
 
+    def test_usage_account_name_defaults_from_provider_until_edited(self):
+        with urllib.request.urlopen(self.base_url + "/dashboard/app.js") as resp:
+            app_js = resp.read().decode("utf-8")
+        with urllib.request.urlopen(self.base_url + "/") as resp:
+            html = resp.read().decode("utf-8")
+        self.assertIn("usageNameAuto = !account", app_js)
+        self.assertIn(": usageProviderLabel()", app_js)
+        self.assertIn("if (usageNameAuto) document.getElementById(\"usage-name\").value = usageProviderLabel()", app_js)
+        self.assertIn('oninput="usageNameChanged()"', html)
+
     def test_stale_server_response_guard_unit(self):
         app_js = os.path.join(os.path.dirname(__file__), "..", "dashboard", "app.js")
         with open(app_js, encoding="utf-8") as handle:
