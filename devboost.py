@@ -2283,6 +2283,98 @@ def scan_remote_services(server_ref=None):
 
 
 # -----------------------------
+# Local listening ports (this Mac)
+# -----------------------------
+
+def get_local_listening_ports():
+    """Listening sockets on this Mac, with DevBoost attribution.
+
+    Returns [{port, pid, cmd, node, devboost}] sorted by port. devboost=True
+    when the listener belongs to one of our SSH tunnels (Always or Session).
+    """
+    try:
+        listening = get_listening_ports()
+    except Exception:
+        return []
+    tunnel_pids = set()
+    try:
+        for f in get_ssh_forwards():
+            if f.get("is_listening") and f.get("pid"):
+                tunnel_pids.add(f.get("pid"))
+    except Exception:
+        pass
+    rows = []
+    for port in sorted(listening):
+        info = listening.get(port) or {}
+        if not isinstance(info, dict):
+            continue
+        rows.append({
+            "port": port,
+            "pid": info.get("pid"),
+            "cmd": info.get("cmd", ""),
+            "node": info.get("node", ""),
+            "devboost": info.get("pid") in tunnel_pids,
+        })
+    return rows
+
+
+def _pid_is_dead(pid):
+    """True when pid is gone (reaps our own zombie children for accuracy)."""
+    try:
+        os.kill(pid, 0)
+    except OSError:
+        return True
+    # A zombie still answers kill(pid, 0) — reap it if it's our child.
+    try:
+        done, _ = os.waitpid(pid, os.WNOHANG)
+        if done == pid:
+            return True
+    except (ChildProcessError, OSError):
+        pass
+    return False
+
+
+def kill_listening_process(pid):
+    """Stops a process holding a local listening socket. Never raises.
+
+    Tries SIGTERM first, escalates to SIGKILL. Refuses pid<=1, our own
+    dashboard process, and PIDs that don't currently hold a listening socket
+    (stale clicks). Returns {"ok", "message"}.
+    """
+    try:
+        pid = int(pid)
+    except (TypeError, ValueError):
+        return {"ok": False, "message": f"Invalid pid: {pid!r}"}
+    if pid <= 1:
+        return {"ok": False, "message": "Refusing to kill pid 1"}
+    if pid == os.getpid():
+        return {"ok": False, "message": "Refusing to kill the dashboard itself"}
+    try:
+        holders = {info.get("pid") for info in get_listening_ports().values()
+                   if isinstance(info, dict)}
+    except Exception:
+        holders = set()
+    if pid not in holders:
+        return {"ok": False,
+                "message": f"PID {pid} no longer holds a listening port (refresh and retry)"}
+    try:
+        os.kill(pid, signal.SIGTERM)
+    except OSError as e:
+        return {"ok": False, "message": f"Cannot signal PID {pid}: {e}"}
+    time.sleep(0.5)
+    if _pid_is_dead(pid):
+        return {"ok": True, "message": f"Stopped PID {pid} (SIGTERM)"}
+    try:
+        os.kill(pid, signal.SIGKILL)
+    except OSError as e:
+        return {"ok": False, "message": f"PID {pid} ignored SIGTERM and cannot be force-killed: {e}"}
+    time.sleep(0.3)
+    if _pid_is_dead(pid):
+        return {"ok": True, "message": f"Killed PID {pid} (SIGKILL)"}
+    return {"ok": False, "message": f"PID {pid} is still alive (zombie or kernel process?)"}
+
+
+# -----------------------------
 # HTML & JS DASHBOARD TEMPLATE
 # -----------------------------
 
@@ -2398,6 +2490,14 @@ HTML_DASHBOARD = """<!DOCTYPE html>
       background: rgba(255, 255, 255, 0.02);
     }
     .section-header h2 { font-size: 16px; font-weight: 600; color: #fff; }
+    .mini-tabs { display: inline-flex; gap: 4px; background: #0d1117; border: 1px solid var(--border); border-radius: 16px; padding: 3px; }
+    .mini-tab {
+      background: transparent; border: none; border-radius: 12px;
+      color: var(--text-muted); font-size: 12px; font-weight: 600;
+      padding: 4px 12px; cursor: pointer; white-space: nowrap;
+    }
+    .mini-tab:hover { color: #fff; }
+    .mini-tab.active { background: var(--btn-hover); color: #fff; }
 
     table { width: 100%; border-collapse: collapse; text-align: left; }
     th { padding: 12px 18px; font-size: 12px; color: var(--text-muted); font-weight: 600; border-bottom: 1px solid var(--border); }
@@ -2732,12 +2832,22 @@ HTML_DASHBOARD = """<!DOCTYPE html>
       </table>
     </div>
 
-    <!-- Discovered Services on Remote Machine -->
+    <!-- Discovered Services: Remote Server / This Mac tabs -->
     <div class="section-card">
       <div class="section-header">
-        <h2 id="remote-section-title">Discovered Services on Remote Server</h2>
-        <button class="btn btn-sm" onclick="scanRemoteServices()">🔍 Scan Ports</button>
+        <div style="display:flex; align-items:center; gap:12px; flex-wrap:wrap;">
+          <h2 id="services-section-title">Discovered Services on Remote Server</h2>
+          <div class="mini-tabs">
+            <button class="mini-tab active" id="tab-remote" onclick="switchServicesTab('remote')" title="Listening services on the active server">🌐 Remote Server</button>
+            <button class="mini-tab" id="tab-local" onclick="switchServicesTab('local')" title="Listening ports on this Mac, with kill">💻 This Mac</button>
+          </div>
+        </div>
+        <div style="display:flex; gap:8px;">
+          <button class="btn btn-sm" id="scan-remote-btn" onclick="scanRemoteServices()">🔍 Scan Ports</button>
+          <button class="btn btn-sm" id="refresh-local-btn" onclick="fetchLocalPorts()" style="display:none;">↻ Refresh</button>
+        </div>
       </div>
+      <div id="remote-services-wrap">
       <table>
         <thead>
           <tr>
@@ -2752,6 +2862,22 @@ HTML_DASHBOARD = """<!DOCTYPE html>
           <tr><td colspan="5" style="text-align:center; color:var(--text-muted); padding:20px;">Click "Scan Ports" to detect running services on the remote server.</td></tr>
         </tbody>
       </table>
+      </div>
+      <div id="local-services-wrap" style="display:none;">
+      <table>
+        <thead>
+          <tr>
+            <th>PORT</th>
+            <th>PROCESS</th>
+            <th>SOURCE</th>
+            <th style="text-align:right;">ACTION</th>
+          </tr>
+        </thead>
+        <tbody id="local-services-body">
+          <tr><td colspan="4" style="text-align:center; color:var(--text-muted); padding:20px;">Loading listening ports on this Mac...</td></tr>
+        </tbody>
+      </table>
+      </div>
     </div>
   </div>
 
@@ -3263,7 +3389,11 @@ HTML_DASHBOARD = """<!DOCTYPE html>
 
       if (data.server_name) {
         document.getElementById("header-server-title").innerText = `DevBoost • ${data.server_name} • Port Forwards`;
-        document.getElementById("remote-section-title").innerText = `Discovered Services on ${data.server_name}`;
+        if (servicesTab === "local") {
+          document.getElementById("services-section-title").innerText = "Listening Ports on This Mac";
+        } else {
+          document.getElementById("services-section-title").innerText = `Discovered Services on ${data.server_name}`;
+        }
         document.title = `DevBoost • ${data.server_name} • Port Forward Manager`;
       }
       if (data.server_host) {
@@ -3443,6 +3573,90 @@ HTML_DASHBOARD = """<!DOCTYPE html>
       }
     }
 
+    let servicesTab = "remote";
+    let currentLocalPorts = [];
+
+    function switchServicesTab(which) {
+      servicesTab = which;
+      document.getElementById("tab-remote").classList.toggle("active", which === "remote");
+      document.getElementById("tab-local").classList.toggle("active", which === "local");
+      document.getElementById("remote-services-wrap").style.display = which === "remote" ? "block" : "none";
+      document.getElementById("local-services-wrap").style.display = which === "local" ? "block" : "none";
+      document.getElementById("scan-remote-btn").style.display = which === "remote" ? "" : "none";
+      document.getElementById("refresh-local-btn").style.display = which === "local" ? "" : "none";
+      const title = document.getElementById("services-section-title");
+      if (which === "local") {
+        title.innerText = "Listening Ports on This Mac";
+        fetchLocalPorts();
+      } else {
+        const srv = activeServer();
+        title.innerText = `Discovered Services on ${(srv && (srv.name || srv.ssh_host)) || "Remote Server"}`;
+      }
+    }
+
+    async function fetchLocalPorts() {
+      if (servicesTab !== "local") return;
+      const tbody = document.getElementById("local-services-body");
+      try {
+        const res = await fetch("/api/local-ports");
+        const data = await res.json();
+        currentLocalPorts = data.ports || [];
+        renderLocalPorts();
+      } catch (err) {
+        tbody.innerHTML = `<tr><td colspan="4" style="text-align:center; color:var(--danger); padding:20px;">Failed to list local ports: ${escapeHtml(String(err))}</td></tr>`;
+      }
+    }
+
+    function renderLocalPorts() {
+      const tbody = document.getElementById("local-services-body");
+      if (!currentLocalPorts.length) {
+        tbody.innerHTML = '<tr><td colspan="4" style="text-align:center; color:var(--text-muted); padding:20px;">No listening ports on this Mac.</td></tr>';
+        return;
+      }
+      tbody.innerHTML = currentLocalPorts.map(p => {
+        const url = `http://localhost:${p.port}`;
+        const srcBadge = p.devboost
+          ? `<span class="badge badge-always" title="Held by one of your DevBoost SSH tunnels">🔗 DevBoost tunnel</span>`
+          : `<span class="badge" style="background:rgba(255,255,255,0.05); color:var(--text-muted);">Other app</span>`;
+        return `
+          <tr>
+            <td><a href="${url}" target="_blank" class="port-link">:${p.port} ↗</a></td>
+            <td><strong class="mono">${escapeHtml(p.cmd || "?")}</strong><br/><span class="muted" style="font-size:11px;">PID ${p.pid}</span></td>
+            <td>${srcBadge}</td>
+            <td>
+              <div class="actions-cell">
+                <button class="btn btn-sm btn-danger" onclick="killLocalPort(${p.pid})" title="Stop the process holding this port">
+                  Kill
+                </button>
+              </div>
+            </td>
+          </tr>
+        `;
+      }).join("");
+    }
+
+    async function killLocalPort(pid) {
+      const entry = (currentLocalPorts || []).find(p => p.pid === pid) || {};
+      const port = entry.port != null ? entry.port : "?";
+      const cmd = entry.cmd || "process";
+      const extra = entry.devboost ? "\\n\\nNote: this is a DevBoost tunnel — an Always-managed one will restart automatically." : "";
+      if (!confirm(`Kill ${cmd} (PID ${pid}) listening on :${port}?\\nThe port will be freed immediately.${extra}`)) return;
+      showToast(`Stopping PID ${pid}...`);
+      try {
+        const res = await fetch("/api/local-ports/kill", {
+          method: "POST",
+          headers: {"Content-Type": "application/json"},
+          body: JSON.stringify({ pid: pid })
+        });
+        const d = await res.json();
+        showToast(d.message || (d.ok ? "Process stopped" : "Could not stop process"));
+        fetchLocalPorts();
+        fetchStatus();
+      } catch (err) {
+        alert("Failed to kill process: " + err);
+      }
+    }
+
     async function fetchSyncs() {
       try {
         const res = await fetch("/api/syncs" + serverQuery());
@@ -3477,8 +3691,17 @@ HTML_DASHBOARD = """<!DOCTYPE html>
         : `<span class="badge badge-session" title="One-time sync: runs now + on-demand">⚡ Once</span>`;
     }
 
+    function formatSyncTime(ts) {
+      if (!ts) return "—";
+      try {
+        return new Date(ts * 1000).toLocaleString();
+      } catch (err) {
+        return "—";
+      }
+    }
+
     function syncStatusBadge(s) {
-      if (s.last_status === "ok") return `<span class="badge badge-active">✓ ${escapeHtml(formatSyncAge(s.last_sync))}</span>`;
+      if (s.last_status === "ok") return `<span class="badge badge-active" title="Last synced: ${escapeHtml(formatSyncTime(s.last_sync))}">✓ ${escapeHtml(formatSyncAge(s.last_sync))}</span>`;
       if (s.last_status === "error") return `<span class="badge badge-inactive" title="${escapeHtml(s.last_message || 'Sync failed')}">✕ failed</span>`;
       return `<span class="badge" style="background:rgba(255,255,255,0.05); color:var(--text-muted);">never synced</span>`;
     }
@@ -3496,12 +3719,15 @@ HTML_DASHBOARD = """<!DOCTYPE html>
       }
       tbody.innerHTML = currentSyncs.map(s => {
         const msg = s.last_message ? `<br/><span class="muted" style="font-size:11px;">${escapeHtml((s.last_message || '').slice(0, 120))}</span>` : "";
+        const lastSyncLine = (s.last_status === "ok" && s.last_sync)
+          ? `<br/><span class="muted mono" style="font-size:11px;" title="Exact time of the last successful sync">Last synced: ${escapeHtml(formatSyncTime(s.last_sync))}</span>`
+          : "";
         return `
           <tr>
             <td><span class="sync-path">${escapeHtml(s.local_path)}</span><br/><span class="muted" style="font-size:11px;">this Mac</span></td>
             <td><span class="sync-path">${escapeHtml(s.remote_path)}</span><br/><span class="muted" style="font-size:11px;">${escapeHtml(data.server_host || currentServerHost || 'server')}</span></td>
             <td>${directionBadge(s.direction, s.mirror)}<br/><span style="display:inline-block; margin-top:4px;">${modeBadge(s)}</span></td>
-            <td>${syncStatusBadge(s)}${msg}</td>
+            <td>${syncStatusBadge(s)}${lastSyncLine}${msg}</td>
             <td>
               <div class="actions-cell">
                 <button class="btn btn-sm" onclick="openSyncModal('${s.id}')" title="Edit paths and options">Edit</button>
@@ -3876,6 +4102,7 @@ HTML_DASHBOARD = """<!DOCTYPE html>
     fetchServers().then(() => { fetchStatus(); fetchSyncs(); });
     setInterval(fetchStatus, 4000);
     setInterval(fetchSyncs, 8000);
+    setInterval(fetchLocalPorts, 10000);
     setInterval(fetchServers, 15000);
   </script>
 </body>
@@ -3963,6 +4190,11 @@ class DashboardHandler(BaseHTTPRequestHandler):
         elif path == "/api/history":
             srv = query.get("server", [None])[0] or query.get("server_id", [None])[0]
             self._send_json({"history": get_port_history(limit=10, server_id=srv)})
+        elif path == "/api/local-ports":
+            try:
+                self._send_json({"ports": get_local_listening_ports()})
+            except Exception as e:
+                self._send_json({"ports": [], "message": str(e)})
         elif path == "/api/syncs":
             srv = query.get("server", [None])[0] or query.get("server_id", [None])[0]
             try:
@@ -4020,6 +4252,13 @@ class DashboardHandler(BaseHTTPRequestHandler):
             srv = body.get("server_id") or body.get("server")
             killed = clean_orphaned_tunnels(server_ref=srv)
             self._send_json({"ok": True, "killed": killed})
+        elif path == "/api/local-ports/kill":
+            pid = body.get("pid")
+            if pid is None:
+                self._send_json({"ok": False, "message": "pid is required"}, status=400)
+                return
+            result = kill_listening_process(pid)
+            self._send_json(result, status=200 if result.get("ok") else 500)
         elif path == "/api/servers":
             ssh_host = (body.get("ssh_host") or "").strip()
             name = (body.get("name") or "").strip()
