@@ -12,6 +12,7 @@
     let editingUsageId = null;
     let usageAccounts = [];
     let usageRequestInFlight = false;
+    let usageNameAuto = false;
     const usageMetrics = globalThis.DevBoostUsageMetrics;
     let browserLocalCur = "";
     let browserRemoteCur = "";
@@ -23,14 +24,17 @@
 
     function openUsageModal(account = null) {
       editingUsageId = account ? account.id : null;
+      usageNameAuto = !account;
       document.getElementById("usage-modal-title").textContent = account ? "Edit AI Usage Account" : "Add AI Usage Account";
       document.getElementById("usage-save-button").textContent = account ? "Save Changes" : "Save Account";
       document.getElementById("usage-provider").value = account ? (account.provider || "custom") : "codex";
-      document.getElementById("usage-name").value = account ? (account.name || "") : "";
+      document.getElementById("usage-name").value = account ? (account.name || "") : usageProviderLabel();
       document.getElementById("usage-command").value = account ? usageCommandValue(account.usage_command) : "";
       document.getElementById("usage-url").value = account ? (account.balance_url || "") : "";
       document.getElementById("usage-token-env").value = account ? (account.token_env || "") : "";
       document.getElementById("usage-local-path").value = account ? (account.local_path || "") : "";
+      document.getElementById("usage-codex-home").value = account ? (account.codex_home || "") : "";
+      updateCodexUsageFields();
       document.getElementById("usage-organization").value = account ? (account.organization || "") : "";
       document.getElementById("usage-project").value = account ? (account.project || "") : "";
       document.getElementById("usage-api-mode").checked = Boolean(account && account.api_mode);
@@ -38,6 +42,15 @@
       document.getElementById("usage-modal").style.display = "flex";
     }
     function closeUsageModal() { editingUsageId = null; document.getElementById("usage-modal").style.display = "none"; }
+    function usageProviderLabel() {
+      const provider = document.getElementById("usage-provider");
+      return provider.options[provider.selectedIndex]?.textContent.trim() || provider.value;
+    }
+    function usageNameChanged() { usageNameAuto = false; }
+    function updateCodexUsageFields() {
+      if (usageNameAuto) document.getElementById("usage-name").value = usageProviderLabel();
+      document.getElementById("usage-codex-settings").hidden = document.getElementById("usage-provider").value !== "codex";
+    }
     function usageCommandValue(command) {
       if (!Array.isArray(command)) return command || "";
       return command.map(part => {
@@ -74,7 +87,7 @@
       return `<div class="usage-quota"><div class="usage-meter-header"><span>${name}</span>${reset ? `<small class="usage-meter-reset">${escapeHtml(reset)}</small>` : ""}</div><div class="usage-meter ${usageGrade(percent)}" role="meter" aria-label="${name} remaining quota" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${rounded}"><span style="width:${remainingPercent.toFixed(2)}%"></span><strong class="usage-meter-label">${rounded}% left</strong></div>${caption}</div>`;
     }
     function usageUpdated(snapshot) {
-      const timestamp = snapshot && (snapshot.last_valid_query_at || (snapshot.ok && snapshot.updated_at));
+      const timestamp = snapshot && (snapshot.last_valid_query_at || (snapshot.ok && !snapshot.stale && snapshot.updated_at));
       if (!timestamp) return "—";
       const elapsed = Math.max(0, Date.now() - new Date(timestamp).getTime());
       const seconds = Math.floor(elapsed / 1000);
@@ -154,12 +167,14 @@
       }
       body.innerHTML = data.accounts.map(a => {
         const s = snapshots[a.id] || {};
-        const resetCount = usageResetCount(s.quotas);
+        const resetCount = a.provider === "codex" ? (s.available_resets || 0) : usageResetCount(s.quotas);
         const resetSummary = resetCount ? `<span class="usage-reset-summary" role="status" aria-label="${resetCount} usage limit resets available">${resetCount}X RESETS</span>` : "";
-        const quotas = resetSummary + ((s.quotas || []).map(renderUsageQuota).join("") || (s.ok ? "No quota data" : escapeHtml(s.message || "Unavailable")));
-        const balances = (s.balances || []).map(b => b.remaining != null ? `${usageNumber(b.remaining)} ${escapeHtml(b.currency || "USD")}` : (b.spent != null ? `spent ${usageNumber(b.spent)} ${escapeHtml(b.currency || "USD")}` : "—")).join("<br>") || "—";
+        const warning = a.provider === "codex" && s.stale ? `<div class="usage-stale" role="status">Stale · ${escapeHtml(s.message || "Live quota could not be verified.")}</div>` : "";
+        const quotas = warning + resetSummary + ((s.quotas || []).map(renderUsageQuota).join("") || (s.ok ? "No quota data" : escapeHtml(s.message || "Unavailable")));
+        const balances = a.provider === "codex" && s.credits_unlimited ? "Unlimited credits" : ((s.balances || []).map(b => b.remaining != null ? `${usageNumber(b.remaining)} ${escapeHtml(b.currency || "USD")}` : (b.spent != null ? `spent ${usageNumber(b.spent)} ${escapeHtml(b.currency || "USD")}` : "—")).join("<br>") || "—");
         const accountId = escapeHtml(JSON.stringify(String(a.id || "")));
-        return `<tr><td>${escapeHtml(a.provider)}</td><td>${escapeHtml(a.name)}</td><td>${quotas}</td><td>${balances}</td><td class="mono usage-age" data-last-valid-query="${escapeHtml(s.last_valid_query_at || (s.ok ? s.updated_at : ""))}">${usageUpdated(s)}</td><td style="text-align:right;"><button class="btn btn-sm" onclick="editUsageAccount(${accountId})">Edit</button> <button class="btn btn-sm" onclick="removeUsageAccount(${accountId})">Remove</button></td></tr>`;
+        const source = a.provider === "codex" ? `<div class="usage-source">${escapeHtml(s.source || "Awaiting live query")}${s.plan_type ? " · " + escapeHtml(s.plan_type) : ""}</div>` : "";
+        return `<tr><td>${escapeHtml(a.provider)}</td><td>${escapeHtml(a.name)}${source}</td><td>${quotas}</td><td>${balances}</td><td class="mono usage-age" data-last-valid-query="${escapeHtml(s.last_valid_query_at || (s.ok && !s.stale ? s.updated_at : ""))}">${usageUpdated(s)}</td><td style="text-align:right;"><button class="btn btn-sm" onclick="editUsageAccount(${accountId})">Edit</button> <button class="btn btn-sm" onclick="removeUsageAccount(${accountId})">Remove</button></td></tr>`;
       }).join("");
     }
     function refreshUsageAges() {
@@ -192,6 +207,7 @@
     async function saveUsageFromModal() {
       const payload = {id: editingUsageId, provider: document.getElementById("usage-provider").value, name: document.getElementById("usage-name").value.trim(), usage_command: document.getElementById("usage-command").value.trim(), balance_url: document.getElementById("usage-url").value.trim(), token_env: document.getElementById("usage-token-env").value.trim(), local_path: document.getElementById("usage-local-path").value.trim(), organization: document.getElementById("usage-organization").value.trim(), project: document.getElementById("usage-project").value.trim(), api_mode: document.getElementById("usage-api-mode").checked, api_days: parseInt(document.getElementById("usage-api-days").value, 10) || 1};
       const autoSource = ["codex", "agy", "claude", "opencode"].includes(payload.provider);
+      if (payload.provider === "codex") payload.codex_home = document.getElementById("usage-codex-home").value.trim();
       if (!payload.name || (!payload.usage_command && !payload.balance_url && !autoSource)) { alert("Enter an account name and a command or HTTPS URL."); return; }
       const response = await fetch("/api/usage/accounts", {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(payload)});
       const data = await response.json(); if (!data.ok) { alert(data.message || "Could not save account"); return; }

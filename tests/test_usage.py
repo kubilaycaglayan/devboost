@@ -86,7 +86,7 @@ class TestUsageMonitoring(unittest.TestCase):
         status = devboost.get_usage_status(account_id=enabled["id"])
         self.assertEqual([a["id"] for a in status["accounts"]], [enabled["id"]])
 
-    @patch.object(devboost, "_read_remote_transcript_usage", return_value={"quotas": [{"remaining": 7, "unit": "%"}]})
+    @patch.object(devboost, "_read_codex_api", return_value={"quotas": [{"remaining": 7, "unit": "%"}]})
     def test_usage_status_refreshes_against_selected_server(self, remote):
         devboost.save_usage_account({"provider": "codex", "name": "remote"})
         cfg = devboost.load_config()
@@ -95,7 +95,8 @@ class TestUsageMonitoring(unittest.TestCase):
         self.assertEqual(status["server_id"], server["id"])
         self.assertEqual(status["server_host"], "box")
         self.assertEqual(status["snapshots"]["codex-remote"]["quotas"][0]["remaining"], 7)
-        remote.assert_called_once_with({"provider": "codex", "name": "remote", "id": "codex-remote", "enabled": True}, "box")
+        self.assertEqual(remote.call_args.args[0]["id"], "codex-remote")
+        self.assertEqual(remote.call_args.kwargs["server"]["ssh_host"], "box")
 
     def test_remove_usage_account_removes_snapshot(self):
         account = devboost.save_usage_account({"provider": "custom", "name": "remove",
@@ -202,7 +203,7 @@ class TestUsageMonitoring(unittest.TestCase):
         self.assertEqual(snapshot["balances"][0]["remaining"], 3)
 
     @patch.object(devboost.usage_service.time, "time", return_value=2000)
-    def test_codex_expired_rate_limit_window_is_shown_as_reset(self, _time):
+    def test_codex_expired_record_does_not_invent_a_reset(self, _time):
         records = os.path.join(self.tmp.name, "codex-expired")
         os.makedirs(records)
         with open(os.path.join(records, "rollout.jsonl"), "w", encoding="utf-8") as stream:
@@ -211,9 +212,11 @@ class TestUsageMonitoring(unittest.TestCase):
                 "secondary": {"used_percent": 40, "resets_at": 3000, "window_minutes": 10080},
             }}}) + "\n")
         snapshot = devboost.refresh_usage_account({"provider": "codex", "name": "local", "local_path": records})
-        self.assertEqual(snapshot["quotas"][0]["used"], 0)
-        self.assertEqual(snapshot["quotas"][0]["remaining"], 100)
-        self.assertIsNone(snapshot["quotas"][0]["reset_at"])
+        self.assertIsNone(snapshot["quotas"][0]["used"])
+        self.assertIsNone(snapshot["quotas"][0]["remaining"])
+        self.assertIn("expired", snapshot["quotas"][0]["name"])
+        self.assertTrue(snapshot["stale"])
+        self.assertNotIn("last_valid_query_at", snapshot)
         self.assertEqual(snapshot["quotas"][1]["used"], 40)
 
 

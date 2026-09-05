@@ -34,6 +34,7 @@ def get_usage_accounts(cfg=None):
              "balance_url": a.get("balance_url") or a.get("usage_url"),
              "token_env": a.get("token_env") or a.get("api_key_env"),
              "local_path": a.get("local_path"),
+             "codex_home": a.get("codex_home"),
              "organization": a.get("organization"), "project": a.get("project"),
              "api_mode": bool(a.get("api_mode", False)), "api_days": a.get("api_days", 1)}
             for a in cfg.get("usage_accounts", []) if isinstance(a, dict)]
@@ -53,6 +54,16 @@ def refresh_usage_account(account, server=None):
             payload = _read_usage_http(account)
         elif explicit_command or _provider_default_command(account.get("provider")):
             payload = _read_usage_command(account, server=server)
+        elif account.get("provider") == "codex" and not account.get("local_path"):
+            try:
+                payload = _read_codex_api(account, server=server)
+            except Exception as live_error:
+                try:
+                    payload = (_read_remote_transcript_usage(account, server["ssh_host"]) if server
+                               else _read_local_transcript_usage(account))
+                except Exception:
+                    raise live_error
+                payload.update(stale=True, message=f"{live_error} Showing historical records.")
         elif account.get("provider") in ("codex", "claude"):
             if server:
                 payload = _read_remote_transcript_usage(account, server["ssh_host"])
@@ -61,10 +72,14 @@ def refresh_usage_account(account, server=None):
         else:
             payload = _read_usage_command(account, server=server)
         result = {"ok": True, **_normalize_usage_payload(payload)}
+        if account.get("provider") == "codex":
+            for key in ("stale", "message", "observed_at", "plan_type", "credits_unlimited", "available_resets"):
+                if key in payload:
+                    result[key] = payload[key]
     except Exception as exc:
         result = {"ok": False, "quotas": [], "balances": [], "message": str(exc)[:400]}
     result["updated_at"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
-    if result.get("ok"):
+    if result.get("ok") and not result.get("stale"):
         # Keep this distinct from updated_at: a failed refresh is not a valid
         # usage query and must not make the data look freshly verified.
         result["last_valid_query_at"] = result["updated_at"]
@@ -81,7 +96,15 @@ def get_usage_status(refresh=False, account_id=None, server_ref=None):
     snapshots = cfg.setdefault("usage_snapshots", {})
     def snapshot_key(account):
         return account.get("id") if not server else f"{server_id}:{account.get('id')}"
-    due = [a for a in accounts if refresh or snapshot_key(a) not in snapshots]
+    def codex_due(account):
+        if account.get("provider") != "codex":
+            return False
+        try:
+            checked = datetime.datetime.fromisoformat(snapshots.get(snapshot_key(account), {}).get("updated_at", ""))
+            return time.time() - checked.timestamp() >= 60
+        except (ValueError, TypeError):
+            return True
+    due = [a for a in accounts if refresh or snapshot_key(a) not in snapshots or codex_due(a)]
     changed = bool(due)
     if due:
         # A broken/slow provider must not serialize all other accounts.
@@ -90,6 +113,15 @@ def get_usage_status(refresh=False, account_id=None, server_ref=None):
             for account, result in zip(due, results):
                 key = snapshot_key(account)
                 previous = snapshots.get(key, {})
+                if account.get("provider") == "codex" and (not result.get("ok") or result.get("stale")):
+                    if previous.get("source") == "Codex live API":
+                        result.update({field: previous[field] for field in
+                                       ("quotas", "balances", "source", "plan_type", "credits_unlimited", "available_resets")
+                                       if field in previous})
+                        result["stale"] = True
+                        result["message"] = result.get("message", "Live query failed.").replace(" Showing historical records.", "") + " Showing last successful API values."
+                    if previous.get("last_valid_query_at"):
+                        result["last_valid_query_at"] = previous["last_valid_query_at"]
                 if not result.get("ok") and previous.get("last_valid_query_at"):
                     result["last_valid_query_at"] = previous["last_valid_query_at"]
                 snapshots[key] = result
@@ -115,7 +147,7 @@ def save_usage_account(data):
     if requested_id and existing is None:
         raise ValueError("usage account not found")
     aid = requested_id or _usage_account_id(provider, name, [a.get("id") for a in accounts])
-    allowed = ("id", "provider", "name", "enabled", "usage_command", "balance_url", "token_env", "env", "local_path", "auth_header", "organization", "project", "api_mode", "api_days")
+    allowed = ("id", "provider", "name", "enabled", "usage_command", "balance_url", "token_env", "env", "local_path", "codex_home", "auth_header", "organization", "project", "api_mode", "api_days")
     account = dict(existing) if isinstance(existing, dict) else {}
     account.update({key: data[key] for key in allowed if key in data})
     # The canonical fields supersede legacy aliases when an account is edited.
@@ -130,6 +162,11 @@ def save_usage_account(data):
     accounts[:] = [a for a in accounts if a.get("id") != aid]
     accounts.append(account)
     cfg.setdefault("usage_snapshots", {}).pop(aid, None)
+    if provider == "codex" or (existing and existing.get("provider") == "codex"):
+        # A profile/source edit must not reuse another profile's remote values.
+        for key in list(cfg["usage_snapshots"]):
+            if key.endswith(":" + aid):
+                cfg["usage_snapshots"].pop(key, None)
     save_config(cfg)
     return next(a for a in get_usage_accounts(cfg) if a["id"] == aid)
 

@@ -131,6 +131,19 @@ class TestDashboardAPI(unittest.TestCase):
         self.assertIn(".docker-log-output", css)
         self.assertIn("overflow: auto", css)
 
+    def test_usage_account_modal_scrolls_when_too_tall(self):
+        with urllib.request.urlopen(self.base_url + "/dashboard/styles.css") as resp:
+            css = resp.read().decode("utf-8")
+        with urllib.request.urlopen(self.base_url + "/") as resp:
+            html = resp.read().decode("utf-8")
+        self.assertIn("#usage-modal { padding: 16px; }", css)
+        self.assertIn("#usage-modal .modal {", css)
+        self.assertIn("#usage-modal .modal-body { min-height: 0; overflow-y: auto; }", css)
+        self.assertIn("usage-form-section--source", html)
+        self.assertIn("usage-form-section--advanced", html)
+        self.assertIn(".usage-form-section-title", css)
+        self.assertIn("font-size: 20px", css)
+
     def test_stale_server_response_guard_unit(self):
         app_js = os.path.join(os.path.dirname(__file__), "..", "dashboard", "app.js")
         with open(app_js, encoding="utf-8") as handle:

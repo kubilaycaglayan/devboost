@@ -695,6 +695,10 @@ def _read_remote_transcript_usage(account, ssh_host):
     return usage_service.read_remote_transcript_usage(sys.modules[__name__], account, ssh_host)
 
 
+def _read_codex_api(account, server=None):
+    return usage_service.read_codex_api(sys.modules[__name__], account, server=server)
+
+
 def _usage_account_id(*args, **kwargs):
     return usage_helpers.usage_account_id(*args, **kwargs)
 

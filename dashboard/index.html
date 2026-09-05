@@ -425,17 +425,35 @@
   <div id="toast"></div>
 
   <div class="modal-overlay" id="usage-modal">
-    <div class="modal" style="max-width:520px;">
+    <div class="modal usage-account-modal" style="max-width:520px;">
       <div class="modal-header"><h3 id="usage-modal-title">Add AI Usage Account</h3><button class="btn btn-sm" onclick="closeUsageModal()" style="border:none; background:transparent;">✕</button></div>
       <div class="modal-body">
-        <div class="form-group"><label>Provider</label><select id="usage-provider"><option value="codex">Codex</option><option value="agy">Agy</option><option value="claude">Claude</option><option value="opencode">OpenCode</option><option value="custom">Custom</option></select></div>
-        <div class="form-group"><label>Account name</label><input type="text" id="usage-name" placeholder="e.g. Work" /></div>
-        <div class="form-group"><label>JSON command (optional)</label><input type="text" id="usage-command" placeholder="command --usage --json" /><div class="form-hint">Runs on the selected SSH server; output must be JSON. Use this for CLI-authenticated accounts.</div></div>
-        <div class="form-group"><label>HTTPS usage/balance URL (optional)</label><input type="text" id="usage-url" placeholder="https://provider.example/usage" /></div>
-        <div class="form-group"><label>Token environment variable (optional)</label><input type="text" id="usage-token-env" placeholder="PROVIDER_API_KEY" /><div class="form-hint">Only the variable name is stored; the token itself is never saved.</div></div>
-        <div class="form-group"><label>Organization / project (optional)</label><div style="display:flex; gap:8px;"><input type="text" id="usage-organization" placeholder="OpenAI organization" /><input type="text" id="usage-project" placeholder="OpenAI project" /></div></div>
-        <div class="form-group"><label class="form-checkbox"><input type="checkbox" id="usage-api-mode" /><span>Use provider admin usage API (Codex / Claude)</span></label><div class="form-hint">Requires an admin key in the token variable; reports the last <input type="number" id="usage-api-days" value="1" min="1" max="30" style="width:55px;" /> day(s).</div></div>
-        <div class="form-group"><label>Provider records directory (optional)</label><input type="text" id="usage-local-path" placeholder="Uses the provider default" /><div class="form-hint">Read on the selected server for Codex/Claude; useful for separate CLI profiles or data roots.</div></div>
+        <section class="usage-form-section usage-form-section--account">
+          <h4 class="usage-form-section-title">Account</h4>
+          <div class="usage-form-grid">
+            <div class="form-group"><label>Provider</label><select id="usage-provider" onchange="updateCodexUsageFields()"><option value="codex">Codex</option><option value="agy">Agy</option><option value="claude">Claude</option><option value="opencode">OpenCode</option><option value="custom">Custom</option></select></div>
+            <div class="form-group"><label>Account name</label><input type="text" id="usage-name" placeholder="e.g. Work" oninput="usageNameChanged()" /></div>
+          </div>
+          <div id="usage-codex-settings">
+            <div class="form-hint usage-context-note">Codex queries live subscription quotas using the selected host's Codex sign-in. Values refresh every minute; Refresh queries them immediately.</div>
+            <div class="form-group"><label for="usage-codex-home">Codex profile directory <span class="usage-label-meta">Optional</span></label><input type="text" id="usage-codex-home" placeholder="CODEX_HOME or ~/.codex" /><div class="form-hint">For separate accounts, choose the matching Codex home directory on that host. The account name is only a label. Sign in with ChatGPT in Codex first; no API key is needed here.</div></div>
+          </div>
+        </section>
+        <section class="usage-form-section usage-form-section--source">
+          <h4 class="usage-form-section-title">Usage source</h4>
+          <div class="form-group"><label>JSON command <span class="usage-label-meta">Optional</span></label><input type="text" id="usage-command" placeholder="command --usage --json" /><div class="form-hint">Runs on the selected SSH server; output must be JSON. Use this for CLI-authenticated accounts.</div></div>
+          <div class="form-group"><label>HTTPS usage/balance URL <span class="usage-label-meta">Optional</span></label><input type="text" id="usage-url" placeholder="https://provider.example/usage" /></div>
+        </section>
+        <section class="usage-form-section usage-form-section--access">
+          <h4 class="usage-form-section-title">Credentials and scope</h4>
+          <div class="form-group"><label>Token environment variable <span class="usage-label-meta">Optional</span></label><input type="text" id="usage-token-env" placeholder="PROVIDER_API_KEY" /><div class="form-hint">Only the variable name is stored; the token itself is never saved.</div></div>
+          <div class="form-group"><label>Organization / project <span class="usage-label-meta">Optional</span></label><div class="usage-form-grid"><input type="text" id="usage-organization" placeholder="OpenAI organization" /><input type="text" id="usage-project" placeholder="OpenAI project" /></div></div>
+        </section>
+        <section class="usage-form-section usage-form-section--advanced">
+          <h4 class="usage-form-section-title">Advanced collection</h4>
+          <div class="form-group"><label class="form-checkbox"><input type="checkbox" id="usage-api-mode" /><span>Use provider admin usage API <span class="usage-label-meta">Codex / Claude</span></span></label><div class="form-hint">Requires an admin key in the token variable; reports the last <input class="usage-api-days" type="number" id="usage-api-days" value="1" min="1" max="30" /> day(s).</div></div>
+          <div class="form-group"><label>Provider records directory <span class="usage-label-meta">Optional</span></label><input type="text" id="usage-local-path" placeholder="Uses the provider default" /><div class="form-hint">Read on the selected server for Codex/Claude. For Codex, setting this selects historical records only; leave blank for live quotas and use the Codex profile directory for separate accounts.</div></div>
+        </section>
       </div>
       <div class="modal-footer"><button class="btn" onclick="closeUsageModal()">Cancel</button><button class="btn btn-primary" id="usage-save-button" onclick="saveUsageFromModal()">Save Account</button></div>
     </div>

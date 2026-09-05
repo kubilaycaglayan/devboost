@@ -11,11 +11,14 @@ import urllib.parse
 import urllib.request
 
 from remote_transport import run_ssh_command
+from . import codex_usage
 from .usage import parse_opencode_stats, provider_default_command, safe_number
 
 
 def local_usage_path(account, provider):
     default = "~/.codex/sessions" if provider == "codex" else "~/.claude/projects"
+    if provider == "codex":
+        default = os.path.join(account.get("codex_home") or os.environ.get("CODEX_HOME") or "~/.codex", "sessions")
     return os.path.expanduser(str(account.get("local_path") or default))
 
 
@@ -39,7 +42,7 @@ def _window_label(key, window):
 
 
 def _codex_rate_limit_result(limits, now=None):
-    """Convert Codex rate-limit state, treating elapsed windows as reset."""
+    """Convert historical Codex limits without inventing a fresh allowance."""
     now = time.time() if now is None else now
     quotas = []
     for key in ("primary", "secondary"):
@@ -48,10 +51,10 @@ def _codex_rate_limit_result(limits, now=None):
         if used is None:
             continue
         reset_at = safe_number(window.get("resets_at"))
-        if reset_at is not None and reset_at <= now:
-            used, reset_at = 0, None
-        quotas.append({"name": _window_label(key, window), "used": used, "limit": 100,
-                       "remaining": max(0, 100 - used), "unit": "%",
+        expired = reset_at is not None and reset_at <= now
+        quotas.append({"name": _window_label(key, window) + (" (expired; refresh needed)" if expired else ""),
+                       "used": None if expired else used, "limit": None if expired else 100,
+                       "remaining": None if expired else max(0, 100 - used), "unit": "%",
                        "reset_at": reset_at,
                        "window_minutes": window.get("window_minutes")})
     result = {"quotas": quotas}
@@ -60,6 +63,72 @@ def _codex_rate_limit_result(limits, now=None):
     if balance is not None:
         result["balances"] = [{"remaining": balance, "currency": "credits"}]
     result["plan_type"] = limits.get("plan_type")
+    return result
+
+
+def read_codex_api(runtime, account, server=None):
+    """Use the selected host's Codex login and the official account API."""
+    if server:
+        # This standalone stdlib helper needs no DevBoost installation remotely.
+        with open(codex_usage.__file__, encoding="utf-8") as stream:
+            script = stream.read()
+        command = shlex.join(["python3", "-c", script, str(account.get("codex_home") or ""),
+                              str(max(1, runtime.USAGE_TIMEOUT - 4))])
+        response = run_ssh_command(server["ssh_host"], command,
+                                   timeout=runtime.USAGE_TIMEOUT, connect_timeout=5)
+        if response.returncode:
+            raise ValueError("Could not query Codex on the selected SSH host. Check SSH connectivity and that Python 3 and Codex are installed.")
+        try:
+            envelope = json.loads(response.stdout)
+        except ValueError:
+            raise ValueError("Remote Codex query returned invalid JSON.") from None
+        if not isinstance(envelope, dict) or not isinstance(envelope.get("result"), dict):
+            # Do not expose arbitrary remote stdout/stderr or auth diagnostics.
+            raise ValueError("Remote Codex live quotas unavailable. Check Codex installation, connectivity and ChatGPT sign-in on the selected host.")
+        payload = envelope["result"]
+    else:
+        payload = codex_usage.read_rate_limits(account.get("codex_home"), timeout=runtime.USAGE_TIMEOUT - 2)
+    return normalize_codex_api(payload)
+
+
+def normalize_codex_api(payload):
+    """Prefer the multi-bucket API view, retaining exact server percentages."""
+    buckets = payload.get("rateLimitsByLimitId")
+    if not isinstance(buckets, dict) or not buckets:
+        legacy = payload.get("rateLimits")
+        buckets = {"codex": legacy} if isinstance(legacy, dict) else {}
+    result = {"source": "Codex live API", "stale": False, "quotas": [], "balances": []}
+    for bucket_id, bucket in buckets.items():
+        if not isinstance(bucket, dict):
+            continue
+        label = str(bucket.get("limitName") or bucket_id)
+        for key in ("primary", "secondary"):
+            window = bucket.get(key)
+            if not isinstance(window, dict):
+                continue
+            used = safe_number(window.get("usedPercent"))
+            if used is None or not 0 <= used <= 100:
+                continue
+            minutes = window.get("windowDurationMins")
+            result["quotas"].append({
+                "name": f"{label} · {_window_label(key, {'window_minutes': minutes})}",
+                "used": used, "limit": 100, "remaining": 100 - used, "unit": "%",
+                "reset_at": safe_number(window.get("resetsAt")),
+            })
+        if bucket_id == "codex" or len(buckets) == 1:
+            result["plan_type"] = bucket.get("planType")
+            credits = bucket.get("credits") or {}
+            balance = safe_number(credits.get("balance"))
+            if balance is not None:
+                result["balances"] = [{"remaining": balance, "currency": "credits"}]
+            result["credits_unlimited"] = credits.get("unlimited") is True
+    resets = payload.get("rateLimitResetCredits")
+    if isinstance(resets, dict):
+        count = safe_number(resets.get("availableCount"))
+        if count is not None and count >= 0:
+            result["available_resets"] = int(count)
+    if not result["quotas"] and not result["balances"] and not result.get("credits_unlimited"):
+        raise ValueError("Codex returned no subscription quota data for this account.")
     return result
 
 def read_local_transcript_usage(runtime, account):
@@ -72,10 +141,11 @@ def read_local_transcript_usage(runtime, account):
     paths = sorted(paths, key=lambda p: os.path.getmtime(p), reverse=True)[:500]
     totals = {"input_tokens": 0, "output_tokens": 0, "cache_read": 0, "cache_write": 0}
     latest_limits, latest_limit_mtime = None, -1
+    latest_observed_at = None
     for path in paths:
         try:
             with open(path, "r", encoding="utf-8") as stream:
-                last_usage, last_limits = None, None
+                last_usage, last_limits, last_observed_at = None, None, None
                 for line in stream:
                     try:
                         obj = json.loads(line)
@@ -93,6 +163,7 @@ def read_local_transcript_usage(runtime, account):
                         last_usage = usage
                     if isinstance(limits, dict):
                         last_limits = limits
+                        last_observed_at = obj.get("timestamp")
                 if provider == "codex" and isinstance(last_usage, dict):
                     for key, target in (("input_tokens", "input_tokens"), ("output_tokens", "output_tokens"),
                                         ("cached_input_tokens", "cache_read"), ("cache_write_input_tokens", "cache_write")):
@@ -104,12 +175,16 @@ def read_local_transcript_usage(runtime, account):
                 mtime = os.path.getmtime(path)
                 if last_limits and mtime > latest_limit_mtime:
                     latest_limits, latest_limit_mtime = last_limits, mtime
+                    latest_observed_at = last_observed_at or datetime.datetime.fromtimestamp(mtime, datetime.timezone.utc).isoformat()
         except (OSError, UnicodeError):
             continue
     result = {"source": f"{provider} local records", "quotas": [{"name": "tokens observed",
               "used": sum(totals.values()), "unit": "tokens"}]}
     if provider == "codex" and latest_limits:
         result.update(_codex_rate_limit_result(latest_limits))
+    if provider == "codex":
+        result.update(stale=True, observed_at=latest_observed_at,
+                      message="Historical Codex records; current allowance is unverified.")
     return result
 
 
@@ -127,7 +202,11 @@ def read_remote_transcript_usage(runtime, account, ssh_host):
     """Read Codex/Claude JSONL records from a selected SSH server."""
     provider = account.get("provider")
     root = str(account.get("local_path") or ("~/.codex/sessions" if provider == "codex" else "~/.claude/projects"))
+    if provider == "codex" and account.get("codex_home") and not account.get("local_path"):
+        root = str(account["codex_home"]).rstrip("/") + "/sessions"
     root_expr = _remote_path_expression(root)
+    if provider == "codex" and not account.get("local_path") and not account.get("codex_home"):
+        root_expr = '"${CODEX_HOME:-$HOME/.codex}/sessions"'
     # Keep parsing local, but stream only the JSONL records over SSH. The
     # marker lets us safely separate files without depending on Python or
     # GNU-only utilities on the remote host.
@@ -182,6 +261,8 @@ def read_remote_transcript_usage(runtime, account, ssh_host):
               "quotas": [{"name": "tokens observed", "used": sum(totals.values()), "unit": "tokens"}]}
     if provider == "codex" and latest_limits:
         result.update(_codex_rate_limit_result(latest_limits))
+    if provider == "codex":
+        result.update(stale=True, message="Historical Codex records; current allowance is unverified.")
     return result
 
 
