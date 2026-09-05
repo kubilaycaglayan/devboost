@@ -26,6 +26,8 @@ A lightweight, zero-dependency port forward manager and discovery dashboard for 
 ```text
 port_tracker/
 ├── devboost.py           # Core CLI, REST API & embedded Web Dashboard SPA
+├── app/                  # UNTRACKED local state (gitignored): app/.env, app/config.json
+│                         # Executable stays in ~/.config/devboost (TCC-safe); only state lives here
 ├── assets/                 # Static web assets (favicon.png served at /favicon.png)
 │   └── favicon.png         # Dashboard favicon (with embedded fallback in devboost.py)
 ├── install.sh              # Installation & deployment script
@@ -50,11 +52,11 @@ port_tracker/
 ## 🚀 Quick Start
 
 ### 1. Configure Environment
-Copy the example environment file:
+Copy the example environment file into the untracked state dir:
 ```bash
-cp .env.example .env
+mkdir -p app && cp .env.example app/.env
 ```
-Edit `.env` to configure your remote SSH server:
+Edit `app/.env` to configure your remote SSH server:
 ```bash
 DEVBOOST_SSH_HOST=my-remote-server
 DEVBOOST_SERVER_NAME="My Remote Server"
@@ -127,7 +129,8 @@ python3 -m unittest discover tests -v
 
 ## 🔒 Privacy & macOS Permissions
 
-- All private server hostnames, IPs, and custom agent domains are configured via `.env` (which is excluded via `.gitignore`).
+- All private server hostnames, IPs, and custom agent domains are configured via `app/.env` (untracked via `/app/` in `.gitignore`; legacy root `.env` still works as fallback).
+- Runtime state (`app/config.json`) is also untracked in `app/`.
 - **macOS TCC Sandbox Compliance**: Background daemons managed by macOS `launchd` are restricted from reading directly inside `~/Documents/` or `~/Desktop/`. The `install.sh` script deploys the runtime executable to `~/.config/devboost/` so background services operate smoothly without macOS privacy sandbox errors.
 
 ---
