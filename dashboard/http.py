@@ -205,6 +205,10 @@ class DashboardHandler(BaseHTTPRequestHandler):
                     color = "#8b949e"
                 clean.append({"id": ident, "name": name[:80], "match": match[:120], "color": color, "enabled": bool(raw.get("enabled", True))})
             cfg = load_config()
+            existing_labels = cfg.get("docker_labels", [])
+            if existing_labels and not clean:
+                self._send_json({"ok": False, "message": "Refusing to replace existing Docker labels with an empty list"}, status=400)
+                return
             cfg["docker_labels"] = clean
             save_config(cfg)
             self._send_json({"ok": True, "labels": clean})

@@ -2,17 +2,38 @@
 
 import json
 import os
+import shutil
 import tempfile
 
 
 def _write_config_atomic(runtime, cfg):
     directory = os.path.dirname(os.path.abspath(runtime.CONFIG_FILE))
+    backup = runtime.CONFIG_FILE + ".bak"
     fd, temporary = tempfile.mkstemp(prefix=".config-", suffix=".json", dir=directory)
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as handle:
             json.dump(cfg, handle, indent=2)
             handle.flush()
             os.fsync(handle.fileno())
+        # Keep the last known-good config recoverable before replacing it.
+        if os.path.exists(runtime.CONFIG_FILE):
+            backup_fd, backup_temporary = tempfile.mkstemp(prefix=".config-backup-", suffix=".json", dir=directory)
+            try:
+                with os.fdopen(backup_fd, "wb") as backup_handle:
+                    with open(runtime.CONFIG_FILE, "rb") as current_handle:
+                        shutil.copyfileobj(current_handle, backup_handle)
+                    backup_handle.flush()
+                    os.fsync(backup_handle.fileno())
+                os.replace(backup_temporary, backup)
+            except Exception:
+                try:
+                    os.close(backup_fd)
+                except OSError:
+                    pass
+                try:
+                    os.unlink(backup_temporary)
+                except OSError:
+                    pass
         os.replace(temporary, runtime.CONFIG_FILE)
     except Exception:
         try:
@@ -77,7 +98,22 @@ def load_config(runtime):
                     pass
             return cfg
         except Exception:
-            pass
+            # A failed read should not turn the next save into a replacement
+            # of the user's state with defaults. Recover the previous atomic
+            # snapshot when one is available.
+            backup = runtime.CONFIG_FILE + ".bak"
+            try:
+                with open(backup, "r", encoding="utf-8") as handle:
+                    cfg = json.load(handle)
+                cfg.setdefault("labels", {})
+                cfg.setdefault("rules", {})
+                cfg.setdefault("docker_labels", _default_docker_labels())
+                cfg.setdefault("history", [])
+                cfg.setdefault("usage_accounts", [])
+                cfg.setdefault("usage_snapshots", {})
+                return cfg
+            except Exception:
+                pass
     return {
         "labels": {}, "rules": {}, "docker_labels": _default_docker_labels(),
         "history": [], "server_labels": {}, "usage_accounts": [],
