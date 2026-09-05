@@ -9,15 +9,47 @@ from http.server import BaseHTTPRequestHandler
 
 
 class DashboardHandler(BaseHTTPRequestHandler):
+    _MAX_JSON_BYTES = 1024 * 1024
+
+    def _local_browser_request(self):
+        """Allow dashboard-origin requests, while blocking cross-site browser calls.
+
+        The server is intentionally localhost-only, but another local web page
+        can still attempt to CSRF a localhost service.  CLI clients generally
+        omit Origin, so absence remains allowed; browser requests must originate
+        from this exact dashboard port.
+        """
+        origin = self.headers.get("Origin")
+        if origin:
+            try:
+                parsed = urllib.parse.urlparse(origin)
+                expected_port = self.server.server_port
+                if parsed.scheme not in ("http", "https") or parsed.hostname not in ("localhost", "127.0.0.1"):
+                    return False
+                return parsed.port in (None, expected_port)
+            except ValueError:
+                return False
+        return True
+
+    def _reject_untrusted_request(self):
+        self.send_response(403)
+        self.send_header("Content-Type", "application/json")
+        self.end_headers()
+        self.wfile.write(b'{"ok":false,"message":"Request origin is not allowed"}')
+
     def _send_json(self, data, status=200):
         self.send_response(status)
         self.send_header("Content-Type", "application/json")
-        self.send_header("Access-Control-Allow-Origin", "*")
         self.end_headers()
         self.wfile.write(json.dumps(data).encode("utf-8"))
 
     def _read_json(self):
-        content_length = int(self.headers.get("Content-Length", 0))
+        try:
+            content_length = int(self.headers.get("Content-Length", 0))
+        except (TypeError, ValueError):
+            raise ValueError("invalid Content-Length")
+        if content_length < 0 or content_length > self._MAX_JSON_BYTES:
+            raise ValueError("request body is too large")
         if content_length > 0:
             raw = self.rfile.read(content_length)
             return json.loads(raw.decode("utf-8"))
@@ -38,6 +70,9 @@ class DashboardHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         parsed = urllib.parse.urlparse(self.path)
         path = parsed.path
+        if path.startswith("/api/") and not self._local_browser_request():
+            self._reject_untrusted_request()
+            return
         query = urllib.parse.parse_qs(parsed.query)
         if path == "/" or path == "/index.html":
             self.send_response(200)
@@ -158,10 +193,14 @@ class DashboardHandler(BaseHTTPRequestHandler):
     def do_POST(self):
         parsed = urllib.parse.urlparse(self.path)
         path = parsed.path
+        if not self._local_browser_request() or not self.headers.get("Content-Type", "").split(";", 1)[0].strip().lower() == "application/json":
+            self._reject_untrusted_request()
+            return
         try:
             body = self._read_json()
-        except Exception:
-            body = {}
+        except (ValueError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+            self._send_json({"ok": False, "message": f"Invalid JSON request: {exc}"}, status=400)
+            return
 
         if path == "/api/forward":
             lp = body.get("local_port")

@@ -54,7 +54,10 @@ fi
 # State has been copied before these exact legacy locations are removed.
 rm -f "$SOURCE_DIR/app/.env" "$SOURCE_DIR/app/config.json"
 rmdir "$SOURCE_DIR/app" 2>/dev/null || true
-rm -rf "$LEGACY_DIR"
+# Remove only the retired installed code. Keep the legacy state/assets tree so
+# an unrelated file placed in the app's config directory is never swept up.
+rm -f "$LEGACY_DIR/devboost.py"
+rm -rf "$LEGACY_DIR/bin"
 if [ -L "$USER_HOME/.local/bin/devboost" ]; then
   rm -f "$USER_HOME/.local/bin/devboost"
 fi

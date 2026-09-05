@@ -88,6 +88,15 @@ async function main() {
     assert.ok(control.left >= result.card.left && control.right <= result.card.right,
       `${control.label} must remain visible inside the Quotas card`);
   }
+  await send("Emulation.setDeviceMetricsOverride", {width: 1120, height: 1000, deviceScaleFactor: 1, mobile: false});
+  const desktop = await evaluate(`(() => {
+    const card = document.querySelector('#page-usage .section-card').getBoundingClientRect();
+    const meter = document.querySelector('#usage-body .usage-meter').getBoundingClientRect();
+    const actions = document.querySelector('#usage-body tr[data-usage-id] .usage-actions').getBoundingClientRect();
+    return {cardRight: card.right, meterWidth: meter.width, actionsRight: actions.right};
+  })()`);
+  assert.ok(desktop.meterWidth >= 250, `Desktop quota bars should be wide enough to scan (${desktop.meterWidth}px)`);
+  assert.ok(desktop.actionsRight <= desktop.cardRight, "Desktop quota actions must remain visible");
 }
 main().catch(error => { console.error(error.stack || error); process.exitCode = 1; })
   .finally(() => chrome.kill());

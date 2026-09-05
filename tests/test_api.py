@@ -179,9 +179,10 @@ class TestDashboardAPI(unittest.TestCase):
         with urllib.request.urlopen(self.base_url + "/dashboard/styles.css") as resp:
             css = resp.read().decode("utf-8")
         self.assertIn("#usage-body td { font-size: 14px; padding: 10px 12px; }", css)
-        self.assertIn(".usage-quota { min-width: 145px;", css)
-        self.assertIn(".usage-meter { position: relative; height: 22px;", css)
+        self.assertIn(".usage-quota { min-width: 165px;", css)
+        self.assertIn(".usage-meter { position: relative; height: 24px;", css)
         self.assertIn("#page-usage table { table-layout: fixed; }", css)
+        self.assertIn("#page-usage th:nth-child(3), #page-usage td:nth-child(3) { width: 28%; }", css)
         self.assertIn("#page-usage th:last-child, #page-usage td:last-child { width: 132px;", css)
         self.assertIn(".usage-row-drop-shadow", css)
         self.assertIn(".usage-actions", css)
@@ -226,6 +227,45 @@ process.stdout.write(JSON.stringify([
         with urllib.request.urlopen(request) as response:
             self.assertEqual(response.status, 200)
             self.assertIn("text/html", response.headers.get("Content-Type"))
+
+    def test_api_rejects_cross_origin_requests(self):
+        request = urllib.request.Request(
+            f"{self.base_url}/api/status",
+            headers={"Origin": "https://attacker.example"},
+        )
+        with self.assertRaises(urllib.error.HTTPError) as raised:
+            urllib.request.urlopen(request)
+        self.assertEqual(raised.exception.code, 403)
+
+        request = urllib.request.Request(
+            f"{self.base_url}/api/clean",
+            data=b"{}",
+            headers={
+                "Content-Type": "application/json",
+                "Origin": f"http://localhost:{self.port}",
+            },
+        )
+        with urllib.request.urlopen(request) as response:
+            self.assertEqual(response.status, 200)
+
+    def test_api_rejects_non_json_posts(self):
+        request = urllib.request.Request(
+            f"{self.base_url}/api/clean",
+            data=b"{}",
+            headers={"Content-Type": "application/x-www-form-urlencoded"},
+        )
+        with self.assertRaises(urllib.error.HTTPError) as raised:
+            urllib.request.urlopen(request)
+        self.assertEqual(raised.exception.code, 403)
+
+        request = urllib.request.Request(
+            f"{self.base_url}/api/clean",
+            data=b"not-json",
+            headers={"Content-Type": "application/json"},
+        )
+        with self.assertRaises(urllib.error.HTTPError) as raised:
+            urllib.request.urlopen(request)
+        self.assertEqual(raised.exception.code, 400)
 
     def test_dashboard_assets_are_served_separately(self):
         for path, marker, content_type in (
