@@ -1,10 +1,46 @@
 {
+  "servers": [
+    {
+      "id": "my-remote-server",
+      "ssh_host": "my-remote-server",
+      "name": "Remote Ubuntu Server",
+      "ip": "192.168.1.100",
+      "order": 0,
+      "pinned": true
+    },
+    {
+      "id": "prod-server",
+      "ssh_host": "prod-server",
+      "name": "Production Server",
+      "ip": "",
+      "order": 1,
+      "pinned": false
+    }
+  ],
+  "server_labels": {
+    "my-remote-server": {
+      "3000": "Web Application",
+      "3030": "Grafana Dashboard",
+      "8080": "Docker Service",
+      "9090": "Prometheus Metrics",
+      "11434": "Ollama LLM API",
+      "43127": "Extension Hot-Reload"
+    },
+    "prod-server": {
+      "8080": "Prod Web App"
+    }
+  },
   "labels": {
     "3000": "Web Application",
-    "3030": "Grafana Dashboard",
-    "8080": "Docker Service",
-    "9090": "Prometheus Metrics",
-    "11434": "Ollama LLM API",
-    "43127": "Extension Hot-Reload"
-  }
+    "3030": "Grafana Dashboard"
+  },
+  "history": [
+    {
+      "server_id": "my-remote-server",
+      "local_port": 3030,
+      "remote_port": 3030,
+      "label": "Grafana Dashboard",
+      "last_used": 0
+    }
+  ]
 }
