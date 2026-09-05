@@ -6,6 +6,7 @@ import urllib.error
 from http.server import HTTPServer
 import sys
 import os
+from unittest.mock import patch
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
@@ -52,6 +53,23 @@ class TestDashboardAPI(unittest.TestCase):
             data = json.loads(resp.read().decode("utf-8"))
             self.assertIn("services", data)
             self.assertIsInstance(data["services"], list)
+
+    @patch.object(devboost.DOCKER_MONITOR, "get")
+    def test_api_docker(self, mock_docker):
+        mock_docker.return_value = {
+            "ok": True,
+            "available": True,
+            "containers": [{"name": "web", "id": "abc", "stats": {"cpu_percent": "1%"}}],
+            "stats": [],
+            "updated_at": 123,
+            "refreshing": False,
+        }
+        req = urllib.request.Request(f"{self.base_url}/api/docker")
+        with urllib.request.urlopen(req) as resp:
+            self.assertEqual(resp.status, 200)
+            data = json.loads(resp.read().decode("utf-8"))
+            self.assertTrue(data["available"])
+            self.assertEqual(data["containers"][0]["name"], "web")
 
     def test_api_clean(self):
         req = urllib.request.Request(f"{self.base_url}/api/clean", data=b"{}", headers={"Content-Type": "application/json"})

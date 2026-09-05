@@ -22,6 +22,9 @@ A lightweight, zero-dependency port forward manager and discovery dashboard for 
    - Dual file-system quick select: browse local *and* remote folders from the dashboard, with recently-synced pairs remembered per tab.
 6. **Zero External Dependencies**:
    - Built exclusively with Python standard library (`http.server`, `urllib`, `plistlib`, `subprocess`).
+7. **Docker Monitoring**:
+   - Shows cached `docker ps` and `docker stats --no-stream` snapshots for the active SSH server.
+   - The dashboard refreshes in the background without blocking other local requests; the CLI exposes the same capability with `devboost docker`.
 
 ---
 
@@ -30,6 +33,8 @@ A lightweight, zero-dependency port forward manager and discovery dashboard for 
 ```text
 port_tracker/
 ├── devboost.py           # Core CLI, REST API & embedded Web Dashboard SPA
+├── remote_transport.py   # Shared SSH subprocess transport
+├── docker_monitor.py     # Cached remote Docker snapshots and parsers
 ├── build-app.sh          # Builds the self-contained macOS app bundle
 ├── run-app.sh            # Rebuilds and launches the development app
 ├── assets/                 # Static web assets (favicon.png served at /favicon.png)
@@ -140,6 +145,9 @@ devboost sync rm <id>                           # remove a sync (files kept, tra
 
 # Scan listening services on remote server
 devboost scan
+
+# Show Docker containers and resource snapshots on the remote server
+devboost docker [--server ID]
 
 # Clean up duplicate / orphaned background SSH processes
 devboost clean

@@ -19,7 +19,10 @@ import subprocess
 import tempfile
 import urllib.parse
 import uuid
-from http.server import HTTPServer, BaseHTTPRequestHandler
+from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
+
+from docker_monitor import DockerMonitor, collect_docker_snapshot
+from remote_transport import run_ssh_command
 
 
 def _code_dir():
@@ -940,10 +943,7 @@ def remove_sync_agents_for_server(server_id):
 
 def _ssh_remote_cmd(host, remote_cmd):
     """Runs a remote shell command via ssh. Returns CompletedProcess."""
-    return subprocess.run(
-        ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=5", host, remote_cmd],
-        capture_output=True, text=True, timeout=30,
-    )
+    return run_ssh_command(host, remote_cmd, timeout=30, connect_timeout=5)
 
 
 def _ensure_remote_dir(host, remote_path):
@@ -2390,6 +2390,22 @@ def clean_orphaned_tunnels(server_ref=None):
     return killed
 
 
+DOCKER_MONITOR = DockerMonitor(interval=5)
+
+
+def get_docker_status(server_ref=None):
+    """Returns the cached Docker snapshot for one configured server."""
+    cfg = load_config()
+    server = resolve_server(cfg, server_ref)
+    snapshot = DOCKER_MONITOR.get(server.get("id"), server.get("ssh_host"))
+    snapshot.update({
+        "server_id": server.get("id"),
+        "server_name": server.get("name") or server.get("ssh_host"),
+        "server_host": server.get("ssh_host"),
+    })
+    return snapshot
+
+
 def scan_remote_services(server_ref=None):
     cfg = load_config() if server_ref else None
     if isinstance(server_ref, dict):
@@ -2946,6 +2962,30 @@ HTML_DASHBOARD = """<!DOCTYPE html>
       </div>
     </div>
 
+    <!-- Docker monitoring (cached snapshots from the active server) -->
+    <div class="section-card">
+      <div class="section-header">
+        <h2>Docker Containers <span class="muted" style="font-weight:400; font-size:12px;" id="docker-subtitle"></span></h2>
+        <button class="btn btn-sm" onclick="fetchDocker()">↻ Refresh</button>
+      </div>
+      <table>
+        <thead>
+          <tr>
+            <th>CONTAINER</th>
+            <th>STATUS</th>
+            <th>CPU</th>
+            <th>MEMORY</th>
+            <th>MEM %</th>
+            <th>NET I/O</th>
+            <th>IMAGE</th>
+          </tr>
+        </thead>
+        <tbody id="docker-body">
+          <tr><td colspan="7" style="text-align:center; color:var(--text-muted); padding:30px;">Checking Docker on the active server...</td></tr>
+        </tbody>
+      </table>
+    </div>
+
     <!-- Active Port Forwards Table -->
     <div class="section-card">
       <div class="section-header">
@@ -3423,9 +3463,12 @@ HTML_DASHBOARD = """<!DOCTYPE html>
       localStorage.setItem("devboost-active-server", sid);
       document.getElementById("remote-services-body").innerHTML = '<tr><td colspan="5" style="text-align:center; color:var(--text-muted); padding:20px;">Click "Scan Ports" to detect running services on the remote server.</td></tr>';
       document.getElementById("stat-remote").innerText = "-";
+      document.getElementById("docker-body").innerHTML = '<tr><td colspan="7" style="text-align:center; color:var(--text-muted); padding:30px;">Checking Docker on the active server...</td></tr>';
+      document.getElementById("docker-subtitle").innerText = "";
       document.getElementById("syncs-body").innerHTML = '<tr><td colspan="5" style="text-align:center; color:var(--text-muted); padding:30px;">Loading folder syncs...</td></tr>';
       renderTabs();
       fetchStatus();
+      fetchDocker();
       fetchSyncs();
     }
 
@@ -3738,6 +3781,45 @@ HTML_DASHBOARD = """<!DOCTYPE html>
         }).join("");
       } catch (err) {
         tbody.innerHTML = `<tr><td colspan="5" style="text-align:center; color:var(--danger); padding:20px;">Scan failed: ${err}</td></tr>`;
+      }
+    }
+
+    async function fetchDocker() {
+      const tbody = document.getElementById("docker-body");
+      const subtitle = document.getElementById("docker-subtitle");
+      try {
+        const res = await fetch("/api/docker" + serverQuery());
+        const data = await res.json();
+        if (data.available === null) {
+          subtitle.innerText = "checking...";
+          return;
+        }
+        if (!data.available) {
+          subtitle.innerText = "unavailable";
+          tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; color:var(--warning); padding:30px;">${escapeHtml(data.message || "Docker is unavailable on this server.")}</td></tr>`;
+          return;
+        }
+        const age = data.age_seconds == null ? "just now" : `${data.age_seconds}s ago`;
+        subtitle.innerText = `${data.containers.length} running • updated ${age}`;
+        if (!data.containers.length) {
+          tbody.innerHTML = '<tr><td colspan="7" style="text-align:center; color:var(--text-muted); padding:30px;">Docker is available, but no containers are running.</td></tr>';
+          return;
+        }
+        tbody.innerHTML = data.containers.map(c => {
+          const s = c.stats || {};
+          return `<tr>
+            <td><strong>${escapeHtml(c.name || c.id)}</strong><div class="sync-sub">${escapeHtml(c.id || "")}</div></td>
+            <td>${escapeHtml(c.status || "")}</td>
+            <td class="mono">${escapeHtml(s.cpu_percent || "-")}</td>
+            <td class="mono">${escapeHtml(s.memory_usage || "-")}</td>
+            <td class="mono">${escapeHtml(s.memory_percent || "-")}</td>
+            <td class="mono">${escapeHtml(s.network_io || "-")}</td>
+            <td class="mono" style="max-width:220px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="${escapeHtml(c.image || "")}">${escapeHtml(c.image || "")}</td>
+          </tr>`;
+        }).join("");
+      } catch (err) {
+        subtitle.innerText = "error";
+        tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; color:var(--danger); padding:30px;">Docker query failed: ${escapeHtml(String(err))}</td></tr>`;
       }
     }
 
@@ -4414,8 +4496,9 @@ HTML_DASHBOARD = """<!DOCTYPE html>
       }
     }
 
-    fetchServers().then(() => { fetchStatus(); fetchSyncs(); });
+    fetchServers().then(() => { fetchStatus(); fetchDocker(); fetchSyncs(); });
     setInterval(fetchStatus, 4000);
+    setInterval(fetchDocker, 5000);
     setInterval(fetchSyncs, 8000);
     setInterval(fetchLocalPorts, 10000);
     setInterval(fetchServers, 15000);
@@ -4502,6 +4585,9 @@ class DashboardHandler(BaseHTTPRequestHandler):
         elif path == "/api/scan":
             srv = query.get("server", [None])[0] or query.get("server_id", [None])[0]
             self._send_json({"services": scan_remote_services(srv)})
+        elif path == "/api/docker":
+            srv = query.get("server", [None])[0] or query.get("server_id", [None])[0]
+            self._send_json(get_docker_status(srv))
         elif path == "/api/history":
             srv = query.get("server", [None])[0] or query.get("server_id", [None])[0]
             self._send_json({"history": get_port_history(limit=10, server_id=srv)})
@@ -4730,9 +4816,10 @@ class DashboardHandler(BaseHTTPRequestHandler):
         return
 
 
-class ReusableHTTPServer(HTTPServer):
-    """Allows the packaged runner to immediately retake its dashboard port."""
+class ReusableHTTPServer(ThreadingHTTPServer):
+    """Threaded local server that can immediately retake its dashboard port."""
     allow_reuse_address = True
+    daemon_threads = True
 
 
 def serve(port=DEFAULT_DASHBOARD_PORT):
@@ -4846,6 +4933,35 @@ def cli_scan(server_ref=None):
     print("To forward any port, run: devboost add <port> [--always]\n")
 
 
+def cli_docker(server_ref=None):
+    cfg = load_config()
+    server = resolve_server(cfg, server_ref)
+    print(f"\nChecking Docker on {server.get('ssh_host')}...")
+    # CLI users expect a result now; the dashboard uses the cached worker path.
+    snapshot = collect_docker_snapshot(server.get("ssh_host"))
+    if snapshot.get("available") is not True:
+        print(snapshot.get("message") or "Docker is unavailable on the server.")
+        return
+    containers = snapshot.get("containers", [])
+    if not containers:
+        print("Docker is available, but no containers are running.")
+        return
+    print("=" * 120)
+    print(f"{'NAME':<24}{'STATUS':<28}{'CPU':<10}{'MEMORY':<24}{'NET I/O':<24}{'IMAGE'}")
+    print("-" * 120)
+    for container in containers:
+        stats = container.get("stats") or {}
+        print(
+            f"{container.get('name', '')[:23]:<24}"
+            f"{container.get('status', '')[:27]:<28}"
+            f"{stats.get('cpu_percent', ''):<10}"
+            f"{stats.get('memory_usage', '')[:23]:<24}"
+            f"{stats.get('network_io', '')[:23]:<24}"
+            f"{container.get('image', '')}"
+        )
+    print("=" * 120)
+
+
 def print_history_hint(server_ref=None):
     history = get_port_history(limit=10, server_id=server_ref)
     if not history:
@@ -4910,6 +5026,7 @@ Usage:
   devboost rm <port> [--server ID]    Remove a port forward and stop its tunnel
   devboost clean [--server ID]   Kill lingering duplicate/orphaned SSH processes
   devboost scan [--server ID]    Scan listening ports on a remote server
+  devboost docker [--server ID]  Show cached Docker container stats on a remote server
   devboost server list           List SSH connection tabs
   devboost server add <ssh-host> [display-name]   Add a tab (host should exist in ~/.ssh/config)
   devboost server rm <id>        Remove a tab (stops its tunnels)
@@ -5004,6 +5121,9 @@ def main():
     elif cmd == "scan":
         server_ref, _ = _extract_server_flag(args[1:])
         cli_scan(server_ref=server_ref)
+    elif cmd == "docker":
+        server_ref, _ = _extract_server_flag(args[1:])
+        cli_docker(server_ref=server_ref)
     elif cmd in ("add", "forward"):
         server_ref, filtered = _extract_server_flag(args[1:])
         fargs = [cmd] + filtered
