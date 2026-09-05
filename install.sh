@@ -3,16 +3,29 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-# Load .env if present
-if [ -f "$SCRIPT_DIR/.env" ]; then
+# Load .env if present (canonical app/.env first, legacy root .env fallback).
+# Untracked per-checkout state lives in app/; executable stays in ~/.config (TCC-safe).
+if [ -f "$SCRIPT_DIR/app/.env" ]; then
+  # Export variables from .env ignoring comments
+  export $(grep -v '^#' "$SCRIPT_DIR/app/.env" | xargs)
+elif [ -f "$SCRIPT_DIR/.env" ]; then
   # Export variables from .env ignoring comments
   export $(grep -v '^#' "$SCRIPT_DIR/.env" | xargs)
 fi
 
 # Configuration defaults (DEVBOOST_ canonical, PORT_TRACKER_ legacy fallback)
+# CONFIG_DIR holds the executable (TCC-safe, outside ~/Documents).
+# APP_DIR holds untracked runtime state (.env, config.json).
 CONFIG_DIR="${DEVBOOST_CONFIG_DIR:-${PORT_TRACKER_CONFIG_DIR/#\~/$HOME}}"
 CONFIG_DIR="${CONFIG_DIR/#\~/$HOME}"
 CONFIG_DIR="${CONFIG_DIR:-"$HOME/.config/devboost"}"
+APP_DIR_OVERRIDE="${DEVBOOST_APP_DIR:-${PORT_TRACKER_APP_DIR:-}}"
+if [ -n "$APP_DIR_OVERRIDE" ]; then
+  APP_DIR="${APP_DIR_OVERRIDE/#\~/$HOME}"
+else
+  APP_DIR="$CONFIG_DIR/app"
+fi
+REPO_APP_DIR="$SCRIPT_DIR/app"
 LOG_DIR="${DEVBOOST_LOG_DIR:-${PORT_TRACKER_LOG_DIR/#\~/$HOME}}"
 LOG_DIR="${LOG_DIR/#\~/$HOME}"
 LOG_DIR="${LOG_DIR:-"$HOME/Library/Logs"}"
@@ -22,10 +35,11 @@ DASHBOARD_PORT="${DEVBOOST_DASHBOARD_PORT:-${PORT_TRACKER_DASHBOARD_PORT:-3080}}
 
 echo "Deploying DevBoost..."
 echo "  Source: $SCRIPT_DIR"
-echo "  Destination: $CONFIG_DIR"
+echo "  Destination (executable): $CONFIG_DIR"
+echo "  State dir: $APP_DIR"
 echo "  Dashboard Port: $DASHBOARD_PORT"
 
-mkdir -p "$CONFIG_DIR" "$CONFIG_DIR/bin" "$HOME/.local/bin" "$HOME/Library/LaunchAgents" "$LOG_DIR"
+mkdir -p "$CONFIG_DIR" "$APP_DIR" "$CONFIG_DIR/bin" "$HOME/.local/bin" "$HOME/Library/LaunchAgents" "$LOG_DIR"
 
 # Copy python executable
 cp "$SCRIPT_DIR/devboost.py" "$CONFIG_DIR/devboost.py"
@@ -50,9 +64,27 @@ if [ -f "$SCRIPT_DIR/bin/DevBoost-tunnel" ]; then
   chmod +x "$CONFIG_DIR/bin/DevBoost-tunnel"
 fi
 
-# Copy .env to config directory if present
-if [ -f "$SCRIPT_DIR/.env" ]; then
-  cp "$SCRIPT_DIR/.env" "$CONFIG_DIR/.env"
+# State: copy/migrate .env into APP_DIR (never overwrite a newer APP_DIR/.env
+# with an older legacy file — explicit repo app/.env wins, then legacy root).
+if [ -f "$REPO_APP_DIR/.env" ]; then
+  cp "$REPO_APP_DIR/.env" "$APP_DIR/.env"
+elif [ -f "$SCRIPT_DIR/.env" ]; then
+  if [ ! -f "$APP_DIR/.env" ]; then
+    cp "$SCRIPT_DIR/.env" "$APP_DIR/.env"
+  fi
+elif [ -f "$CONFIG_DIR/.env" ] && [ ! -f "$APP_DIR/.env" ]; then
+  mv "$CONFIG_DIR/.env" "$APP_DIR/.env"
+fi
+
+# State: copy/migrate config.json into APP_DIR (same precedence, never clobber).
+if [ -f "$REPO_APP_DIR/config.json" ]; then
+  cp "$REPO_APP_DIR/config.json" "$APP_DIR/config.json"
+elif [ -f "$SCRIPT_DIR/config.json" ]; then
+  if [ ! -f "$APP_DIR/config.json" ]; then
+    cp "$SCRIPT_DIR/config.json" "$APP_DIR/config.json"
+  fi
+elif [ -f "$CONFIG_DIR/config.json" ] && [ ! -f "$APP_DIR/config.json" ]; then
+  mv "$CONFIG_DIR/config.json" "$APP_DIR/config.json"
 fi
 
 # Symlink CLI command
