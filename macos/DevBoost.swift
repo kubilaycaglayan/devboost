@@ -28,7 +28,7 @@ enum DevBoostMain {
 final class DevBoostApp: NSObject, NSApplicationDelegate {
     private var backend: Process?
     private var statusItem: NSStatusItem?
-    private var usageMenu: NSMenu?
+    private var statusMenu: NSMenu?
     private var usageTimer: Timer?
     private var interruptSource: DispatchSourceSignal?
 
@@ -57,16 +57,13 @@ final class DevBoostApp: NSObject, NSApplicationDelegate {
         item.button?.title = "DevBoost"
         let menu = NSMenu()
         menu.addItem(withTitle: "Open Dashboard", action: #selector(openDashboard), keyEquivalent: "o")
-        let usageItem = NSMenuItem(title: "AI Usage", action: nil, keyEquivalent: "")
-        let submenu = NSMenu()
-        submenu.addItem(withTitle: "Loading…", action: nil, keyEquivalent: "")
-        usageItem.submenu = submenu
-        menu.addItem(usageItem)
+        menu.addItem(NSMenuItem.separator())
+        menu.addItem(withTitle: "Loading usage…", action: nil, keyEquivalent: "")
         menu.addItem(NSMenuItem.separator())
         menu.addItem(withTitle: "Quit DevBoost", action: #selector(quit), keyEquivalent: "q")
         item.menu = menu
         statusItem = item
-        usageMenu = submenu
+        statusMenu = menu
     }
 
     private func refreshUsage() {
@@ -77,41 +74,105 @@ final class DevBoostApp: NSObject, NSApplicationDelegate {
                   let accounts = root["accounts"] as? [[String: Any]],
                   let snapshots = root["snapshots"] as? [String: Any] else { return }
             DispatchQueue.main.async {
-                guard let menu = self?.usageMenu else { return }
+                guard let self = self, let menu = self.statusMenu else { return }
                 menu.removeAllItems()
+                menu.addItem(withTitle: "Open Dashboard", action: #selector(DevBoostApp.openDashboard), keyEquivalent: "o")
+                menu.addItem(NSMenuItem.separator())
                 let enabledAccounts = accounts.filter { ($0["enabled"] as? Bool) ?? true }
                 if enabledAccounts.isEmpty {
                     menu.addItem(withTitle: "No accounts configured", action: nil, keyEquivalent: "")
-                    return
-                }
-                for account in enabledAccounts {
-                    let aid = account["id"] as? String ?? ""
-                    let name = account["name"] as? String ?? (account["provider"] as? String ?? "Account")
-                    let snapshot = snapshots[aid] as? [String: Any]
-                    let title: String
-                    if snapshot?["ok"] as? Bool == true {
-                        let quotas = snapshot?["quotas"] as? [[String: Any]] ?? []
-                        let remaining = quotas.first?["remaining"] as? NSNumber
-                        let balances = snapshot?["balances"] as? [[String: Any]] ?? []
-                        let balance = balances.first?["remaining"] as? NSNumber
-                        if let remaining = remaining, let balance = balance {
-                            title = "\(name): \(remaining) left · \(balance) \(balances.first?["currency"] as? String ?? "USD")"
-                        } else if let remaining = remaining {
-                            title = "\(name): \(remaining) left"
-                        } else if let balance = balance {
-                            title = "\(name): \(balance) \(balances.first?["currency"] as? String ?? "USD")"
-                        } else if let spent = balances.first?["spent"] as? NSNumber {
-                            title = "\(name): spent \(spent) \(balances.first?["currency"] as? String ?? "USD")"
+                } else {
+                    for account in enabledAccounts {
+                        let aid = account["id"] as? String ?? ""
+                        let provider = account["provider"] as? String ?? "Provider"
+                        let name = account["name"] as? String ?? provider
+                        let snapshot = snapshots[aid] as? [String: Any]
+                        let heading = NSMenuItem(title: "\(provider) · \(name)", action: nil, keyEquivalent: "")
+                        heading.isEnabled = false
+                        menu.addItem(heading)
+                        if snapshot?["ok"] as? Bool == true {
+                            let quotas = snapshot?["quotas"] as? [[String: Any]] ?? []
+                            var resetCount = 0
+                            for quota in quotas {
+                                let quotaName = quota["name"] as? String ?? "Usage limit"
+                                let unit = quota["unit"] as? String ?? "units"
+                                let used = self.numberText(quota["used"])
+                                let remaining = self.numberText(quota["remaining"])
+                                let limit = self.numberText(quota["limit"])
+                                let detail: String
+                                if let used = used, let limit = limit {
+                                    detail = "\(quotaName): \(used) / \(limit) \(unit) used"
+                                } else if let remaining = remaining {
+                                    detail = "\(quotaName): \(remaining) \(unit) remaining"
+                                } else if let used = used {
+                                    detail = "\(quotaName): \(used) \(unit) observed"
+                                } else {
+                                    detail = "\(quotaName): no usage value"
+                                }
+                                self.addIndentedItem(to: menu, title: detail)
+                                if let reset = self.formatResetTime(quota["reset_at"]) {
+                                    resetCount += 1
+                                    self.addIndentedItem(to: menu, title: reset)
+                                }
+                            }
+                            if resetCount > 0 {
+                                let noun = resetCount == 1 ? "reset" : "resets"
+                                self.addIndentedItem(to: menu, title: "You have \(resetCount) usage limit \(noun) available.")
+                            }
+                            let balances = snapshot?["balances"] as? [[String: Any]] ?? []
+                            for balance in balances {
+                                let currency = balance["currency"] as? String ?? "USD"
+                                if let remaining = self.numberText(balance["remaining"]) {
+                                    self.addIndentedItem(to: menu, title: "Balance: \(remaining) \(currency) remaining")
+                                } else if let spent = self.numberText(balance["spent"]) {
+                                    self.addIndentedItem(to: menu, title: "Balance: \(spent) \(currency) spent")
+                                }
+                            }
                         } else {
-                            title = "\(name): connected"
+                            let message = snapshot?["message"] as? String ?? "Unavailable"
+                            self.addIndentedItem(to: menu, title: message)
                         }
-                    } else {
-                        title = "\(name): unavailable"
+                        menu.addItem(NSMenuItem.separator())
                     }
-                    menu.addItem(withTitle: title, action: nil, keyEquivalent: "")
                 }
+                menu.addItem(withTitle: "Quit DevBoost", action: #selector(DevBoostApp.quit), keyEquivalent: "q")
             }
         }.resume()
+    }
+
+    private func addIndentedItem(to menu: NSMenu, title: String) {
+        let item = NSMenuItem(title: title, action: nil, keyEquivalent: "")
+        item.indentationLevel = 1
+        item.isEnabled = false
+        menu.addItem(item)
+    }
+
+    private func numberText(_ value: Any?) -> String? {
+        guard let number = value as? NSNumber else { return nil }
+        let raw = number.doubleValue
+        if raw.rounded() == raw {
+            return String(Int(raw))
+        }
+        return String(format: "%.2f", raw)
+    }
+
+    private func formatResetTime(_ value: Any?) -> String? {
+        let date: Date?
+        if let number = value as? NSNumber {
+            let seconds = number.doubleValue
+            date = Date(timeIntervalSince1970: seconds < 1_000_000_000_000 ? seconds : seconds / 1000)
+        } else if let string = value as? String {
+            let parser = ISO8601DateFormatter()
+            date = parser.date(from: string)
+        } else {
+            date = nil
+        }
+        guard let date = date else { return nil }
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone.current
+        formatter.dateFormat = "MMM d, yyyy h:mm a"
+        return "Resets \(formatter.string(from: date))"
     }
 
     @objc private func openDashboard() {
