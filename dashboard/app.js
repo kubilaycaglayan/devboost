@@ -1594,7 +1594,7 @@
     function navigatePage(page, updateHash = true) {
       const valid = Object.prototype.hasOwnProperty.call(pageTitles, page) ? page : "home";
       document.querySelectorAll(".page-view").forEach(view => view.classList.toggle("active", view.id === "page-" + valid));
-      document.getElementById("home-btn").style.display = valid === "home" ? "none" : "inline-flex";
+      document.querySelectorAll(".workspace-tab").forEach(tab => tab.classList.toggle("active", tab.dataset.page === valid));
       document.getElementById("clean-orphans-btn").style.display = valid === "forwards" ? "inline-flex" : "none";
       document.querySelector("#header-actions .btn-primary").style.display = valid === "forwards" ? "inline-flex" : "none";
       document.getElementById("header-server-title").textContent = pageTitles[valid];

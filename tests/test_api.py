@@ -50,6 +50,19 @@ class TestDashboardAPI(unittest.TestCase):
         )]
         self.assertLess(tabs_position, min(page_positions))
 
+    def test_workspace_tabs_follow_server_selector_and_track_pages(self):
+        with urllib.request.urlopen(self.base_url + "/") as resp:
+            html = resp.read().decode("utf-8")
+        self.assertIn('id="workspace-tabs"', html)
+        self.assertLess(html.index('id="tabs-bar"'), html.index('id="workspace-tabs"'))
+        for page in ("home", "forwards", "docker", "syncs", "services", "usage"):
+            self.assertIn(f'data-page="{page}"', html)
+
+        with urllib.request.urlopen(self.base_url + "/dashboard/app.js") as resp:
+            app_js = resp.read().decode("utf-8")
+        self.assertIn('document.querySelectorAll(".workspace-tab")', app_js)
+        self.assertIn('tab.dataset.page === valid', app_js)
+
     def test_server_tabs_keep_edit_and_drag_order_controls_without_extra_details(self):
         with urllib.request.urlopen(self.base_url + "/dashboard/app.js") as resp:
             app_js = resp.read().decode("utf-8")

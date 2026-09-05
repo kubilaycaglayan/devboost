@@ -176,6 +176,32 @@
       border: 1px solid var(--border);
       border-radius: 8px;
     }
+    .workspace-tabs {
+      display: flex;
+      align-items: center;
+      gap: 2px;
+      margin: -12px 0 20px;
+      padding: 3px;
+      width: fit-content;
+      max-width: 100%;
+      overflow-x: auto;
+      background: rgba(22, 27, 34, 0.7);
+      border: 1px solid var(--border);
+      border-radius: 7px;
+    }
+    .workspace-tab {
+      border: 0;
+      border-radius: 5px;
+      padding: 4px 10px;
+      background: transparent;
+      color: var(--text-muted);
+      font-size: 11px;
+      font-weight: 600;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+    .workspace-tab:hover { color: #fff; background: var(--btn-hover); }
+    .workspace-tab.active { color: #fff; background: rgba(88,166,255,0.18); }
     .tab {
       display: inline-flex;
       align-items: center;

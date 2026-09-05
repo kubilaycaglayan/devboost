@@ -21,7 +21,6 @@
         </div>
       </div>
       <div style="display:flex; gap:10px;" id="header-actions">
-        <button class="btn" onclick="navigatePage('home')" id="home-btn" style="display:none;">⌂ Home</button>
         <button class="btn" onclick="cleanOrphans()" id="clean-orphans-btn" title="Clean up lingering duplicate ssh processes">
           🧹 Clean Orphans <span id="orphans-badge" style="font-size:11px; opacity:0.8;"></span>
         </button>
@@ -35,6 +34,15 @@
     <div class="tabs-bar" id="tabs-bar">
       <span style="font-size:12px; color:var(--text-muted);">Loading servers...</span>
     </div>
+
+    <nav class="workspace-tabs" id="workspace-tabs" aria-label="Workspace pages">
+      <button class="workspace-tab" data-page="home" onclick="navigatePage('home')">Home</button>
+      <button class="workspace-tab" data-page="forwards" onclick="navigatePage('forwards')">Forwards</button>
+      <button class="workspace-tab" data-page="docker" onclick="navigatePage('docker')">Docker</button>
+      <button class="workspace-tab" data-page="syncs" onclick="navigatePage('syncs')">Syncs</button>
+      <button class="workspace-tab" data-page="services" onclick="navigatePage('services')">Services</button>
+      <button class="workspace-tab" data-page="usage" onclick="navigatePage('usage')">Usage</button>
+    </nav>
 
     <div class="page-view active" id="page-home">
       <div class="feature-grid">
