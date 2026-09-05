@@ -221,16 +221,17 @@
     .workspace-tab {
       border: 0;
       border-radius: 5px;
-      padding: 4px 10px;
+      padding: 7px 13px;
       background: transparent;
       color: var(--text-muted);
-      font-size: 11px;
+      font-size: 14px;
       font-weight: 600;
       cursor: pointer;
       white-space: nowrap;
     }
     .workspace-tab:hover { color: #fff; background: var(--btn-hover); }
     .workspace-tab.active { color: #fff; background: rgba(88,166,255,0.18); }
+    .workspace-tab:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
     .tab {
       display: inline-flex;
       align-items: center;
