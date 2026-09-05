@@ -38,6 +38,17 @@ class TestUsageAdapters(unittest.TestCase):
         self.assertIn("tool --json", ssh.call_args.args[1])
 
     @patch("devboost_app.usage_service.run_ssh_command")
+    def test_remote_opencode_command_includes_noninteractive_install_paths(self, ssh):
+        ssh.return_value = types.SimpleNamespace(returncode=0, stdout='{"usage": {}}', stderr="")
+        usage_service.read_usage_command(self.runtime, {
+            "provider": "opencode", "usage_command": ["opencode", "stats"]
+        }, server={"ssh_host": "box"})
+        remote_command = ssh.call_args.args[1]
+        self.assertIn(".opencode/bin", remote_command)
+        self.assertIn(".local/bin", remote_command)
+        self.assertIn("sh -lc", remote_command)
+
+    @patch("devboost_app.usage_service.run_ssh_command")
     def test_agy_usage_runs_native_command_with_local_bin_on_selected_server(self, ssh):
         ssh.return_value = types.SimpleNamespace(returncode=0, stdout=json.dumps({
             "command": {"name": "usage", "data": {"groups": [{"name": "Gemini", "buckets": [{

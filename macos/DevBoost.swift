@@ -25,7 +25,7 @@ enum DevBoostMain {
     }
 }
 
-final class DevBoostApp: NSObject, NSApplicationDelegate {
+final class DevBoostApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var backend: Process?
     private var statusItem: NSStatusItem?
     private var statusMenu: NSMenu?
@@ -64,10 +64,18 @@ final class DevBoostApp: NSObject, NSApplicationDelegate {
         item.menu = menu
         statusItem = item
         statusMenu = menu
+        menu.delegate = self
     }
 
-    private func refreshUsage() {
-        let url = URL(string: "http://127.0.0.1:\(dashboardPort())/api/usage")!
+    func menuWillOpen(_ menu: NSMenu) {
+        // Opening the status menu is an explicit request to see current
+        // quotas, so do not wait for the background one-minute refresh.
+        refreshUsage(force: true)
+    }
+
+    private func refreshUsage(force: Bool = false) {
+        let refreshQuery = force ? "?refresh=1" : ""
+        let url = URL(string: "http://127.0.0.1:\(dashboardPort())/api/usage\(refreshQuery)")!
         URLSession.shared.dataTask(with: url) { [weak self] data, _, _ in
             guard let data = data,
                   let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
@@ -99,25 +107,13 @@ final class DevBoostApp: NSObject, NSApplicationDelegate {
                             let quotas = snapshot?["quotas"] as? [[String: Any]] ?? []
                             var resetCount = 0
                             for quota in quotas {
-                                let quotaName = quota["name"] as? String ?? "Usage limit"
-                                let unit = quota["unit"] as? String ?? "units"
-                                let used = self.numberText(quota["used"])
-                                let remaining = self.numberText(quota["remaining"])
-                                let limit = self.numberText(quota["limit"])
-                                let detail: String
-                                if let used = used, let limit = limit {
-                                    detail = "\(quotaName): \(used) / \(limit) \(unit) used"
-                                } else if let remaining = remaining {
-                                    detail = "\(quotaName): \(remaining) \(unit) remaining"
-                                } else if let used = used {
-                                    detail = "\(quotaName): \(used) \(unit) observed"
-                                } else {
-                                    detail = "\(quotaName): no usage value"
+                                let reset = self.formatResetTime(quota["reset_at"])
+                                self.addIndentedItem(to: menu, title: self.quotaMenuDetail(quota, reset: reset))
+                                if let value = self.quotaMenuValue(quota) {
+                                    self.addIndentedItem(to: menu, title: value, indentationLevel: 2)
                                 }
-                                self.addIndentedItem(to: menu, title: detail)
-                                if let reset = self.formatResetTime(quota["reset_at"]) {
+                                if reset != nil {
                                     resetCount += 1
-                                    self.addIndentedItem(to: menu, title: reset)
                                 }
                             }
                             if resetCount > 0 {
@@ -148,9 +144,9 @@ final class DevBoostApp: NSObject, NSApplicationDelegate {
         }.resume()
     }
 
-    private func addIndentedItem(to menu: NSMenu, title: String) {
+    private func addIndentedItem(to menu: NSMenu, title: String, indentationLevel: Int = 1) {
         let item = NSMenuItem(title: title, action: nil, keyEquivalent: "")
-        item.indentationLevel = 1
+        item.indentationLevel = indentationLevel
         item.isEnabled = false
         menu.addItem(item)
     }
@@ -175,6 +171,53 @@ final class DevBoostApp: NSObject, NSApplicationDelegate {
         return String(format: "%.2f", raw)
     }
 
+    private func quotaMenuDetail(_ quota: [String: Any], reset: String? = nil) -> String {
+        let name = quota["name"] as? String ?? "Usage limit"
+        return name + (reset.map { " · \($0)" } ?? "")
+    }
+
+    private func quotaMenuValue(_ quota: [String: Any]) -> String? {
+        let unit = quota["unit"] as? String ?? "units"
+        let remaining = (quota["remaining"] as? NSNumber)?.doubleValue
+        let used = (quota["used"] as? NSNumber)?.doubleValue
+        let limit = (quota["limit"] as? NSNumber)?.doubleValue
+        let percent: Double?
+        if unit == "%", let remaining = remaining {
+            percent = remaining
+        } else if let limit = limit, limit > 0, let remaining = remaining {
+            percent = remaining / limit * 100
+        } else if let limit = limit, limit > 0, let used = used {
+            percent = (limit - used) / limit * 100
+        } else {
+            percent = nil
+        }
+        if let percent = percent {
+            let clamped = min(100, max(0, percent))
+            return "\(String(format: "%.0f", clamped))% left"
+        }
+        if let remaining = remaining {
+            return "\(compactNumber(remaining)) \(unit) left"
+        }
+        if let used = used, let limit = limit {
+            return "\(compactNumber(max(0, limit - used))) \(unit) left"
+        }
+        if let used = used {
+            return "\(compactNumber(used)) \(unit)"
+        }
+        return nil
+    }
+
+    private func compactNumber(_ value: Double) -> String {
+        let magnitude = abs(value)
+        let scale: (Double, String) = magnitude >= 1_000_000_000 ? (1_000_000_000, "B")
+            : magnitude >= 1_000_000 ? (1_000_000, "M")
+            : magnitude >= 1_000 ? (1_000, "K") : (1, "")
+        let scaled = value / scale.0
+        let precision = scale.0 == 1 || abs(scaled) >= 100 ? 0 : 1
+        let text = String(format: "%.*f", precision, scaled)
+        return text.hasSuffix(".0") ? String(text.dropLast(2)) + scale.1 : text + scale.1
+    }
+
     private func formatResetTime(_ value: Any?) -> String? {
         let date: Date?
         if let number = value as? NSNumber {
@@ -190,7 +233,7 @@ final class DevBoostApp: NSObject, NSApplicationDelegate {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.timeZone = TimeZone.current
-        formatter.dateFormat = "MMM d, yyyy h:mm a"
+        formatter.dateFormat = "MMM d, h:mm a"
         return "Resets \(formatter.string(from: date))"
     }
 

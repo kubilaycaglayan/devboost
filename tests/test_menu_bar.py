@@ -20,12 +20,22 @@ class TestMenuBarUsage(unittest.TestCase):
         for text in ("Balance:", "Resets ", "You have \\(resetCount) usage limit"):
             self.assertIn(text, self.swift)
         self.assertIn("addIndentedItem", self.swift)
+        self.assertIn('return "\\(String(format: "%.0f", clamped))% left"', self.swift)
+        self.assertIn('return name + (reset.map { " · \\($0)" } ?? "")', self.swift)
+        self.assertIn('indentationLevel: 2', self.swift)
+        self.assertIn("compactNumber(max(0, limit - used))", self.swift)
 
     def test_menu_bar_follows_quota_order_and_omits_empty_accounts(self):
         self.assertIn("let orderedAccounts = accounts.filter", self.swift)
         self.assertIn("self.snapshotHasData", self.swift)
         self.assertIn("No usage data available", self.swift)
         self.assertIn('let quotas = snapshot["quotas"] as? [[String: Any]] ?? []', self.swift)
+
+    def test_opening_menu_forces_a_quota_refresh(self):
+        self.assertIn("NSMenuDelegate", self.swift)
+        self.assertIn("func menuWillOpen(_ menu: NSMenu)", self.swift)
+        self.assertIn("refreshUsage(force: true)", self.swift)
+        self.assertIn('force ? "?refresh=1" : ""', self.swift)
 
 
 if __name__ == "__main__":

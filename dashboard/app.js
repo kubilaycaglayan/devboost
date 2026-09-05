@@ -64,6 +64,16 @@
       }).join(" ");
     }
     function usageNumber(value) { return value == null ? "—" : String(value); }
+    function formatTokenCount(value) {
+      const count = Number(value);
+      if (!Number.isFinite(count)) return usageNumber(value);
+      const magnitude = Math.abs(count);
+      const scale = magnitude >= 1e9 ? [1e9, "B"] : magnitude >= 1e6 ? [1e6, "M"] : magnitude >= 1e3 ? [1e3, "K"] : [1, ""];
+      const scaled = scale[0] === 1e3 ? Math.trunc(count / scale[0]) : count / scale[0];
+      const precision = scale[0] === 1 || scale[0] === 1e3 ? 0 : Math.abs(scaled) >= 100 ? 0 : 1;
+      const suffix = scale[1] === "K" ? "k" : scale[1];
+      return `${Number(scaled.toFixed(precision))}${suffix}`;
+    }
     function usagePercent(quota) {
       return usageMetrics.usagePercent(quota);
     }
@@ -73,17 +83,20 @@
     function usageResetTime(value) {
       return usageMetrics.formatResetTime(value);
     }
-    function usageResetCount(quotas) {
-      return usageMetrics.countReadableResets(quotas);
-    }
     function renderUsageQuota(quota) {
       const percent = usagePercent(quota);
       const name = escapeHtml(quota.name);
       const reset = usageResetTime(quota.reset_at);
       if (percent == null) {
-        const detail = quota.remaining != null ? `${usageNumber(quota.remaining)} ${escapeHtml(quota.unit || "remaining")}` :
-          (quota.used != null ? `${usageNumber(quota.used)} ${escapeHtml(quota.unit || "used")}` : "No percentage data");
-        return `<div class="usage-quota-text"><span>${name}</span><strong>${detail}</strong>${reset ? `<small>${escapeHtml(reset)}</small>` : ""}</div>`;
+        const unit = String(quota.unit || "");
+        const tokenUsage = quota.used != null && /^tokens?$/i.test(unit);
+        const detail = quota.remaining != null ? `${usageNumber(quota.remaining)} ${escapeHtml(unit || "remaining")}` :
+          (quota.used != null ? `${usageNumber(quota.used)} ${escapeHtml(unit || "used")}` : "No percentage data");
+        // Token totals are easiest to scan with the compact amount first.
+        const content = tokenUsage
+          ? `<strong>${formatTokenCount(quota.used)} tokens used</strong>`
+          : `<span>${name}</span><strong>${detail}</strong>`;
+        return `<div class="usage-quota-text">${content}${reset ? `<small>${escapeHtml(reset)}</small>` : ""}</div>`;
       }
       const remainingPercent = 100 - percent;
       const rounded = Math.round(remainingPercent);
@@ -173,7 +186,10 @@
       }
       body.innerHTML = usageAccounts.map(a => {
         const s = usageSnapshots[a.id] || {};
-        const resetCount = a.provider === "codex" ? (s.available_resets || 0) : usageResetCount(s.quotas);
+        // Only Codex reports a count of reset credits.  Other providers'
+        // reset_at fields describe when a quota window renews, not resets the
+        // user can spend.
+        const resetCount = a.provider === "codex" ? (s.available_resets || 0) : 0;
         const resetSummary = resetCount ? `<span class="usage-reset-summary" role="status" aria-label="${resetCount} usage limit resets available">${resetCount}X RESETS</span>` : "";
         const warning = s.stale ? `<div class="usage-stale" role="status">Stale · ${escapeHtml(s.message || "Live quota could not be verified.")}</div>` : "";
         const quotas = warning + resetSummary + ((s.quotas || []).map(renderUsageQuota).join("") || (s.ok ? "No quota data" : escapeHtml(s.message || "Unavailable")));
@@ -831,7 +847,7 @@
       }
 
       if (data.server_name) {
-        document.getElementById("header-server-title").innerText = `DevBoost • ${data.server_name} • Port Forwards`;
+        document.getElementById("header-server-name").innerText = data.server_name;
         if (servicesTab === "local") {
           document.getElementById("services-section-title").innerText = "Listening Ports on This Mac";
         } else {
@@ -1900,7 +1916,9 @@
       document.getElementById("clean-orphans-btn").style.display = valid === "forwards" ? "inline-flex" : "none";
       document.querySelector("#header-actions .btn-primary").style.display = valid === "forwards" ? "inline-flex" : "none";
       if (valid === "servers") renderServerManagement();
-      document.getElementById("header-server-title").textContent = pageTitles[valid];
+      // Entering Quotas is an explicit request for current values, rather
+      // than waiting for the background minute refresh.
+      if (valid === "usage") fetchUsage(true);
       document.title = pageTitles[valid];
       if (updateHash && window.location.hash !== "#" + valid) window.history.pushState(null, "", "#" + valid);
     }

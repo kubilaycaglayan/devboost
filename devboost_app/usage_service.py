@@ -337,6 +337,16 @@ def read_usage_command(runtime, account, server=None):
         # a command with a bare `env` makes some remote shells report the
         # misleading "env: <command>: No such file" error.
         remote_command = " ".join((["env"] + assignments if assignments else []) + [shlex.join(argv)])
+        if account.get("provider") == "opencode":
+            # OpenCode's installer uses ~/.opencode/bin and adds it from the
+            # interactive shell profile. SSH runs a non-interactive shell, so
+            # the default `opencode stats` command otherwise becomes
+            # "opencode: command not found" even when OpenCode is installed.
+            remote_script = (
+                'export PATH="$HOME/.opencode/bin:$HOME/.local/bin:'
+                '/opt/homebrew/bin:/usr/local/bin:$PATH"; exec ' + remote_command
+            )
+            remote_command = shlex.join(["sh", "-lc", remote_script])
         result = run_ssh_command(server["ssh_host"], remote_command,
                                  timeout=runtime.USAGE_TIMEOUT, connect_timeout=5)
     else:

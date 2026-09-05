@@ -39,6 +39,7 @@ class TestDashboardAPI(unittest.TestCase):
             self.assertIn("DevBoost", html)
             self.assertIn('/dashboard/styles.css', html)
             self.assertIn('/dashboard/app.js', html)
+            self.assertIn('id="header-server-name"', html)
 
     def test_server_selector_is_global_and_precedes_all_pages(self):
         with urllib.request.urlopen(self.base_url + "/") as resp:
@@ -64,6 +65,8 @@ class TestDashboardAPI(unittest.TestCase):
             app_js = resp.read().decode("utf-8")
         self.assertIn('document.querySelectorAll(".workspace-tab")', app_js)
         self.assertIn('tab.dataset.page === valid', app_js)
+        self.assertIn('document.getElementById("header-server-name").innerText = data.server_name', app_js)
+        self.assertIn('header-server-name', app_js)
 
     def test_quotas_can_query_this_mac(self):
         with urllib.request.urlopen(self.base_url + "/") as resp:
@@ -76,6 +79,7 @@ class TestDashboardAPI(unittest.TestCase):
             app_js = resp.read().decode("utf-8")
         self.assertIn('function switchUsageTab(which)', app_js)
         self.assertIn('usageTab === "remote" && currentServerId', app_js)
+        self.assertIn('if (valid === "usage") fetchUsage(true)', app_js)
 
     def test_usage_bar_assets_are_served_and_rendered(self):
         with urllib.request.urlopen(self.base_url + "/dashboard/usage_metrics.js") as resp:
@@ -86,6 +90,12 @@ class TestDashboardAPI(unittest.TestCase):
         self.assertIn("role=\"meter\"", app_js)
         self.assertIn("usageMetrics.usageGrade", app_js)
         self.assertIn("${resetCount}X RESETS", app_js)
+        self.assertIn('a.provider === "codex" ? (s.available_resets || 0) : 0', app_js)
+        self.assertNotIn("usageResetCount", app_js)
+        self.assertIn("function formatTokenCount(value)", app_js)
+        self.assertIn('scale[0] === 1e3', app_js)
+        self.assertIn('const tokenUsage = quota.used != null && /^tokens?$/i.test(unit);', app_js)
+        self.assertIn("${formatTokenCount(quota.used)} tokens used", app_js)
         with urllib.request.urlopen(self.base_url + "/dashboard/usage_metrics.js") as resp:
             metrics_js = resp.read().decode("utf-8")
         self.assertIn("usage-grade-green", metrics_js)
@@ -168,6 +178,11 @@ class TestDashboardAPI(unittest.TestCase):
         self.assertIn("usage-actions", app_js)
         with urllib.request.urlopen(self.base_url + "/dashboard/styles.css") as resp:
             css = resp.read().decode("utf-8")
+        self.assertIn("#usage-body td { font-size: 14px; padding: 10px 12px; }", css)
+        self.assertIn(".usage-quota { min-width: 145px;", css)
+        self.assertIn(".usage-meter { position: relative; height: 22px;", css)
+        self.assertIn("#page-usage table { table-layout: fixed; }", css)
+        self.assertIn("#page-usage th:last-child, #page-usage td:last-child { width: 132px;", css)
         self.assertIn(".usage-row-drop-shadow", css)
         self.assertIn(".usage-actions", css)
 

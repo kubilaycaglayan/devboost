@@ -45,6 +45,28 @@ class TestServerDragBrowser(unittest.TestCase):
                 server.terminate()
                 server.communicate(timeout=10)
 
+    def test_usage_actions_remain_visible_without_horizontal_scroll(self):
+        chrome = chrome_executable()
+        if not chrome or not shutil.which("node"):
+            self.skipTest("Visual Quotas regression requires Chrome/Chromium and Node")
+        with tempfile.TemporaryDirectory(prefix="devboost-usage-browser-state-") as app_dir:
+            env = dict(os.environ, DEVBOOST_APP_DIR=app_dir)
+            server = subprocess.Popen(
+                [sys.executable, __file__, "--serve"], cwd=ROOT, env=env,
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+            )
+            try:
+                url = server.stdout.readline().strip()
+                self.assertTrue(url.startswith("http://127.0.0.1:"), url)
+                result = subprocess.run(
+                    ["node", str(ROOT / "tests" / "usage_visual_browser.js"), chrome, url],
+                    cwd=ROOT, capture_output=True, text=True, timeout=60,
+                )
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            finally:
+                server.terminate()
+                server.communicate(timeout=10)
+
 
 def serve_fixture():
     """Use actual dashboard/reorder persistence; never start SSH or scan the host."""
@@ -68,6 +90,14 @@ def serve_fixture():
                                         "server_id": query.get("server", ["alpha"])[0],
                                         "server_reachable": False, "forwards": [],
                                         "history": [], "orphaned_count": 0})
+            if path == "/api/usage":
+                return self._send_json({
+                    "accounts": [{"id": "visual", "provider": "codex", "name": "Visual quota"}],
+                    "snapshots": {"visual": {"ok": True, "quotas": [
+                        {"name": "Primary", "used": 42, "limit": 100, "unit": "%"}
+                    ], "balances": [{"remaining": 12, "currency": "USD"}], "updated_at": "2026-09-06T00:00:00Z"}},
+                    "server_id": query.get("server", ["alpha"])[0],
+                })
             if path.startswith("/api/"):
                 return self._send_json({"accounts": [], "snapshots": {}, "containers": [],
                                         "syncs": [], "ports": [], "history": []})

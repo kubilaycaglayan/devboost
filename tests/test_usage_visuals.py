@@ -15,8 +15,7 @@ const result = {
   unknown: metrics.usagePercent({used: 5}),
   grades: [50, 51, 75, 76, 90, 91].map(metrics.usageGrade),
   resetEpoch: metrics.formatResetTime(1788663840, "UTC"),
-  resetIso: metrics.formatResetTime("2026-09-06T03:04:00Z", "UTC"),
-  resetCount: metrics.countReadableResets([{reset_at: "2026-09-06T03:04:00Z"}, {reset_at: "not-a-date"}, {reset_at: 1788663840}])
+  resetIso: metrics.formatResetTime("2026-09-06T03:04:00Z", "UTC")
 };
 process.stdout.write(JSON.stringify(result));'''
         result = subprocess.run(["node", "-e", script, helper], capture_output=True, text=True, check=True)
@@ -26,7 +25,6 @@ process.stdout.write(JSON.stringify(result));'''
                         "usage-grade-orange", "usage-grade-orange", "usage-grade-red"],
             "resetEpoch": "Resets Sep 6, 2026 3:04 AM",
             "resetIso": "Resets Sep 6, 2026 3:04 AM",
-            "resetCount": 2,
         })
 
 
