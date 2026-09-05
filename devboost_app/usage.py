@@ -8,7 +8,11 @@ def provider_default_command(provider):
     """Return a safe, read-only local adapter when the installed CLI supports one."""
     if provider == "opencode" and shutil.which("opencode"):
         return ["opencode", "stats"]
-    # agy-quota is the JSON quota helper used with the agy/Antigravity CLI.
+    # Current Agy releases expose the same data through their built-in
+    # /usage command.  Keep agy-quota as a compatibility fallback for older
+    # installations that supplied that helper.
+    if provider == "agy" and shutil.which("agy"):
+        return ["agy", "--print", "/usage", "--output-format", "json"]
     if provider == "agy" and shutil.which("agy-quota"):
         return ["agy-quota", "--json"]
     return None
@@ -54,6 +58,33 @@ def normalize_usage_payload(payload):
                             break
         return {"quotas": [{"name": "API tokens used", "used": sum(totals.values()), "unit": "tokens"}],
                 "balances": [], "source": "provider admin usage API"}
+    if isinstance(payload, dict) and isinstance(payload.get("command"), dict) and \
+            payload["command"].get("name") == "usage":
+        # `agy --print /usage --output-format json` returns an envelope whose
+        # command data contains the provider-authoritative shared pools.
+        data = payload["command"].get("data")
+        groups = data.get("groups") if isinstance(data, dict) else None
+        quotas = []
+        for group in groups if isinstance(groups, list) else []:
+            if not isinstance(group, dict):
+                continue
+            group_name = str(_first(group, "name", "id") or "Agy models")
+            for bucket in group.get("buckets", []):
+                if not isinstance(bucket, dict):
+                    continue
+                fraction = _safe_number(_first(bucket, "remaining_fraction", "remainingFraction"))
+                percent = _safe_number(_first(bucket, "remaining_percent", "remainingPercent"))
+                remaining = percent if percent is not None else (fraction * 100 if fraction is not None else None)
+                if remaining is None:
+                    continue
+                label = str(_first(bucket, "name", "id") or "quota")
+                quotas.append({"name": f"{group_name} · {label}", "used": 100 - remaining,
+                               "limit": 100, "remaining": remaining, "unit": "%",
+                               "reset_at": _first(bucket, "reset_time", "reset_at", "resets_at"),
+                               "window": _first(bucket, "window", "period")})
+        if not quotas:
+            raise ValueError("Agy returned no subscription quota data for this account.")
+        return {"quotas": quotas, "balances": [], "source": "Agy live usage"}
     if isinstance(payload, dict) and any(key in payload for key in
                                         ("remaining_fraction", "remaining_percent", "models", "providers")):
         # agy-quota reports model and provider pools as percentages rather than

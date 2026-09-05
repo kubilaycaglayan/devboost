@@ -38,6 +38,30 @@ class TestUsageAdapters(unittest.TestCase):
         self.assertIn("tool --json", ssh.call_args.args[1])
 
     @patch("devboost_app.usage_service.run_ssh_command")
+    def test_agy_usage_runs_native_command_with_local_bin_on_selected_server(self, ssh):
+        ssh.return_value = types.SimpleNamespace(returncode=0, stdout=json.dumps({
+            "command": {"name": "usage", "data": {"groups": [{"name": "Gemini", "buckets": [{
+                "name": "Weekly Limit Remaining", "remaining_fraction": .72,
+                "reset_time": "2030-01-01T00:00:00Z"}]}]}}}), stderr="")
+        result = usage_service.read_agy_usage(self.runtime, {"provider": "agy"}, {"ssh_host": "box"})
+        self.assertEqual(result["quotas"][0]["remaining"], 72)
+        self.assertEqual(result["quotas"][0]["reset_at"], "2030-01-01T00:00:00Z")
+        self.assertEqual(ssh.call_args.args[0], "box")
+        self.assertIn("$HOME/.local/bin", ssh.call_args.args[1])
+
+    @patch("devboost_app.usage_service.subprocess.run")
+    @patch("devboost_app.usage_service.shutil.which", return_value="/usr/local/bin/agy")
+    def test_agy_usage_uses_slash_command_and_normalizes_groups(self, _which, run):
+        payload = {"command": {"name": "usage", "data": {"groups": [{
+            "name": "Third party", "buckets": [{"id": "weekly", "remaining_fraction": .25}]
+        }]}}}
+        run.return_value = types.SimpleNamespace(returncode=0, stdout=json.dumps(payload), stderr="")
+        result = usage_service.read_agy_usage(self.runtime, {"provider": "agy"})
+        self.assertEqual(result["quotas"][0]["name"], "Third party · weekly")
+        self.assertEqual(result["quotas"][0]["remaining"], 25)
+        self.assertIn("/usage", run.call_args.args[0])
+
+    @patch("devboost_app.usage_service.run_ssh_command")
     def test_remote_transcript_reads_records_from_selected_server(self, ssh):
         ssh.return_value = types.SimpleNamespace(
             returncode=0,

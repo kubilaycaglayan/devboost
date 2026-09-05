@@ -44,6 +44,17 @@ class TestUsageMonitoring(unittest.TestCase):
         self.assertEqual(accounts[0]["balance_url"], "https://example.test/new")
         self.assertEqual(accounts[0]["token_env"], "PROVIDER_KEY")
 
+    def test_usage_accounts_can_be_reordered_and_edit_keeps_position(self):
+        first = devboost.save_usage_account({"provider": "custom", "name": "first", "balance_url": "https://example.test/first"})
+        second = devboost.save_usage_account({"provider": "custom", "name": "second", "balance_url": "https://example.test/second"})
+        third = devboost.save_usage_account({"provider": "custom", "name": "third", "balance_url": "https://example.test/third"})
+        self.assertEqual([a["id"] for a in devboost.reorder_usage_accounts([third["id"], first["id"], second["id"]])],
+                         [third["id"], first["id"], second["id"]])
+        devboost.save_usage_account({"id": first["id"], "provider": "custom", "name": "updated",
+                                     "balance_url": "https://example.test/updated"})
+        self.assertEqual([a["id"] for a in devboost.get_usage_accounts()],
+                         [third["id"], first["id"], second["id"]])
+
     def test_edit_with_unknown_id_cannot_create_an_account(self):
         original = devboost.save_usage_account({
             "provider": "custom", "name": "original", "balance_url": "https://example.test/original",
@@ -156,6 +167,25 @@ class TestUsageMonitoring(unittest.TestCase):
         self.assertEqual(result["source"], "agy-quota")
         self.assertEqual(result["quotas"][0]["remaining"], 72)
         self.assertEqual(result["quotas"][1]["remaining"], 61)
+
+    def test_agy_native_usage_envelope_is_normalized(self):
+        result = devboost._normalize_usage_payload({"command": {"name": "usage", "data": {"groups": [{
+            "name": "Gemini Models", "buckets": [{"name": "Weekly Limit Remaining", "window": "weekly",
+            "remaining_fraction": .72, "reset_time": "2030-01-01T00:00:00Z"}]}]}}})
+        self.assertEqual(result["source"], "Agy live usage")
+        self.assertEqual(result["quotas"][0]["remaining"], 72)
+        self.assertEqual(result["quotas"][0]["reset_at"], "2030-01-01T00:00:00Z")
+
+    def test_agy_failure_keeps_last_live_values_as_stale(self):
+        account = devboost.save_usage_account({"provider": "agy", "name": "work"})
+        live = {"source": "Agy live usage", "quotas": [{"remaining": 72, "unit": "%"}], "balances": []}
+        with patch.object(devboost, "_read_agy_usage", return_value=live):
+            first = devboost.get_usage_status()["snapshots"][account["id"]]
+        with patch.object(devboost, "_read_agy_usage", side_effect=ValueError("offline")):
+            second = devboost.get_usage_status(refresh=True)["snapshots"][account["id"]]
+        self.assertTrue(second["stale"])
+        self.assertEqual(second["quotas"], first["quotas"])
+        self.assertEqual(second["last_valid_query_at"], first["last_valid_query_at"])
 
     def test_balance_is_derived_from_granted_and_used(self):
         result = devboost._normalize_usage_payload({"total_granted": 10, "total_used": 3})

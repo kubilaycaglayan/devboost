@@ -11,8 +11,13 @@
     let editingSyncId = null;
     let editingUsageId = null;
     let usageAccounts = [];
+    let usageSnapshots = {};
     let usageRequestInFlight = false;
+    let usageDrag = null;
+    let usageOrderSaving = false;
+    let usageOrderVersion = 0;
     let usageNameAuto = false;
+    let usageTab = "remote";
     const usageMetrics = globalThis.DevBoostUsageMetrics;
     let browserLocalCur = "";
     let browserRemoteCur = "";
@@ -158,24 +163,109 @@
       setHomeSummaryParts("home-usage-summary", parts);
     }
     function renderUsage(data) {
+      if (usageDrag) return;
       const body = document.getElementById("usage-body");
       usageAccounts = data.accounts || [];
-      const snapshots = data.snapshots || {};
-      renderHomeUsageSummary(usageAccounts, snapshots);
-      if (!data.accounts || !data.accounts.length) {
+      usageSnapshots = data.snapshots || {};
+      renderHomeUsageSummary(usageAccounts, usageSnapshots);
+      if (!usageAccounts.length) {
         body.innerHTML = '<tr><td colspan="6" style="text-align:center; color:var(--text-muted); padding:24px;">No AI accounts configured.</td></tr>'; return;
       }
-      body.innerHTML = data.accounts.map(a => {
-        const s = snapshots[a.id] || {};
+      body.innerHTML = usageAccounts.map(a => {
+        const s = usageSnapshots[a.id] || {};
         const resetCount = a.provider === "codex" ? (s.available_resets || 0) : usageResetCount(s.quotas);
         const resetSummary = resetCount ? `<span class="usage-reset-summary" role="status" aria-label="${resetCount} usage limit resets available">${resetCount}X RESETS</span>` : "";
-        const warning = a.provider === "codex" && s.stale ? `<div class="usage-stale" role="status">Stale · ${escapeHtml(s.message || "Live quota could not be verified.")}</div>` : "";
+        const warning = s.stale ? `<div class="usage-stale" role="status">Stale · ${escapeHtml(s.message || "Live quota could not be verified.")}</div>` : "";
         const quotas = warning + resetSummary + ((s.quotas || []).map(renderUsageQuota).join("") || (s.ok ? "No quota data" : escapeHtml(s.message || "Unavailable")));
         const balances = a.provider === "codex" && s.credits_unlimited ? "Unlimited credits" : ((s.balances || []).map(b => b.remaining != null ? `${usageNumber(b.remaining)} ${escapeHtml(b.currency || "USD")}` : (b.spent != null ? `spent ${usageNumber(b.spent)} ${escapeHtml(b.currency || "USD")}` : "—")).join("<br>") || "—");
         const accountId = escapeHtml(JSON.stringify(String(a.id || "")));
-        const source = a.provider === "codex" ? `<div class="usage-source">${escapeHtml(s.source || "Awaiting live query")}${s.plan_type ? " · " + escapeHtml(s.plan_type) : ""}</div>` : "";
-        return `<tr><td>${escapeHtml(a.provider)}</td><td>${escapeHtml(a.name)}${source}</td><td>${quotas}</td><td>${balances}</td><td class="mono usage-age" data-last-valid-query="${escapeHtml(s.last_valid_query_at || (s.ok && !s.stale ? s.updated_at : ""))}">${usageUpdated(s)}</td><td style="text-align:right;"><button class="btn btn-sm" onclick="editUsageAccount(${accountId})">Edit</button> <button class="btn btn-sm" onclick="removeUsageAccount(${accountId})">Remove</button></td></tr>`;
+        const source = (a.provider === "codex" || a.provider === "agy") ? `<div class="usage-source">${escapeHtml(s.source || "Awaiting live query")}${s.plan_type ? " · " + escapeHtml(s.plan_type) : ""}</div>` : "";
+        return `<tr data-usage-id="${escapeHtml(String(a.id || ""))}"><td>${escapeHtml(a.provider)}</td><td>${escapeHtml(a.name)}${source}</td><td>${quotas}</td><td>${balances}</td><td class="mono usage-age" data-last-valid-query="${escapeHtml(s.last_valid_query_at || (s.ok && !s.stale ? s.updated_at : ""))}">${usageUpdated(s)}</td><td><div class="usage-actions"><button type="button" class="usage-action-icon" onclick="editUsageAccount(${accountId})" title="Edit account" aria-label="Edit account">⚙</button><button type="button" class="usage-action-icon usage-remove-icon" onclick="removeUsageAccount(${accountId})" title="Remove account" aria-label="Remove account">✕</button><button type="button" class="usage-drag-handle" draggable="true" ondragstart="onUsageRowDragStart(event, ${accountId})" ondragend="onUsageRowDragEnd()" title="Drag to reorder" aria-label="Drag to reorder">⠿</button></div></td></tr>`;
       }).join("");
+    }
+    function onUsageRowDragStart(e, accountId) {
+      startUsageRowDrag(e, accountId, e.currentTarget.closest("tr"));
+    }
+    function onUsageRowDragOver(e) {
+      moveUsageRowDrag(e);
+    }
+    function onUsageRowDragEnd() {
+      endUsageRowDrag();
+    }
+    function onUsageRowDrop(e) {
+      return dropUsageRowDrag(e);
+    }
+    function startUsageRowDrag(e, accountId, source) {
+      if (usageOrderSaving || usageDrag || !source) { e.preventDefault(); return; }
+      usageOrderVersion++;
+      const body = source.parentNode;
+      const rect = source.getBoundingClientRect();
+      const shadow = document.createElement("tr");
+      shadow.className = "usage-row-drop-shadow";
+      shadow.innerHTML = '<td colspan="6">Drop account here</td>';
+      shadow.style.height = `${rect.height}px`;
+      e.dataTransfer.effectAllowed = "move";
+      e.dataTransfer.setData("text/plain", accountId);
+      e.dataTransfer.setDragImage(source, e.clientX - rect.left, e.clientY - rect.top);
+      source.classList.add("dragging");
+      source.setAttribute("aria-grabbed", "true");
+      const drag = usageDrag = {accountId: String(accountId), source, shadow, body};
+      // Hiding the source during dragstart cancels native dragging in Chrome.
+      drag.timer = setTimeout(() => {
+        if (usageDrag !== drag) return;
+        body.insertBefore(shadow, source);
+        source.style.display = "none";
+      }, 0);
+    }
+    function moveUsageRowDrag(e) {
+      const drag = usageDrag;
+      if (!drag || e.currentTarget !== drag.body) return;
+      e.preventDefault();
+      e.dataTransfer.dropEffect = "move";
+      if (!drag.shadow.isConnected || drag.shadow.contains(e.target)) return;
+      const rows = Array.from(drag.body.children).filter(row => row.dataset.usageId && row !== drag.source);
+      const next = rows.find(row => {
+        const rect = row.getBoundingClientRect();
+        return e.clientY < rect.top + rect.height / 2;
+      });
+      drag.body.insertBefore(drag.shadow, next);
+    }
+    function endUsageRowDrag() {
+      if (!usageDrag) return;
+      const {source, shadow, timer} = usageDrag;
+      clearTimeout(timer);
+      source.classList.remove("dragging");
+      source.style.display = "";
+      source.removeAttribute("aria-grabbed");
+      shadow.remove();
+      usageDrag = null;
+      renderUsage({accounts: usageAccounts, snapshots: usageSnapshots});
+    }
+    async function dropUsageRowDrag(e) {
+      const drag = usageDrag;
+      if (!drag || e.currentTarget !== drag.body || !drag.shadow.isConnected) return;
+      e.preventDefault();
+      const order = Array.from(drag.body.children)
+        .filter(row => row === drag.shadow || (row.dataset.usageId && row !== drag.source))
+        .map(row => row === drag.shadow ? drag.accountId : row.dataset.usageId);
+      const previous = usageAccounts.slice();
+      if (order.every((id, index) => id === previous[index].id)) { endUsageRowDrag(); return; }
+      usageOrderSaving = true;
+      usageAccounts = order.map(id => previous.find(account => String(account.id) === id)).filter(Boolean);
+      endUsageRowDrag();
+      try {
+        const res = await fetch("/api/usage/accounts/reorder", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({order})});
+        const data = await res.json();
+        if (!res.ok || !data.ok) throw new Error(data.message || "Usage account reorder failed");
+        usageAccounts = data.accounts || usageAccounts;
+      } catch (err) {
+        usageAccounts = previous;
+        console.error(err);
+        showToast("Couldn't save quota order. Please try again.");
+      } finally {
+        usageOrderSaving = false;
+        renderUsage({accounts: usageAccounts, snapshots: usageSnapshots});
+      }
     }
     function refreshUsageAges() {
       document.querySelectorAll(".usage-age").forEach(cell => {
@@ -187,22 +277,48 @@
       const account = usageAccounts.find(item => item.id === id);
       if (account) openUsageModal(account);
     }
+    function usageTargetId() {
+      return usageTab === "local" ? "local" : (currentServerId || "local");
+    }
+    function updateUsageTitle() {
+      const title = document.getElementById("usage-section-title");
+      if (!title) return;
+      if (usageTab === "local") {
+        title.innerText = "AI Usage & Balances on This Mac";
+        return;
+      }
+      const srv = activeServer();
+      title.innerText = `AI Usage & Balances on ${(srv && (srv.name || srv.ssh_host)) || "Remote Server"}`;
+    }
+    function switchUsageTab(which) {
+      usageTab = which;
+      document.getElementById("usage-tab-remote").classList.toggle("active", which === "remote");
+      document.getElementById("usage-tab-local").classList.toggle("active", which === "local");
+      updateUsageTitle();
+      fetchUsage();
+    }
     async function fetchUsage(refresh = false) {
-      if (usageRequestInFlight) return;
+      if (usageRequestInFlight || usageDrag || usageOrderSaving) return;
       usageRequestInFlight = true;
-      const requestedServerId = currentServerId;
+      const requestedTargetId = usageTargetId();
+      const orderVersion = usageOrderVersion;
       try {
         const params = new URLSearchParams();
         if (refresh) params.set("refresh", "1");
-        if (requestedServerId) params.set("server", requestedServerId);
+        if (usageTab === "remote" && currentServerId) params.set("server", currentServerId);
         const query = params.toString() ? "?" + params.toString() : "";
         const response = await fetch("/api/usage" + query, {cache: "no-store"});
         const data = await response.json();
-        if (!responseBelongsToServer(requestedServerId, currentServerId, data.server_id)) return;
+        if (requestedTargetId !== usageTargetId() || data.server_id !== requestedTargetId || usageDrag || usageOrderSaving || orderVersion !== usageOrderVersion) return;
         renderUsage(data);
       }
       catch (err) { document.getElementById("usage-body").innerHTML = '<tr><td colspan="6" class="muted">Usage monitor unavailable</td></tr>'; }
-      finally { usageRequestInFlight = false; }
+      finally {
+        usageRequestInFlight = false;
+        // A target change while the request was in flight invalidates its
+        // response. Start the request for the newly selected machine now.
+        if (requestedTargetId !== usageTargetId()) fetchUsage(refresh);
+      }
     }
     async function saveUsageFromModal() {
       const payload = {id: editingUsageId, provider: document.getElementById("usage-provider").value, name: document.getElementById("usage-name").value.trim(), usage_command: document.getElementById("usage-command").value.trim(), balance_url: document.getElementById("usage-url").value.trim(), token_env: document.getElementById("usage-token-env").value.trim(), local_path: document.getElementById("usage-local-path").value.trim(), organization: document.getElementById("usage-organization").value.trim(), project: document.getElementById("usage-project").value.trim(), api_mode: document.getElementById("usage-api-mode").checked, api_days: parseInt(document.getElementById("usage-api-days").value, 10) || 1};
@@ -371,6 +487,7 @@
         serversLoaded = true;
         renderTabs();
         renderServerManagement();
+        updateUsageTitle();
       } catch (err) {
         console.error(err);
       }
@@ -549,10 +666,11 @@
       document.getElementById("docker-subtitle").innerText = "";
       document.getElementById("syncs-body").innerHTML = '<tr><td colspan="5" style="text-align:center; color:var(--text-muted); padding:30px;">Loading folder syncs...</td></tr>';
       renderTabs();
+      updateUsageTitle();
       fetchStatus();
       fetchDocker();
       fetchSyncs();
-      fetchUsage();
+      if (usageTab === "remote") fetchUsage();
     }
 
     async function removeServerTab(sid) {

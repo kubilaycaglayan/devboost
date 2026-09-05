@@ -65,6 +65,18 @@ class TestDashboardAPI(unittest.TestCase):
         self.assertIn('document.querySelectorAll(".workspace-tab")', app_js)
         self.assertIn('tab.dataset.page === valid', app_js)
 
+    def test_quotas_can_query_this_mac(self):
+        with urllib.request.urlopen(self.base_url + "/") as resp:
+            html = resp.read().decode("utf-8")
+        self.assertIn('id="usage-tab-remote"', html)
+        self.assertIn('id="usage-tab-local"', html)
+        self.assertIn("💻 This Mac", html)
+
+        with urllib.request.urlopen(self.base_url + "/dashboard/app.js") as resp:
+            app_js = resp.read().decode("utf-8")
+        self.assertIn('function switchUsageTab(which)', app_js)
+        self.assertIn('usageTab === "remote" && currentServerId', app_js)
+
     def test_usage_bar_assets_are_served_and_rendered(self):
         with urllib.request.urlopen(self.base_url + "/dashboard/usage_metrics.js") as resp:
             self.assertEqual(resp.status, 200)
@@ -143,6 +155,21 @@ class TestDashboardAPI(unittest.TestCase):
         self.assertIn("usage-form-section--advanced", html)
         self.assertIn(".usage-form-section-title", css)
         self.assertIn("font-size: 20px", css)
+
+    def test_usage_rows_can_be_dragged_and_reordered(self):
+        with urllib.request.urlopen(self.base_url + "/dashboard/app.js") as resp:
+            app_js = resp.read().decode("utf-8")
+        self.assertIn('class="usage-drag-handle" draggable="true"', app_js)
+        self.assertIn("onUsageRowDragOver", app_js)
+        self.assertIn("onUsageRowDrop", app_js)
+        self.assertIn("/api/usage/accounts/reorder", app_js)
+        self.assertIn('aria-label="Edit account"', app_js)
+        self.assertIn('aria-label="Remove account"', app_js)
+        self.assertIn("usage-actions", app_js)
+        with urllib.request.urlopen(self.base_url + "/dashboard/styles.css") as resp:
+            css = resp.read().decode("utf-8")
+        self.assertIn(".usage-row-drop-shadow", css)
+        self.assertIn(".usage-actions", css)
 
     def test_usage_account_name_defaults_from_provider_until_edited(self):
         with urllib.request.urlopen(self.base_url + "/dashboard/app.js") as resp:
@@ -322,6 +349,12 @@ process.stdout.write(JSON.stringify([
         with self.assertRaises(urllib.error.HTTPError) as ctx:
             self._post_json("/api/usage/accounts", {"provider": "invalid", "name": "x"})
         self.assertEqual(ctx.exception.code, 400)
+
+    @patch("dashboard.http.reorder_usage_accounts", return_value=[{"id": "two"}, {"id": "one"}])
+    def test_api_usage_account_reorder_delegates(self, reorder):
+        _, data = self._post_json("/api/usage/accounts/reorder", {"order": ["two", "one"]})
+        self.assertTrue(data["ok"])
+        reorder.assert_called_once_with(["two", "one"])
 
     @patch("dashboard.http.save_usage_account", side_effect=ValueError("usage account not found"))
     def test_api_usage_edit_with_stale_id_returns_error(self, save):

@@ -5,8 +5,10 @@ copied, or returned by DevBoost, and no conversation/model turn is started.
 Protocol: https://learn.chatgpt.com/docs/app-server#auth-endpoints
 """
 
+import glob
 import json
 import os
+import re
 import selectors
 import shutil
 import signal
@@ -24,8 +26,18 @@ def read_rate_limits(codex_home=None, timeout=15):
                 executable = candidate
                 break
     if not executable:
+        # NVM is usually initialized only by interactive shell startup files.
+        # SSH commands from the dashboard do not inherit that interactive PATH.
+        nvm_dir = os.path.expanduser(os.environ.get("NVM_DIR") or "~/.nvm")
+        candidates = glob.glob(os.path.join(nvm_dir, "versions", "node", "*", "bin", "codex"))
+        candidates.sort(key=lambda path: tuple(int(n) for n in re.findall(r"\d+", os.path.basename(os.path.dirname(os.path.dirname(path))))), reverse=True)
+        executable = next((path for path in candidates if os.path.isfile(path) and os.access(path, os.X_OK)), None)
+    if not executable:
         raise ValueError("Codex CLI not found on this host. Install Codex and sign in with ChatGPT.")
     env = os.environ.copy()
+    # npm's Codex launcher uses /usr/bin/env node. Use the Node installation
+    # beside the selected CLI even when SSH's PATH contains no Node binary.
+    env["PATH"] = os.path.dirname(os.path.abspath(executable)) + os.pathsep + env.get("PATH", os.defpath)
     if codex_home:
         env["CODEX_HOME"] = os.path.abspath(os.path.expanduser(codex_home))
     deadline = time.monotonic() + timeout

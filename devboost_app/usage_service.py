@@ -5,6 +5,7 @@ import glob
 import json
 import os
 import shlex
+import shutil
 import subprocess
 import time
 import urllib.parse
@@ -83,12 +84,51 @@ def read_codex_api(runtime, account, server=None):
         except ValueError:
             raise ValueError("Remote Codex query returned invalid JSON.") from None
         if not isinstance(envelope, dict) or not isinstance(envelope.get("result"), dict):
+            known_errors = (
+                "Codex CLI not found on this host. Install Codex and sign in with ChatGPT.",
+                "Codex live quota query timed out. Retry when the service is reachable.",
+                "Update Codex: this version does not support the account quota API.",
+                "Codex could not fetch live quotas. Check connectivity and ChatGPT sign-in on this host; API-key accounts do not expose subscription quotas.",
+                "Codex app-server exited before returning quotas. Check your Codex installation and sign-in.",
+            )
+            if isinstance(envelope, dict) and envelope.get("error") in known_errors:
+                raise ValueError(envelope["error"])
             # Do not expose arbitrary remote stdout/stderr or auth diagnostics.
             raise ValueError("Remote Codex live quotas unavailable. Check Codex installation, connectivity and ChatGPT sign-in on the selected host.")
         payload = envelope["result"]
     else:
         payload = codex_usage.read_rate_limits(account.get("codex_home"), timeout=runtime.USAGE_TIMEOUT - 2)
     return normalize_codex_api(payload)
+
+
+def read_agy_usage(runtime, account, server=None):
+    """Read Agy's built-in /usage command without starting a model turn."""
+    timeout = max(1, runtime.USAGE_TIMEOUT - 4)
+    argv = ["agy", "--print", "/usage", "--output-format", "json",
+            "--print-timeout", f"{timeout}s"]
+    if not server and not shutil.which("agy"):
+        # Retain the helper for installations predating Agy's native command.
+        argv = provider_default_command("agy") or []
+        if not argv:
+            raise ValueError("Agy CLI not found. Install Agy and sign in, or configure a JSON usage command.")
+    if server:
+        # SSH's non-interactive PATH commonly omits ~/.local/bin, where Agy's
+        # installer places its launcher.  A shell also keeps this one command
+        # intact instead of accidentally making `env` execute its first word.
+        remote_script = 'export PATH="$HOME/.local/bin:$PATH"; exec ' + shlex.join(argv)
+        result = run_ssh_command(server["ssh_host"], shlex.join(["sh", "-lc", remote_script]),
+                                 timeout=runtime.USAGE_TIMEOUT, connect_timeout=5)
+    else:
+        result = subprocess.run(argv, capture_output=True, text=True, timeout=runtime.USAGE_TIMEOUT,
+                                check=False)
+    if result.returncode:
+        raise ValueError("Agy live quota query failed. Check that Agy is installed and signed in.")
+    try:
+        payload = json.loads(result.stdout)
+    except (TypeError, ValueError):
+        raise ValueError("Agy live quota query returned invalid JSON.") from None
+    from .usage import normalize_usage_payload
+    return normalize_usage_payload(payload)
 
 
 def normalize_codex_api(payload):
@@ -293,7 +333,10 @@ def read_usage_command(runtime, account, server=None):
         for key, source in (account.get("env") or {}).items():
             value = os.environ.get(str(source), "")
             assignments.append(f"{shlex.quote(str(key))}={shlex.quote(value)}")
-        remote_command = "env " + " ".join(assignments + [shlex.join(argv)])
+        # `env` requires an assignment or option before the command.  Prefixing
+        # a command with a bare `env` makes some remote shells report the
+        # misleading "env: <command>: No such file" error.
+        remote_command = " ".join((["env"] + assignments if assignments else []) + [shlex.join(argv)])
         result = run_ssh_command(server["ssh_host"], remote_command,
                                  timeout=runtime.USAGE_TIMEOUT, connect_timeout=5)
     else:

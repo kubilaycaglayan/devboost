@@ -19,7 +19,7 @@ class _RuntimeGlobals(dict):
             raise KeyError(key) from exc
 
 
-_FUNCTIONS = ["get_usage_accounts","refresh_usage_account","get_usage_status","save_usage_account","remove_usage_account"]
+_FUNCTIONS = ["get_usage_accounts","refresh_usage_account","get_usage_status","save_usage_account","remove_usage_account","reorder_usage_accounts"]
 
 
 def get_usage_accounts(cfg=None):
@@ -52,7 +52,11 @@ def refresh_usage_account(account, server=None):
             payload = _read_provider_api(account)
         elif explicit_url and not has_command:
             payload = _read_usage_http(account)
-        elif explicit_command or _provider_default_command(account.get("provider")):
+        elif explicit_command:
+            payload = _read_usage_command(account, server=server)
+        elif account.get("provider") == "agy":
+            payload = _read_agy_usage(account, server=server)
+        elif _provider_default_command(account.get("provider")):
             payload = _read_usage_command(account, server=server)
         elif account.get("provider") == "codex" and not account.get("local_path"):
             try:
@@ -96,15 +100,15 @@ def get_usage_status(refresh=False, account_id=None, server_ref=None):
     snapshots = cfg.setdefault("usage_snapshots", {})
     def snapshot_key(account):
         return account.get("id") if not server else f"{server_id}:{account.get('id')}"
-    def codex_due(account):
-        if account.get("provider") != "codex":
+    def live_quota_due(account):
+        if account.get("provider") not in ("codex", "agy"):
             return False
         try:
             checked = datetime.datetime.fromisoformat(snapshots.get(snapshot_key(account), {}).get("updated_at", ""))
             return time.time() - checked.timestamp() >= 60
         except (ValueError, TypeError):
             return True
-    due = [a for a in accounts if refresh or snapshot_key(a) not in snapshots or codex_due(a)]
+    due = [a for a in accounts if refresh or snapshot_key(a) not in snapshots or live_quota_due(a)]
     changed = bool(due)
     if due:
         # A broken/slow provider must not serialize all other accounts.
@@ -113,13 +117,17 @@ def get_usage_status(refresh=False, account_id=None, server_ref=None):
             for account, result in zip(due, results):
                 key = snapshot_key(account)
                 previous = snapshots.get(key, {})
-                if account.get("provider") == "codex" and (not result.get("ok") or result.get("stale")):
+                if account.get("provider") in ("codex", "agy") and (not result.get("ok") or result.get("stale")):
                     if previous.get("source") == "Codex live API":
                         result.update({field: previous[field] for field in
                                        ("quotas", "balances", "source", "plan_type", "credits_unlimited", "available_resets")
                                        if field in previous})
                         result["stale"] = True
                         result["message"] = result.get("message", "Live query failed.").replace(" Showing historical records.", "") + " Showing last successful API values."
+                    elif account.get("provider") == "agy" and previous.get("source") == "Agy live usage":
+                        result.update({field: previous[field] for field in ("quotas", "balances", "source") if field in previous})
+                        result["stale"] = True
+                        result["message"] = result.get("message", "Live query failed.") + " Showing last successful Agy values."
                     if previous.get("last_valid_query_at"):
                         result["last_valid_query_at"] = previous["last_valid_query_at"]
                 if not result.get("ok") and previous.get("last_valid_query_at"):
@@ -159,8 +167,13 @@ def save_usage_account(data):
     account.update({"id": aid, "provider": provider, "name": name, "enabled": bool(enabled)})
     if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}", aid):
         raise ValueError("account id may contain only letters, numbers, dot, underscore, and hyphen")
-    accounts[:] = [a for a in accounts if a.get("id") != aid]
-    accounts.append(account)
+    if existing is None:
+        accounts.append(account)
+    else:
+        # Editing an account should not unexpectedly change the user's row
+        # order on the quotas page.
+        existing_index = next(index for index, item in enumerate(accounts) if item.get("id") == aid)
+        accounts[existing_index] = account
     cfg.setdefault("usage_snapshots", {}).pop(aid, None)
     if provider == "codex" or (existing and existing.get("provider") == "codex"):
         # A profile/source edit must not reuse another profile's remote values.
@@ -179,6 +192,24 @@ def remove_usage_account(account_id):
         return False
     save_config(cfg)
     return True
+
+
+def reorder_usage_accounts(order_ids):
+    """Persist the visible quotas-row order while retaining unknown accounts."""
+    cfg = load_config()
+    accounts = [account for account in cfg.get("usage_accounts", []) if isinstance(account, dict)]
+    by_id = {str(account.get("id")): account for account in accounts if account.get("id") is not None}
+    requested = []
+    seen = set()
+    for account_id in order_ids if isinstance(order_ids, list) else []:
+        account_id = str(account_id)
+        if account_id in by_id and account_id not in seen:
+            requested.append(account_id)
+            seen.add(account_id)
+    remaining = [account for account in accounts if str(account.get("id")) not in seen]
+    cfg["usage_accounts"] = [by_id[account_id] for account_id in requested] + remaining
+    save_config(cfg)
+    return get_usage_accounts(cfg)
 
 
 def _bound_functions(runtime):

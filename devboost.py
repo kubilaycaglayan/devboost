@@ -699,6 +699,10 @@ def _read_codex_api(account, server=None):
     return usage_service.read_codex_api(sys.modules[__name__], account, server=server)
 
 
+def _read_agy_usage(account, server=None):
+    return usage_service.read_agy_usage(sys.modules[__name__], account, server=server)
+
+
 def _usage_account_id(*args, **kwargs):
     return usage_helpers.usage_account_id(*args, **kwargs)
 
@@ -749,6 +753,10 @@ def save_usage_account(*args, **kwargs):
 
 def remove_usage_account(*args, **kwargs):
     return usage_accounts.invoke("remove_usage_account", sys.modules[__name__], *args, **kwargs)
+
+
+def reorder_usage_accounts(*args, **kwargs):
+    return usage_accounts.invoke("reorder_usage_accounts", sys.modules[__name__], *args, **kwargs)
 
 
 # -----------------------------

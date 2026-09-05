@@ -221,6 +221,12 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 self._send_json({"ok": True, "account": save_usage_account(body)})
             except ValueError as e:
                 self._send_json({"ok": False, "message": str(e)}, status=400)
+        elif path == "/api/usage/accounts/reorder":
+            try:
+                accounts = reorder_usage_accounts(body.get("order", []))
+                self._send_json({"ok": True, "accounts": accounts})
+            except ValueError as e:
+                self._send_json({"ok": False, "message": str(e)}, status=400)
         elif path == "/api/usage/refresh":
             try:
                 kwargs = {"refresh": True, "account_id": body.get("account_id")}

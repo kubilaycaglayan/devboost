@@ -55,6 +55,44 @@ class TestCodexNormalization(unittest.TestCase):
 
 
 class TestCodexTransport(unittest.TestCase):
+    def test_nvm_cli_and_matching_interpreter_work_without_interactive_path(self):
+        from pathlib import Path
+        with tempfile.TemporaryDirectory() as root:
+            bin_dir = Path(root) / "versions/node/v24.19.0/bin"
+            bin_dir.mkdir(parents=True)
+            # A Python fixture stands in for Node; env must resolve it from
+            # the same installation as the npm-style Codex launcher.
+            (bin_dir / "node").symlink_to(sys.executable)
+            launcher = bin_dir / "codex"
+            launcher.write_text('''#!/usr/bin/env node
+import json, sys
+for line in sys.stdin:
+    message = json.loads(line)
+    if 'id' not in message:
+        continue
+    result = {} if message['method'] == 'initialize' else {'rateLimits': {'primary': {'usedPercent': 12}}}
+    print(json.dumps({'id': message['id'], 'result': result}), flush=True)
+''')
+            launcher.chmod(0o700)
+            real_access = os.access
+            with patch.dict(os.environ, {"NVM_DIR": root, "PATH": "/usr/bin:/bin"}), \
+                    patch.object(codex_usage.shutil, "which", return_value=None), \
+                    patch.object(codex_usage.os, "access", side_effect=lambda p, mode: str(p).startswith(root) and real_access(p, mode)):
+                result = codex_usage.read_rate_limits(timeout=2)
+            self.assertEqual(result["rateLimits"]["primary"]["usedPercent"], 12)
+
+    def test_remote_preserves_known_actionable_errors_but_not_arbitrary_output(self):
+        known = "Codex CLI not found on this host. Install Codex and sign in with ChatGPT."
+        for error in (known, "secret-token from unknown diagnostic"):
+            response = subprocess.CompletedProcess([], 0, json.dumps({"error": error}), "")
+            with self.subTest(error=error), patch.object(usage_service, "run_ssh_command", return_value=response):
+                with self.assertRaises(ValueError) as raised:
+                    usage_service.read_codex_api(devboost, {}, {"ssh_host": "remote"})
+            if error == known:
+                self.assertEqual(str(raised.exception), known)
+            else:
+                self.assertNotIn("secret-token", str(raised.exception))
+
     def run_fake(self, script, timeout=2, codex_home=None):
         real_popen = subprocess.Popen
         self.processes = []

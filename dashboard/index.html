@@ -104,7 +104,13 @@
     <!-- AI quota and API balance monitoring -->
     <div class="page-view" id="page-usage"><div class="section-card">
       <div class="section-header">
-        <h2>AI Usage &amp; Balances</h2>
+        <div style="display:flex; align-items:center; gap:12px; flex-wrap:wrap;">
+          <h2 id="usage-section-title">AI Usage &amp; Balances on Remote Server</h2>
+          <div class="mini-tabs">
+            <button class="mini-tab active" id="usage-tab-remote" onclick="switchUsageTab('remote')" title="Query quotas on the active server">🌐 Remote Server</button>
+            <button class="mini-tab" id="usage-tab-local" onclick="switchUsageTab('local')" title="Query quotas on this Mac">💻 This Mac</button>
+          </div>
+        </div>
         <div style="display:flex; gap:8px;">
           <button class="btn btn-sm" onclick="fetchUsage(true)">↻ Refresh</button>
           <button class="btn btn-sm btn-primary" onclick="openUsageModal()">+ Add Account</button>
@@ -112,7 +118,7 @@
       </div>
       <table>
         <thead><tr><th>PROVIDER</th><th>ACCOUNT</th><th>QUOTAS</th><th>BALANCES</th><th>LAST VALID QUERY</th><th style="text-align:right;">ACTIONS</th></tr></thead>
-        <tbody id="usage-body"><tr><td colspan="6" style="text-align:center; color:var(--text-muted); padding:24px;">No AI accounts configured.</td></tr></tbody>
+        <tbody id="usage-body" ondragover="onUsageRowDragOver(event)" ondrop="onUsageRowDrop(event)"><tr><td colspan="6" style="text-align:center; color:var(--text-muted); padding:24px;">No AI accounts configured.</td></tr></tbody>
       </table>
     </div></div>
 

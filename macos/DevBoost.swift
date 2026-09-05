@@ -78,11 +78,16 @@ final class DevBoostApp: NSObject, NSApplicationDelegate {
                 menu.removeAllItems()
                 menu.addItem(withTitle: "Open Dashboard", action: #selector(DevBoostApp.openDashboard), keyEquivalent: "o")
                 menu.addItem(NSMenuItem.separator())
-                let enabledAccounts = accounts.filter { ($0["enabled"] as? Bool) ?? true }
-                if enabledAccounts.isEmpty {
-                    menu.addItem(withTitle: "No accounts configured", action: nil, keyEquivalent: "")
+                // The backend returns accounts in the persisted quotas-page
+                // order. Keep that order here so dragging a row also moves
+                // its menu-bar section.
+                let orderedAccounts = accounts.filter { account in
+                    ((account["enabled"] as? Bool) ?? true) && self.snapshotHasData(snapshots[account["id"] as? String ?? ""] as? [String: Any])
+                }
+                if orderedAccounts.isEmpty {
+                    menu.addItem(withTitle: "No usage data available", action: nil, keyEquivalent: "")
                 } else {
-                    for account in enabledAccounts {
+                    for account in orderedAccounts {
                         let aid = account["id"] as? String ?? ""
                         let provider = account["provider"] as? String ?? "Provider"
                         let name = account["name"] as? String ?? provider
@@ -90,7 +95,7 @@ final class DevBoostApp: NSObject, NSApplicationDelegate {
                         let heading = NSMenuItem(title: "\(provider) · \(name)", action: nil, keyEquivalent: "")
                         heading.isEnabled = false
                         menu.addItem(heading)
-                        if snapshot?["ok"] as? Bool == true {
+                        if self.snapshotHasData(snapshot) {
                             let quotas = snapshot?["quotas"] as? [[String: Any]] ?? []
                             var resetCount = 0
                             for quota in quotas {
@@ -119,6 +124,9 @@ final class DevBoostApp: NSObject, NSApplicationDelegate {
                                 let noun = resetCount == 1 ? "reset" : "resets"
                                 self.addIndentedItem(to: menu, title: "You have \(resetCount) usage limit \(noun) available.")
                             }
+                            if snapshot?["credits_unlimited"] as? Bool == true {
+                                self.addIndentedItem(to: menu, title: "Credits: unlimited")
+                            }
                             let balances = snapshot?["balances"] as? [[String: Any]] ?? []
                             for balance in balances {
                                 let currency = balance["currency"] as? String ?? "USD"
@@ -145,6 +153,17 @@ final class DevBoostApp: NSObject, NSApplicationDelegate {
         item.indentationLevel = 1
         item.isEnabled = false
         menu.addItem(item)
+    }
+
+    private func snapshotHasData(_ snapshot: [String: Any]?) -> Bool {
+        guard let snapshot = snapshot else { return false }
+        if (snapshot["credits_unlimited"] as? Bool) == true { return true }
+        let quotas = snapshot["quotas"] as? [[String: Any]] ?? []
+        if quotas.contains(where: { quota in
+            ["used", "remaining", "limit"].contains { numberText(quota[$0]) != nil }
+        }) { return true }
+        let balances = snapshot["balances"] as? [[String: Any]] ?? []
+        return balances.contains { numberText($0["remaining"]) != nil || numberText($0["spent"]) != nil }
     }
 
     private func numberText(_ value: Any?) -> String? {

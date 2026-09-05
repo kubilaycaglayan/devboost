@@ -21,6 +21,12 @@ class TestMenuBarUsage(unittest.TestCase):
             self.assertIn(text, self.swift)
         self.assertIn("addIndentedItem", self.swift)
 
+    def test_menu_bar_follows_quota_order_and_omits_empty_accounts(self):
+        self.assertIn("let orderedAccounts = accounts.filter", self.swift)
+        self.assertIn("self.snapshotHasData", self.swift)
+        self.assertIn("No usage data available", self.swift)
+        self.assertIn('let quotas = snapshot["quotas"] as? [[String: Any]] ?? []', self.swift)
+
 
 if __name__ == "__main__":
     unittest.main()
