@@ -71,9 +71,33 @@ class TestDashboardAPI(unittest.TestCase):
     def test_mirror_syncs_warn_before_destructive_runs(self):
         with urllib.request.urlopen(self.base_url + "/dashboard/app.js") as resp:
             app_js = resp.read().decode("utf-8")
-        self.assertIn('Continue with rsync --delete?', app_js)
-        self.assertIn('if (sync && sync.mirror && sync.direction !== "two-way")', app_js)
-        self.assertIn('if (mirror && direction !== "two-way")', app_js)
+        self.assertIn("function confirmMirrorSync(direction, localPath, remotePath)", app_js)
+        script = r'''const fs = require("fs");
+const source = fs.readFileSync(process.argv[1], "utf8");
+const match = source.match(/function confirmMirrorSync[\s\S]*?\n    \}/);
+if (!match) throw new Error("mirror confirmation helper missing");
+const confirmMirrorSync = eval("(" + match[0] + ")");
+let prompts = 0;
+let lastPrompt = "";
+global.confirm = message => { prompts++; lastPrompt = message; return global.answer; };
+const result = {};
+global.answer = false;
+result.cancelPush = confirmMirrorSync("push", "/source", "~/destination");
+global.answer = true;
+result.acceptPull = confirmMirrorSync("pull", "/local", "/remote");
+result.promptNamesPaths = lastPrompt.includes("Source: /remote") && lastPrompt.includes("Destination: /local");
+result.twoWay = confirmMirrorSync("two-way", "/local", "/remote");
+result.nonMirror = confirmMirrorSync("push");
+result.prompts = prompts;
+process.stdout.write(JSON.stringify(result));'''
+        result = subprocess.run(
+            ["node", "-e", script, os.path.join(os.path.dirname(__file__), "..", "dashboard", "app.js")],
+            capture_output=True, text=True, check=True,
+        )
+        self.assertEqual(json.loads(result.stdout), {
+            "cancelPush": False, "acceptPull": True, "twoWay": True,
+            "promptNamesPaths": True, "nonMirror": True, "prompts": 2,
+        })
 
     def test_quotas_can_query_this_mac(self):
         with urllib.request.urlopen(self.base_url + "/") as resp:

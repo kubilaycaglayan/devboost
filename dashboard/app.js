@@ -1359,6 +1359,13 @@
       return `<span class="badge" style="background:rgba(255,255,255,0.05); color:var(--text-muted);">never synced</span>`;
     }
 
+    function confirmMirrorSync(direction, localPath, remotePath) {
+      if (!((direction === "push" || direction === "pull") && arguments.length >= 3)) return true;
+      const source = direction === "push" ? localPath : remotePath;
+      const destination = direction === "push" ? remotePath : localPath;
+      return confirm(`Mirror sync will delete files in the destination folder that are not in the source.\n\nSource: ${source}\nDestination: ${destination}\n\nContinue with rsync --delete?`);
+    }
+
     function renderSyncs(data) {
       currentSyncs = data.syncs || [];
       renderHomeSyncSummary(currentSyncs);
@@ -1402,10 +1409,7 @@
 
     async function runSyncNow(sid) {
       const sync = (currentSyncs || []).find(x => x.id === sid);
-      if (sync && sync.mirror && sync.direction !== "two-way") {
-        const destination = sync.direction === "push" ? sync.remote_path : sync.local_path;
-        if (!confirm(`Mirror sync will delete files in the destination folder that are not in the source.\n\nSource: ${sync.direction === "push" ? sync.local_path : sync.remote_path}\nDestination: ${destination}\n\nContinue with rsync --delete?`)) return;
-      }
+      if (sync && sync.mirror && !confirmMirrorSync(sync.direction, sync.local_path, sync.remote_path)) return;
       showToast("Syncing folders...");
       try {
         const res = await fetch("/api/syncs/run", { method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({ id: sid }) });
@@ -1883,11 +1887,7 @@
         alert("Pick both a local folder and a remote folder (use Browse for quick select).");
         return;
       }
-      if (mirror && direction !== "two-way") {
-        const source = direction === "push" ? localPath : remotePath;
-        const destination = direction === "push" ? remotePath : localPath;
-        if (!confirm(`Mirror sync will delete files in the destination folder that are not in the source.\n\nSource: ${source}\nDestination: ${destination}\n\nContinue with rsync --delete?`)) return;
-      }
+      if (mirror && !confirmMirrorSync(direction, localPath, remotePath)) return;
       const isEdit = !!editingSyncId;
       const url = isEdit ? "/api/syncs/update" : "/api/syncs";
       const payload = isEdit
