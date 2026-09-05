@@ -42,6 +42,33 @@
       }).join(" ");
     }
     function usageNumber(value) { return value == null ? "—" : String(value); }
+    function usagePercent(quota) {
+      const limit = Number(quota && quota.limit);
+      if (!Number.isFinite(limit) || limit <= 0) return null;
+      const used = Number(quota.used);
+      if (Number.isFinite(used)) return Math.max(0, Math.min(100, used / limit * 100));
+      const remaining = Number(quota.remaining);
+      if (Number.isFinite(remaining)) return Math.max(0, Math.min(100, (limit - remaining) / limit * 100));
+      return null;
+    }
+    function usageGrade(percent) {
+      if (percent <= 50) return "usage-grade-green";
+      if (percent <= 75) return "usage-grade-yellow";
+      if (percent <= 90) return "usage-grade-orange";
+      return "usage-grade-red";
+    }
+    function renderUsageQuota(quota) {
+      const percent = usagePercent(quota);
+      const name = escapeHtml(quota.name);
+      if (percent == null) {
+        const detail = quota.remaining != null ? `${usageNumber(quota.remaining)} ${escapeHtml(quota.unit || "remaining")}` :
+          (quota.used != null ? `${usageNumber(quota.used)} ${escapeHtml(quota.unit || "used")}` : "No percentage data");
+        return `<div class="usage-quota-text"><span>${name}</span><strong>${detail}</strong></div>`;
+      }
+      const rounded = Math.round(percent);
+      const remaining = quota.remaining != null ? ` · ${usageNumber(quota.remaining)} ${escapeHtml(quota.unit || "remaining")} remaining` : "";
+      return `<div class="usage-quota"><div class="usage-meter-header"><span>${name}</span><strong>${rounded}% used</strong></div><div class="usage-meter ${usageGrade(percent)}" role="meter" aria-label="${name} usage" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${rounded}"><span style="width:${percent.toFixed(2)}%"></span></div><div class="usage-meter-caption">${rounded}% used${remaining}</div></div>`;
+    }
     function usageUpdated(snapshot) {
       const timestamp = snapshot && (snapshot.last_valid_query_at || (snapshot.ok && snapshot.updated_at));
       if (!timestamp) return "—";
@@ -123,7 +150,7 @@
       }
       body.innerHTML = data.accounts.map(a => {
         const s = snapshots[a.id] || {};
-        const quotas = (s.quotas || []).map(q => `${escapeHtml(q.name)}: ${usageNumber(q.remaining)} ${escapeHtml(q.unit || "")}`).join("<br>") || (s.ok ? "No quota data" : escapeHtml(s.message || "Unavailable"));
+        const quotas = (s.quotas || []).map(renderUsageQuota).join("") || (s.ok ? "No quota data" : escapeHtml(s.message || "Unavailable"));
         const balances = (s.balances || []).map(b => b.remaining != null ? `${usageNumber(b.remaining)} ${escapeHtml(b.currency || "USD")}` : (b.spent != null ? `spent ${usageNumber(b.spent)} ${escapeHtml(b.currency || "USD")}` : "—")).join("<br>") || "—";
         const accountId = escapeHtml(JSON.stringify(String(a.id || "")));
         return `<tr><td>${escapeHtml(a.provider)}</td><td>${escapeHtml(a.name)}</td><td>${quotas}</td><td>${balances}</td><td class="mono usage-age" data-last-valid-query="${escapeHtml(s.last_valid_query_at || (s.ok ? s.updated_at : ""))}">${usageUpdated(s)}</td><td style="text-align:right;"><button class="btn btn-sm" onclick="editUsageAccount(${accountId})">Edit</button> <button class="btn btn-sm" onclick="removeUsageAccount(${accountId})">Remove</button></td></tr>`;
@@ -377,12 +404,17 @@
     }
     function onTabDragStart(e, sid) {
       draggedServerId = sid;
-      e.currentTarget.classList.add("dragging");
+      const source = e.currentTarget;
       const shadow = document.createElement("span");
       shadow.className = "tab-drop-shadow";
-      shadow.style.width = `${e.currentTarget.getBoundingClientRect().width}px`;
+      shadow.style.width = `${source.getBoundingClientRect().width}px`;
       shadow.setAttribute("aria-label", "Drop server here");
-      document.getElementById("tabs-bar").insertBefore(shadow, document.getElementById("tabs-bar").lastElementChild);
+      source.classList.add("dragging");
+      source.setAttribute("aria-grabbed", "true");
+      // The shadow replaces the source in the flex layout. Keeping both in
+      // flow makes every chip shift when the placeholder is introduced.
+      source.parentNode.insertBefore(shadow, source);
+      source.style.display = "none";
       e.dataTransfer.effectAllowed = "move";
     }
     function onTabDragOver(e) {
@@ -397,6 +429,8 @@
     }
     function onTabDragEnd(e) {
       e.currentTarget.classList.remove("dragging");
+      e.currentTarget.style.display = "";
+      e.currentTarget.removeAttribute("aria-grabbed");
       const shadow = getTabDropShadow();
       if (shadow) shadow.remove();
       draggedServerId = null;

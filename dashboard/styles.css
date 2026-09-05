@@ -172,6 +172,23 @@
 
     .actions-cell { display: flex; gap: 8px; justify-content: flex-end; }
 
+    .usage-quota { min-width: 190px; margin: 3px 0 10px; }
+    .usage-quota:last-child { margin-bottom: 0; }
+    .usage-meter-header { display: flex; justify-content: space-between; gap: 12px; color: var(--text); font-size: 12px; line-height: 1.35; }
+    .usage-meter-header strong { color: #f0f3f6; font-family: var(--font-mono); font-size: 11px; white-space: nowrap; }
+    .usage-meter { height: 9px; margin-top: 5px; background: #0d1117; border: 1px solid #3a424c; border-radius: 999px; overflow: hidden; }
+    .usage-meter span { display: block; height: 100%; min-width: 2px; border-radius: inherit; }
+    .usage-grade-green span { background: #a8d5ba; }
+    .usage-grade-yellow span { background: #eadb9b; }
+    .usage-grade-orange span { background: #e8b58e; }
+    .usage-grade-red span { background: #e7a4a4; }
+    .usage-meter-caption { margin-top: 3px; color: var(--text-muted); font: 11px/1.35 var(--font-mono); }
+    .usage-quota-text { display: flex; flex-wrap: wrap; gap: 5px 10px; color: var(--text); font-size: 12px; line-height: 1.35; }
+    .usage-quota-text strong { color: #f0f3f6; font-family: var(--font-mono); font-size: 11px; }
+    @media (prefers-reduced-motion: reduce) {
+      .feature-tile, .btn { transition: none; }
+    }
+
     .tabs-bar {
       display: flex;
       gap: 8px;
