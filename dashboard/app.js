@@ -17,6 +17,9 @@
     let browserRemoteCur = "";
     let serversLoaded = false;
     let editingServerId = null;
+    let serverDrag = null;
+    let serverOrderSaving = false;
+    let serverOrderVersion = 0;
 
     function openUsageModal(account = null) {
       editingUsageId = account ? account.id : null;
@@ -64,12 +67,11 @@
           (quota.used != null ? `${usageNumber(quota.used)} ${escapeHtml(quota.unit || "used")}` : "No percentage data");
         return `<div class="usage-quota-text"><span>${name}</span><strong>${detail}</strong>${reset ? `<small>${escapeHtml(reset)}</small>` : ""}</div>`;
       }
-      const rounded = Math.round(percent);
       const remainingPercent = 100 - percent;
+      const rounded = Math.round(remainingPercent);
       const remaining = quota.remaining != null && quota.unit !== "%" ? `${usageNumber(quota.remaining)} ${quota.unit || "remaining"} remaining` : "";
-      const details = [remaining, reset].filter(Boolean).join(" · ");
-      const caption = details ? `<div class="usage-meter-caption">${escapeHtml(details)}</div>` : "";
-      return `<div class="usage-quota"><div class="usage-meter-header"><span>${name}</span></div><div class="usage-meter ${usageGrade(percent)}" role="meter" aria-label="${name} remaining quota" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${Math.round(remainingPercent)}"><span style="width:${remainingPercent.toFixed(2)}%"></span><strong class="usage-meter-label">${rounded}% used</strong></div>${caption}</div>`;
+      const caption = remaining ? `<div class="usage-meter-caption">${escapeHtml(remaining)}</div>` : "";
+      return `<div class="usage-quota"><div class="usage-meter-header"><span>${name}</span>${reset ? `<small class="usage-meter-reset">${escapeHtml(reset)}</small>` : ""}</div><div class="usage-meter ${usageGrade(percent)}" role="meter" aria-label="${name} remaining quota" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${rounded}"><span style="width:${remainingPercent.toFixed(2)}%"></span><strong class="usage-meter-label">${rounded}% left</strong></div>${caption}</div>`;
     }
     function usageUpdated(snapshot) {
       const timestamp = snapshot && (snapshot.last_valid_query_at || (snapshot.ok && snapshot.updated_at));
@@ -153,8 +155,7 @@
       body.innerHTML = data.accounts.map(a => {
         const s = snapshots[a.id] || {};
         const resetCount = usageResetCount(s.quotas);
-        const resetLabel = resetCount === 1 ? "reset" : "resets";
-        const resetSummary = resetCount ? `<div class="usage-reset-summary" role="status">You have ${resetCount} usage limit ${resetLabel} available.</div>` : "";
+        const resetSummary = resetCount ? `<span class="usage-reset-summary" role="status" aria-label="${resetCount} usage limit resets available">${resetCount}X RESETS</span>` : "";
         const quotas = resetSummary + ((s.quotas || []).map(renderUsageQuota).join("") || (s.ok ? "No quota data" : escapeHtml(s.message || "Unavailable")));
         const balances = (s.balances || []).map(b => b.remaining != null ? `${usageNumber(b.remaining)} ${escapeHtml(b.currency || "USD")}` : (b.spent != null ? `spent ${usageNumber(b.spent)} ${escapeHtml(b.currency || "USD")}` : "—")).join("<br>") || "—";
         const accountId = escapeHtml(JSON.stringify(String(a.id || "")));
@@ -337,9 +338,12 @@
     }
 
     async function fetchServers() {
+      if (serverDrag || serverOrderSaving) return;
+      const orderVersion = serverOrderVersion;
       try {
         const res = await fetch("/api/servers");
         const data = await res.json();
+        if (serverDrag || serverOrderSaving || orderVersion !== serverOrderVersion) return;
         allServers = data.servers || [];
         // A background refresh must not undo an explicit tab selection. Only
         // choose a default during startup (or after the selected tab was
@@ -357,6 +361,7 @@
     }
 
     function renderTabs() {
+      if (serverDrag) return;
       const bar = document.getElementById("tabs-bar");
       if (!allServers.length) {
         bar.innerHTML = '<span style="font-size:12px; color:var(--text-muted);">No servers yet.</span>' +
@@ -368,7 +373,6 @@
         const dotCls = serverReachability[s.id] === true ? "tab-dot online" : (serverReachability[s.id] === false ? "tab-dot" : "tab-dot");
         return `<div class="tab ${isActive ? 'active' : ''}" data-server-id="${s.id}" draggable="true"
             onclick="selectServer('${s.id}')" ondragstart="onServerTabDragStart(event, '${s.id}')"
-            ondragover="onServerTabDragOver(event)" ondrop="onServerTabDrop(event)"
             ondragend="onServerTabDragEnd()"
             title="${escapeHtml(s.ssh_host)}${s.ip ? ' (' + escapeHtml(s.ip) + ')' : ''}">
           <span class="${dotCls}"></span>
@@ -377,75 +381,21 @@
       }).join("") + `<button class="btn btn-sm server-manage-button" onclick="navigatePage('servers')">Manage servers</button>`;
     }
 
-    let draggedServerTabId = null;
-    let draggedServerTab = null;
-    function getServerTabDropShadow() {
-      return document.querySelector("#tabs-bar .server-tab-drop-shadow");
-    }
     function onServerTabDragStart(e, sid) {
-      draggedServerTabId = sid;
-      draggedServerTab = e.currentTarget;
-      const rect = draggedServerTab.getBoundingClientRect();
-      const shadow = document.createElement("div");
-      shadow.className = "tab server-tab-drop-shadow";
-      shadow.style.width = `${rect.width}px`;
-      shadow.style.height = `${rect.height}px`;
-      shadow.setAttribute("aria-label", "Drop server here");
-      draggedServerTab.classList.add("dragging");
-      draggedServerTab.setAttribute("aria-grabbed", "true");
-      draggedServerTab.parentNode.insertBefore(shadow, draggedServerTab);
-      draggedServerTab.style.display = "none";
-      e.dataTransfer.effectAllowed = "move";
-      e.dataTransfer.setData("text/plain", sid);
+      startServerDrag(e, sid, "tab", e.currentTarget);
     }
     function onServerTabDragOver(e) {
-      e.preventDefault();
-      const target = e.currentTarget;
-      if (!draggedServerTabId || target.dataset.serverId === draggedServerTabId) return;
-      e.dataTransfer.dropEffect = "move";
-      const shadow = getServerTabDropShadow();
-      if (!shadow) return;
-      const rect = target.getBoundingClientRect();
-      const insertBefore = e.clientY < rect.top ||
-        (e.clientY <= rect.bottom && e.clientX < rect.left + rect.width / 2);
-      target.parentNode.insertBefore(shadow, insertBefore ? target : target.nextSibling);
+      moveServerDrag(e);
     }
     function onServerTabDragEnd() {
-      if (draggedServerTab) {
-        draggedServerTab.classList.remove("dragging");
-        draggedServerTab.style.display = "";
-        draggedServerTab.removeAttribute("aria-grabbed");
-      }
-      const shadow = getServerTabDropShadow();
-      if (shadow) shadow.remove();
-      draggedServerTab = null;
-      draggedServerTabId = null;
+      endServerDrag();
     }
-    async function onServerTabDrop(e) {
-      e.preventDefault();
-      if (!draggedServerTabId) return;
-      const bar = document.getElementById("tabs-bar");
-      const shadow = getServerTabDropShadow();
-      if (!shadow) return;
-      const ids = Array.from(bar.children)
-        .filter(child => child === shadow || (child.dataset && child.dataset.serverId !== draggedServerTabId))
-        .map(child => child === shadow ? draggedServerTabId : child.dataset.serverId)
-        .filter(Boolean);
-      allServers.sort((a, b) => ids.indexOf(a.id) - ids.indexOf(b.id));
-      onServerTabDragEnd();
-      renderTabs();
-      renderServerManagement();
-      try {
-        const res = await fetch("/api/servers/reorder", { method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({ order: ids }) });
-        if (!res.ok) throw new Error(`Server reorder failed (${res.status})`);
-        await fetchServers();
-      } catch (err) {
-        console.error(err);
-        await fetchServers();
-      }
+    function onServerTabDrop(e) {
+      return dropServerDrag(e);
     }
 
     function renderServerManagement() {
+      if (serverDrag) return;
       const list = document.getElementById("server-management-list");
       if (!list) return;
       if (!allServers.length) {
@@ -457,8 +407,7 @@
         const reachability = serverReachability[s.id];
         const dotCls = reachability === true ? "tab-dot online" : "tab-dot";
         const status = reachability === true ? "Online" : (reachability === false ? "Offline" : "Not checked");
-        return `<article class="server-management-item" data-server-id="${s.id}"
-            ondragover="onServerCardDragOver(event)" ondrop="onServerCardDrop(event, '${s.id}')">
+        return `<article class="server-management-item" data-server-id="${s.id}">
           <div class="server-management-details">
             <div class="server-management-name"><span class="${dotCls}"></span>${escapeHtml(s.name || s.ssh_host)}${isActive ? '<span class="badge badge-active">Active</span>' : ''}</div>
             <div class="server-management-host">${escapeHtml(s.ssh_host)}${s.ip ? ` · ${escapeHtml(s.ip)}` : ''}</div>
@@ -474,70 +423,104 @@
       }).join("");
     }
 
-    let draggedServerId = null;
-    let draggedServerCard = null;
-    function getServerCardDropShadow() {
-      return document.querySelector("#server-management-list .server-card-drop-shadow");
-    }
     function onServerCardDragStart(e, sid) {
-      draggedServerId = sid;
-      draggedServerCard = e.currentTarget.closest(".server-management-item");
-      const shadow = document.createElement("div");
-      shadow.className = "server-management-item server-card-drop-shadow";
-      shadow.style.height = `${draggedServerCard.getBoundingClientRect().height}px`;
-      shadow.setAttribute("aria-label", "Drop server here");
-      draggedServerCard.classList.add("dragging");
-      draggedServerCard.setAttribute("aria-grabbed", "true");
-      draggedServerCard.parentNode.insertBefore(shadow, draggedServerCard);
-      draggedServerCard.style.display = "none";
-      e.dataTransfer.effectAllowed = "move";
-      e.dataTransfer.setData("text/plain", sid);
+      startServerDrag(e, sid, "card", e.currentTarget.closest(".server-management-item"));
     }
     function onServerCardDragOver(e) {
-      e.preventDefault();
-      const target = e.currentTarget;
-      if (!draggedServerId || target.dataset.serverId === draggedServerId) return;
-      e.dataTransfer.dropEffect = "move";
-      const shadow = getServerCardDropShadow();
-      if (!shadow) return;
-      const rect = target.getBoundingClientRect();
-      const insertBefore = e.clientY < rect.top + rect.height / 2 ||
-        (Math.abs(e.clientY - (rect.top + rect.height / 2)) < rect.height / 2 && e.clientX < rect.left + rect.width / 2);
-      target.parentNode.insertBefore(shadow, insertBefore ? target : target.nextSibling);
+      moveServerDrag(e);
     }
     function onServerCardDragEnd() {
-      if (draggedServerCard) {
-        draggedServerCard.classList.remove("dragging");
-        draggedServerCard.style.display = "";
-        draggedServerCard.removeAttribute("aria-grabbed");
-      }
-      const shadow = getServerCardDropShadow();
-      if (shadow) shadow.remove();
-      draggedServerCard = null;
-      draggedServerId = null;
+      endServerDrag();
     }
-    async function onServerCardDrop(e, targetId) {
+    function onServerCardDrop(e) {
+      return dropServerDrag(e);
+    }
+
+    function startServerDrag(e, sid, kind, source) {
+      if (serverOrderSaving || serverDrag) { e.preventDefault(); return; }
+      // Invalidate responses requested before this drag, even if they arrive
+      // after its save completes, so polling cannot restore an old order.
+      serverOrderVersion++;
+      const rect = source.getBoundingClientRect();
+      const shadow = document.createElement("div");
+      shadow.className = kind === "tab" ? "tab server-tab-drop-shadow" : "server-management-item server-card-drop-shadow";
+      if (kind === "tab") shadow.style.width = `${rect.width}px`;
+      shadow.style.height = `${rect.height}px`;
+      shadow.setAttribute("aria-label", "Drop server here");
+      e.dataTransfer.effectAllowed = "move";
+      e.dataTransfer.setData("text/plain", sid);
+      e.dataTransfer.setDragImage(source, e.clientX - rect.left, e.clientY - rect.top);
+      source.classList.add("dragging");
+      source.setAttribute("aria-grabbed", "true");
+      const drag = serverDrag = { sid, kind, source, shadow, container: source.parentNode };
+      // Hiding the source inside dragstart aborts the browser's native drag.
+      // Wait until it has captured the drag image and started the session.
+      drag.timer = setTimeout(() => {
+        if (serverDrag !== drag) return;
+        drag.container.insertBefore(shadow, source);
+        source.style.display = "none";
+      }, 0);
+    }
+
+    function moveServerDrag(e) {
+      const drag = serverDrag;
+      if (!drag || e.currentTarget !== drag.container) return;
       e.preventDefault();
-      if (!draggedServerId || draggedServerId === targetId) return;
-      const list = document.getElementById("server-management-list");
-      const shadow = getServerCardDropShadow();
-      const ids = Array.from(list.querySelectorAll(".server-management-item[data-server-id]"), card => card.dataset.serverId);
-      const from = ids.indexOf(draggedServerId);
-      if (from < 0) return;
-      ids.splice(from, 1);
-      const shadowPosition = shadow ? Array.from(list.children).indexOf(shadow) : -1;
-      const insertAt = shadowPosition < 0
-        ? ids.indexOf(targetId)
-        : Array.from(list.children).slice(0, shadowPosition)
-            .filter(child => child.dataset && child.dataset.serverId && child.dataset.serverId !== draggedServerId).length;
-      ids.splice(Math.max(0, insertAt), 0, draggedServerId);
-      allServers.sort((a, b) => ids.indexOf(a.id) - ids.indexOf(b.id));
-      onServerCardDragEnd();
+      e.dataTransfer.dropEffect = "move";
+      // The container accepts drops on the placeholder and in the gaps too.
+      // Keep the slot still while the pointer is inside it.
+      if (!drag.shadow.isConnected || drag.shadow.contains(e.target)) return;
+      const items = Array.from(drag.container.children).filter(child => child.dataset.serverId && child !== drag.source);
+      const horizontal = drag.kind === "tab" || getComputedStyle(drag.container).gridTemplateColumns.split(" ").length > 1;
+      const next = items.find(item => {
+        const rect = item.getBoundingClientRect();
+        return horizontal
+          ? e.clientY < rect.top || (e.clientY <= rect.bottom && e.clientX < rect.left + rect.width / 2)
+          : e.clientY < rect.top + rect.height / 2;
+      });
+      const end = drag.kind === "tab" ? drag.container.querySelector(".server-manage-button") : null;
+      drag.container.insertBefore(drag.shadow, next || end);
+    }
+
+    function endServerDrag() {
+      if (!serverDrag) return;
+      const { source, shadow, timer } = serverDrag;
+      clearTimeout(timer);
+      source.classList.remove("dragging");
+      source.style.display = "";
+      source.removeAttribute("aria-grabbed");
+      shadow.remove();
+      serverDrag = null;
+      renderTabs();
       renderServerManagement();
+    }
+
+    async function dropServerDrag(e) {
+      const drag = serverDrag;
+      if (!drag || e.currentTarget !== drag.container || !drag.shadow.isConnected) return;
+      e.preventDefault();
+      const ids = Array.from(drag.container.children)
+        .filter(child => child === drag.shadow || (child.dataset.serverId && child !== drag.source))
+        .map(child => child === drag.shadow ? drag.sid : child.dataset.serverId);
+      const previous = allServers.slice();
+      if (ids.every((id, index) => id === previous[index].id)) { endServerDrag(); return; }
+      serverOrderSaving = true;
+      allServers.sort((a, b) => ids.indexOf(a.id) - ids.indexOf(b.id));
+      endServerDrag();
       try {
-        await fetch("/api/servers/reorder", { method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({ order: ids }) });
-        fetchServers();
-      } catch (err) { console.error(err); }
+        const res = await fetch("/api/servers/reorder", { method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({ order: ids }) });
+        const data = await res.json();
+        if (!res.ok || !data.ok) throw new Error(data.message || "Server reorder failed");
+        allServers = data.servers;
+      } catch (err) {
+        allServers = previous;
+        console.error(err);
+        showToast("Couldn't save server order. Please try again.");
+      } finally {
+        serverOrderSaving = false;
+        renderTabs();
+        renderServerManagement();
+      }
     }
 
     function selectServer(sid) {
@@ -678,14 +661,23 @@
     }
 
     async function fetchStatus() {
+      if (serverDrag || serverOrderSaving) return;
       const requestedServerId = currentServerId;
+      const orderVersion = serverOrderVersion;
       try {
         const res = await fetch("/api/status" + serverQuery());
         const data = await res.json();
         // Responses can arrive after the user has selected another tab.
         // Never let an old response repaint state for the newly selected tab.
         if (!responseBelongsToServer(requestedServerId, currentServerId, data.server_id)) return;
-        if (data.servers) { allServers = data.servers; if (!currentServerId && allServers[0]) { currentServerId = allServers[0].id; localStorage.setItem("devboost-active-server", currentServerId); } renderTabs(); }
+        if (data.servers && !serverDrag && !serverOrderSaving && orderVersion === serverOrderVersion) {
+          allServers = data.servers;
+          if (!currentServerId && allServers[0]) {
+            currentServerId = allServers[0].id;
+            localStorage.setItem("devboost-active-server", currentServerId);
+          }
+          renderTabs();
+        }
         if (data.server_id) { serverReachability[data.server_id] = !!data.server_reachable; }
         renderStatus(data);
       } catch (err) {

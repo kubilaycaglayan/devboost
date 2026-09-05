@@ -31,7 +31,7 @@
     </header>
 
     <!-- SSH connection tabs stay available while moving between workspaces. -->
-    <div class="tabs-bar" id="tabs-bar">
+    <div class="tabs-bar" id="tabs-bar" ondragover="onServerTabDragOver(event)" ondrop="onServerTabDrop(event)">
       <span style="font-size:12px; color:var(--text-muted);">Loading servers...</span>
       <button class="btn btn-sm server-manage-button" onclick="navigatePage('servers')">Manage servers</button>
     </div>
@@ -64,11 +64,11 @@
         <div class="section-header">
           <div>
             <h2>Manage servers</h2>
-            <div class="section-subtitle">Configure the SSH connections available in your server bar.</div>
+            <div class="section-subtitle">Configure your SSH connections. Drag the ⠿ handle to change their order in the server bar.</div>
           </div>
           <button class="btn btn-primary" onclick="openServerModal()">+ Add server</button>
         </div>
-        <div class="server-management-grid" id="server-management-list">
+        <div class="server-management-grid" id="server-management-list" ondragover="onServerCardDragOver(event)" ondrop="onServerCardDrop(event)">
           <div class="empty-state">Loading servers...</div>
         </div>
       </div>
