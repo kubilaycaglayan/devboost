@@ -44,9 +44,10 @@ class TestManager(unittest.TestCase):
         self.assertTrue(data["KeepAlive"])
         self.assertEqual(data["ThrottleInterval"], 10)
 
-        # Verify arguments
+        # Verify arguments (scoped DevBoost wrapper, not raw /usr/bin/ssh)
         args = data["ProgramArguments"]
-        self.assertIn("/usr/bin/ssh", args)
+        self.assertTrue(args[0].endswith("DevBoost-tunnel"))
+        self.assertNotIn("/usr/bin/ssh", args)
         self.assertIn("-N", args)
         self.assertIn("-L", args)
         self.assertIn("8080:127.0.0.1:8080", args)

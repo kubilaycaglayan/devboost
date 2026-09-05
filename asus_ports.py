@@ -52,8 +52,21 @@ AGENT_DOMAIN = os.getenv("PORT_TRACKER_AGENT_DOMAIN", "com.user.port-tracker")
 AGENT_PREFIX = os.getenv("PORT_TRACKER_AGENT_PREFIX", "com.user.ssh-forward")
 CONFIG_DIR = os.path.expanduser(os.getenv("PORT_TRACKER_CONFIG_DIR", "~/.config/port-tracker"))
 CONFIG_FILE = os.path.join(CONFIG_DIR, "config.json")
+BIN_DIR = os.path.join(CONFIG_DIR, "bin")
+DASHBOARD_WRAPPER_NAME = "DevBoost-dashboard"
+TUNNEL_WRAPPER_NAME = "DevBoost-tunnel"
 LAUNCH_AGENTS_DIR = os.path.expanduser("~/Library/LaunchAgents")
 LOG_DIR = os.path.expanduser(os.getenv("PORT_TRACKER_LOG_DIR", "~/Library/Logs"))
+
+
+def get_tunnel_executable():
+    """Scoped wrapper so macOS Background Items shows DevBoost-tunnel instead of ssh."""
+    return os.path.join(BIN_DIR, TUNNEL_WRAPPER_NAME)
+
+
+def get_dashboard_executable():
+    """Scoped wrapper so macOS Background Items shows DevBoost-dashboard instead of python3."""
+    return os.path.join(BIN_DIR, DASHBOARD_WRAPPER_NAME)
 
 DEFAULT_LABELS = {
     3030: "Grafana Dashboard",
@@ -74,6 +87,7 @@ DEFAULT_LABELS = {
 
 def ensure_dirs():
     os.makedirs(CONFIG_DIR, exist_ok=True)
+    os.makedirs(BIN_DIR, exist_ok=True)
     os.makedirs(LAUNCH_AGENTS_DIR, exist_ok=True)
     os.makedirs(LOG_DIR, exist_ok=True)
 
@@ -274,7 +288,7 @@ def create_launchagent(local_port, remote_port):
     data = {
         "Label": label,
         "ProgramArguments": [
-            "/usr/bin/ssh",
+            get_tunnel_executable(),
             "-N",
             "-T",
             "-o", "ServerAliveInterval=15",

@@ -32,6 +32,9 @@ port_tracker/
 ├── launchagents/           # LaunchAgent plist templates
 │   ├── dashboard.plist.template   # Dashboard background daemon template
 │   └── tunnel.plist.template      # Auto-restarting SSH tunnel template
+├── bin/                    # Scoped wrappers so macOS shows DevBoost-* instead of ssh/python3
+│   ├── DevBoost-dashboard         # execs python3 asus_ports.py (dashboard agent entry point)
+│   └── DevBoost-tunnel            # execs ssh (tunnel agents entry point)
 ├── tests/                  # Automated unit test suite (100% stdlib unittest)
 │   ├── test_api.py
 │   ├── test_config.py

@@ -6,8 +6,7 @@
     <string>{{AGENT_DOMAIN}}.dashboard</string>
     <key>ProgramArguments</key>
     <array>
-        <string>/usr/bin/python3</string>
-        <string>{{CONFIG_DIR}}/asus_ports.py</string>
+        <string>{{CONFIG_DIR}}/bin/DevBoost-dashboard</string>
         <string>serve</string>
         <string>--port</string>
         <string>{{DASHBOARD_PORT}}</string>

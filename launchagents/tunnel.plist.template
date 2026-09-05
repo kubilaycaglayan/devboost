@@ -6,7 +6,7 @@
     <string>{{AGENT_PREFIX}}-{{LOCAL_PORT}}</string>
     <key>ProgramArguments</key>
     <array>
-        <string>/usr/bin/ssh</string>
+        <string>{{CONFIG_DIR}}/bin/DevBoost-tunnel</string>
         <string>-N</string>
         <string>-T</string>
         <string>-o</string>

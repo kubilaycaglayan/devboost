@@ -1,0 +1,6 @@
+#!/bin/sh
+# DevBoost-dashboard — scoped launcher for the Port Tracker dashboard.
+# Exists so macOS Background Items shows "DevBoost-dashboard" instead of "python3".
+# Scope: only this app's LaunchAgent uses it. Global python3 is untouched.
+# Usage (via launchd): DevBoost-dashboard serve --port <port>
+exec /usr/bin/python3 "$(dirname "$0")/../asus_ports.py" "$@"
