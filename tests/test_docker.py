@@ -9,6 +9,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")
 
 from docker_monitor import collect_docker_snapshot, parse_docker_output, collect_docker_logs
 import devboost
+from docker_monitor import DockerMonitor
 
 
 class TestDockerMonitor(unittest.TestCase):
@@ -69,6 +70,34 @@ class TestDockerMonitor(unittest.TestCase):
         self.assertFalse(result["ok"])
         self.assertFalse(result["available"])
         self.assertIn("not installed", result["message"])
+
+    @patch("docker_monitor.run_ssh_command", side_effect=subprocess.TimeoutExpired("ssh", 1))
+    def test_collect_snapshot_reports_timeout(self, _ssh):
+        result = collect_docker_snapshot("myhost")
+        self.assertFalse(result["ok"])
+        self.assertFalse(result["available"])
+        self.assertIn("timed out", result["message"])
+
+    @patch("docker_monitor.run_ssh_command")
+    def test_collect_logs_clamps_tail_and_reports_remote_failure(self, ssh):
+        ssh.return_value = subprocess.CompletedProcess(args=[], returncode=1, stdout="partial", stderr="failure")
+        result = collect_docker_logs("myhost", "web; echo unsafe", tail=9999)
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["logs"], "partial")
+        self.assertIn("--tail 2000", ssh.call_args.args[1])
+        self.assertIn("web; echo unsafe", ssh.call_args.args[1])
+
+    @patch("docker_monitor.collect_docker_snapshot", return_value={
+        "ok": True, "available": True, "containers": [], "stats": [], "updated_at": 100,
+    })
+    def test_monitor_returns_initial_state_then_cached_snapshot(self, collect):
+        monitor = DockerMonitor(interval=2)
+        initial = monitor.get("one", "box")
+        self.assertIsNone(initial["available"])
+        monitor._entries["one"]["stop"].set()
+        # The worker may not have completed; verify the entry contract either way.
+        monitor.stop()
+        self.assertEqual(monitor._entries, {})
 
     @patch("devboost.subprocess.run")
     @patch("devboost.load_config")

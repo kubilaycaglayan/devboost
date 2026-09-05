@@ -183,6 +183,7 @@
       border: 1px solid var(--border);
       border-radius: 8px;
     }
+    .server-manage-button { margin-left: auto; flex-shrink: 0; }
     .workspace-tabs {
       display: flex;
       align-items: center;
@@ -254,6 +255,15 @@
     .server-row .srv-host { font-family: var(--font-mono); font-weight: 600; color: #fff; font-size: 13px; }
     .server-row .srv-sub { font-size: 11px; color: var(--text-muted); font-family: var(--font-mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .search-input { margin-bottom: 4px; }
+    .section-subtitle { color: var(--text-muted); font-size: 12px; margin-top: 4px; }
+    .server-management-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(310px, 1fr)); gap: 12px; padding: 20px; }
+    .server-management-item { display: flex; flex-direction: column; justify-content: space-between; gap: 18px; min-height: 150px; padding: 16px; background: #0d1117; border: 1px solid var(--border); border-radius: 10px; }
+    .server-management-name { display: flex; align-items: center; gap: 8px; color: #fff; font-weight: 600; font-size: 15px; }
+    .server-management-name .badge { margin-left: auto; }
+    .server-management-host, .server-management-status { color: var(--text-muted); font: 12px var(--font-mono); margin-top: 8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .server-management-status { font-family: inherit; margin-top: 4px; }
+    .server-management-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+    .empty-state { color: var(--text-muted); padding: 28px 4px; text-align: center; grid-column: 1 / -1; }
 
     .modal-overlay {
       position: fixed; inset: 0; background: rgba(0, 0, 0, 0.7);

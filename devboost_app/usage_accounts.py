@@ -38,12 +38,13 @@ def get_usage_accounts(cfg=None):
              "api_mode": bool(a.get("api_mode", False)), "api_days": a.get("api_days", 1)}
             for a in cfg.get("usage_accounts", []) if isinstance(a, dict)]
 
-def refresh_usage_account(account):
+def refresh_usage_account(account, server=None):
     started = time.time()
     try:
         explicit_url = account.get("balance_url") or account.get("usage_url")
         explicit_command = account.get("usage_command") or account.get("command")
-        has_command = explicit_command or _provider_default_command(account.get("provider"))
+        remote_default = server and account.get("provider") in ("agy", "opencode")
+        has_command = explicit_command or _provider_default_command(account.get("provider")) or remote_default
         # An account with neither source still goes through the command
         # adapter so the user receives a provider-specific actionable error.
         if account.get("api_mode"):
@@ -51,35 +52,55 @@ def refresh_usage_account(account):
         elif explicit_url and not has_command:
             payload = _read_usage_http(account)
         elif explicit_command or _provider_default_command(account.get("provider")):
-            payload = _read_usage_command(account)
+            payload = _read_usage_command(account, server=server)
         elif account.get("provider") in ("codex", "claude"):
-            payload = _read_local_transcript_usage(account)
+            if server:
+                payload = _read_remote_transcript_usage(account, server["ssh_host"])
+            else:
+                payload = _read_local_transcript_usage(account)
         else:
-            payload = _read_usage_command(account)
+            payload = _read_usage_command(account, server=server)
         result = {"ok": True, **_normalize_usage_payload(payload)}
     except Exception as exc:
         result = {"ok": False, "quotas": [], "balances": [], "message": str(exc)[:400]}
     result["updated_at"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
+    if result.get("ok"):
+        # Keep this distinct from updated_at: a failed refresh is not a valid
+        # usage query and must not make the data look freshly verified.
+        result["last_valid_query_at"] = result["updated_at"]
     result["duration_ms"] = int((time.time() - started) * 1000)
     return result
 
-def get_usage_status(refresh=False, account_id=None):
+def get_usage_status(refresh=False, account_id=None, server_ref=None):
     cfg = load_config()
+    server = resolve_server(cfg, server_ref) if server_ref else None
+    server_id = server.get("id") if server else "local"
     accounts = [a for a in cfg.get("usage_accounts", []) if isinstance(a, dict) and a.get("enabled", True)]
     if account_id:
         accounts = [a for a in accounts if a.get("id") == account_id]
     snapshots = cfg.setdefault("usage_snapshots", {})
-    due = [a for a in accounts if refresh or a.get("id") not in snapshots]
+    def snapshot_key(account):
+        return account.get("id") if not server else f"{server_id}:{account.get('id')}"
+    due = [a for a in accounts if refresh or snapshot_key(a) not in snapshots]
     changed = bool(due)
     if due:
         # A broken/slow provider must not serialize all other accounts.
         with ThreadPoolExecutor(max_workers=min(8, len(due))) as pool:
-            results = pool.map(refresh_usage_account, due)
+            results = pool.map(lambda account: refresh_usage_account(account, server=server), due)
             for account, result in zip(due, results):
-                snapshots[account.get("id")] = result
+                key = snapshot_key(account)
+                previous = snapshots.get(key, {})
+                if not result.get("ok") and previous.get("last_valid_query_at"):
+                    result["last_valid_query_at"] = previous["last_valid_query_at"]
+                snapshots[key] = result
     if changed:
         save_config(cfg)
-    return {"accounts": get_usage_accounts(cfg), "snapshots": {a.get("id"): snapshots.get(a.get("id"), {}) for a in accounts}}
+    account_rows = get_usage_accounts(cfg)
+    enabled_ids = {a.get("id") for a in accounts}
+    account_rows = [a for a in account_rows if a.get("id") in enabled_ids]
+    return {"accounts": account_rows, "server_id": server_id,
+            "server_host": server.get("ssh_host") if server else None,
+            "snapshots": {a.get("id"): snapshots.get(snapshot_key(a), {}) for a in accounts}}
 
 def save_usage_account(data):
     provider, name = str(data.get("provider") or "").strip().lower(), str(data.get("name") or "").strip()
@@ -102,7 +123,8 @@ def save_usage_account(data):
         account.pop("command", None)
     if "balance_url" in data:
         account.pop("usage_url", None)
-    account.update({"id": aid, "provider": provider, "name": name, "enabled": bool(data.get("enabled", True))})
+    enabled = data["enabled"] if "enabled" in data else account.get("enabled", True)
+    account.update({"id": aid, "provider": provider, "name": name, "enabled": bool(enabled)})
     if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}", aid):
         raise ValueError("account id may contain only letters, numbers, dot, underscore, and hyphen")
     accounts[:] = [a for a in accounts if a.get("id") != aid]
@@ -138,4 +160,3 @@ def _bound_functions(runtime):
 def invoke(name, runtime, *args, **kwargs):
     namespace = _bound_functions(runtime)
     return namespace[name](*args, **kwargs)
-

@@ -142,10 +142,16 @@
     async function fetchUsage(refresh = false) {
       if (usageRequestInFlight) return;
       usageRequestInFlight = true;
+      const requestedServerId = currentServerId;
       try {
-        const query = refresh ? "?refresh=1" : "";
+        const params = new URLSearchParams();
+        if (refresh) params.set("refresh", "1");
+        if (requestedServerId) params.set("server", requestedServerId);
+        const query = params.toString() ? "?" + params.toString() : "";
         const response = await fetch("/api/usage" + query, {cache: "no-store"});
-        renderUsage(await response.json());
+        const data = await response.json();
+        if (!responseBelongsToServer(requestedServerId, currentServerId, data.server_id)) return;
+        renderUsage(data);
       }
       catch (err) { document.getElementById("usage-body").innerHTML = '<tr><td colspan="6" class="muted">Usage monitor unavailable</td></tr>'; }
       finally { usageRequestInFlight = false; }
@@ -312,6 +318,7 @@
         }
         serversLoaded = true;
         renderTabs();
+        renderServerManagement();
       } catch (err) {
         console.error(err);
       }
@@ -320,7 +327,8 @@
     function renderTabs() {
       const bar = document.getElementById("tabs-bar");
       if (!allServers.length) {
-        bar.innerHTML = '<span style="font-size:12px; color:var(--text-muted);">No servers yet.</span>';
+        bar.innerHTML = '<span style="font-size:12px; color:var(--text-muted);">No servers yet.</span>' +
+          '<button class="btn btn-sm server-manage-button" onclick="navigatePage(\'servers\')">Manage servers</button>';
         return;
       }
       bar.innerHTML = allServers.map(s => {
@@ -332,10 +340,35 @@
             title="${escapeHtml(s.ssh_host)}${s.ip ? ' (' + escapeHtml(s.ip) + ')' : ''} — drag to reorder">
           <span class="${dotCls}"></span>
           <span class="tab-name">${escapeHtml(s.name || s.ssh_host)}</span>
-          <button class="tab-action" onclick="event.stopPropagation(); editServer('${s.id}')" title="Edit server">Edit</button>
-          <button class="tab-action" onclick="event.stopPropagation(); removeServerTab('${s.id}')" title="Remove tab">Remove</button>
         </div>`;
-      }).join("") + `<button class="tab tab-add" onclick="openServerModal()">+ Add Server</button>`;
+      }).join("") + `<button class="btn btn-sm server-manage-button" onclick="navigatePage('servers')">Manage servers</button>`;
+    }
+
+    function renderServerManagement() {
+      const list = document.getElementById("server-management-list");
+      if (!list) return;
+      if (!allServers.length) {
+        list.innerHTML = '<div class="empty-state">No servers configured yet. Add an SSH connection to get started.</div>';
+        return;
+      }
+      list.innerHTML = allServers.map(s => {
+        const isActive = s.id === currentServerId;
+        const reachability = serverReachability[s.id];
+        const dotCls = reachability === true ? "tab-dot online" : "tab-dot";
+        const status = reachability === true ? "Online" : (reachability === false ? "Offline" : "Not checked");
+        return `<article class="server-management-item">
+          <div class="server-management-details">
+            <div class="server-management-name"><span class="${dotCls}"></span>${escapeHtml(s.name || s.ssh_host)}${isActive ? '<span class="badge badge-active">Active</span>' : ''}</div>
+            <div class="server-management-host">${escapeHtml(s.ssh_host)}${s.ip ? ` · ${escapeHtml(s.ip)}` : ''}</div>
+            <div class="server-management-status">${status}</div>
+          </div>
+          <div class="server-management-actions">
+            <button class="btn btn-sm" onclick="selectServer('${s.id}'); navigatePage('forwards')">Use server</button>
+            <button class="btn btn-sm" onclick="editServer('${s.id}')">Edit</button>
+            <button class="btn btn-sm btn-danger" onclick="removeServerTab('${s.id}')">Remove</button>
+          </div>
+        </article>`;
+      }).join("");
     }
 
     let draggedServerId = null;
@@ -405,6 +438,7 @@
       fetchStatus();
       fetchDocker();
       fetchSyncs();
+      fetchUsage();
     }
 
     async function removeServerTab(sid) {
@@ -1615,7 +1649,8 @@
       docker: "DevBoost • Docker Observability",
       syncs: "DevBoost • Folder Sync",
       services: "DevBoost • Service Discovery",
-      usage: "DevBoost • AI Usage & Balances"
+      usage: "DevBoost • AI Usage & Balances",
+      servers: "DevBoost • Manage Servers"
     };
     function navigatePage(page, updateHash = true) {
       const valid = Object.prototype.hasOwnProperty.call(pageTitles, page) ? page : "home";
@@ -1623,6 +1658,7 @@
       document.querySelectorAll(".workspace-tab").forEach(tab => tab.classList.toggle("active", tab.dataset.page === valid));
       document.getElementById("clean-orphans-btn").style.display = valid === "forwards" ? "inline-flex" : "none";
       document.querySelector("#header-actions .btn-primary").style.display = valid === "forwards" ? "inline-flex" : "none";
+      if (valid === "servers") renderServerManagement();
       document.getElementById("header-server-title").textContent = pageTitles[valid];
       document.title = pageTitles[valid];
       if (updateHash && window.location.hash !== "#" + valid) window.history.pushState(null, "", "#" + valid);

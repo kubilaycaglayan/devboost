@@ -85,7 +85,11 @@ class DashboardHandler(BaseHTTPRequestHandler):
             try:
                 aid = query.get("account", [None])[0]
                 refresh = query.get("refresh", ["0"])[0].lower() in ("1", "true", "yes")
-                self._send_json(get_usage_status(refresh=refresh, account_id=aid))
+                srv = self._server_param(query)
+                kwargs = {"refresh": refresh, "account_id": aid}
+                if srv:
+                    kwargs["server_ref"] = srv
+                self._send_json(get_usage_status(**kwargs))
             except Exception as e:
                 self._send_json({"accounts": [], "snapshots": {}, "message": str(e)}, status=500)
         elif path == "/api/servers":
@@ -219,7 +223,11 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 self._send_json({"ok": False, "message": str(e)}, status=400)
         elif path == "/api/usage/refresh":
             try:
-                self._send_json({"ok": True, **get_usage_status(refresh=True, account_id=body.get("account_id"))})
+                kwargs = {"refresh": True, "account_id": body.get("account_id")}
+                srv = self._server_param({}, body)
+                if srv:
+                    kwargs["server_ref"] = srv
+                self._send_json({"ok": True, **get_usage_status(**kwargs)})
             except Exception as e:
                 self._send_json({"ok": False, "message": str(e)}, status=500)
         elif path == "/api/usage/accounts/remove":

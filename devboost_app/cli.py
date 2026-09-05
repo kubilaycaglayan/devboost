@@ -201,8 +201,8 @@ def cli_sync_list(server_ref=None, show_all=False):
         print("=" * 100)
     print(f"Dashboard: http://localhost:{DEFAULT_DASHBOARD_PORT}\n")
 
-def cli_usage(refresh=False):
-    status = get_usage_status(refresh=refresh)
+def cli_usage(refresh=False, server_ref=None):
+    status = get_usage_status(refresh=refresh, server_ref=server_ref)
     if not status["accounts"]:
         print("No AI usage accounts configured. Add them from the dashboard API.")
         return
@@ -229,7 +229,8 @@ Usage:
   devboost clean [--server ID]   Kill lingering duplicate/orphaned SSH processes
   devboost scan [--server ID]    Scan listening ports on a remote server
   devboost docker [--server ID]  Show cached Docker container stats on a remote server
-  devboost usage [--refresh]    Show configured AI provider quotas and balances
+  devboost usage [--refresh] [--server id|host]
+                                Show AI provider quotas from the selected server
   devboost lazydocker [--server ID]  Open the interactive lazydocker TUI over SSH
   devboost server list           List SSH connection tabs
   devboost server add <ssh-host> [display-name]   Add a tab (host should exist in ~/.ssh/config)
@@ -331,7 +332,8 @@ def main():
         server_ref, _ = _extract_server_flag(args[1:])
         cli_lazydocker(server_ref=server_ref)
     elif cmd == "usage":
-        cli_usage(refresh="--refresh" in args)
+        server_ref, usage_args = _extract_server_flag(args[1:])
+        cli_usage(refresh="--refresh" in usage_args, server_ref=server_ref)
     elif cmd in ("add", "forward"):
         server_ref, filtered = _extract_server_flag(args[1:])
         fargs = [cmd] + filtered
@@ -550,4 +552,3 @@ def _bound_functions(runtime):
 def invoke(name, runtime, *args, **kwargs):
     namespace = _bound_functions(runtime)
     return namespace[name](*args, **kwargs)
-

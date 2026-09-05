@@ -91,6 +91,8 @@ def load_env(app_dir=None):
                             continue
                         k, v = line.split("=", 1)
                         k = k.strip()
+                        if not k:
+                            continue
                         v = v.strip().strip("'\"")
                         if k not in os.environ:
                             os.environ[k] = v
@@ -689,6 +691,10 @@ def _read_local_transcript_usage(account):
     return usage_service.read_local_transcript_usage(sys.modules[__name__], account)
 
 
+def _read_remote_transcript_usage(account, ssh_host):
+    return usage_service.read_remote_transcript_usage(sys.modules[__name__], account, ssh_host)
+
+
 def _usage_account_id(*args, **kwargs):
     return usage_helpers.usage_account_id(*args, **kwargs)
 
@@ -705,8 +711,8 @@ def _normalize_usage_payload(*args, **kwargs):
     return usage_helpers.normalize_usage_payload(*args, **kwargs)
 
 
-def _read_usage_command(account):
-    return usage_service.read_usage_command(sys.modules[__name__], account)
+def _read_usage_command(account, server=None):
+    return usage_service.read_usage_command(sys.modules[__name__], account, server=server)
 
 
 def _parse_opencode_stats(*args, **kwargs):

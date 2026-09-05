@@ -63,6 +63,48 @@ class TestUsageMonitoring(unittest.TestCase):
         self.assertTrue(snapshot["ok"])
         self.assertEqual(snapshot["quotas"][0]["remaining"], 4)
         self.assertEqual(snapshot["balances"][0]["remaining"], 4.5)
+        self.assertEqual(snapshot["last_valid_query_at"], snapshot["updated_at"])
+
+    def test_failed_refresh_keeps_last_valid_query_time(self):
+        account = devboost.save_usage_account({
+            "provider": "custom", "name": "test",
+            "usage_command": ["python3", "-c", "print('{}')"],
+        })
+        first = devboost.get_usage_status(refresh=True)["snapshots"][account["id"]]
+        with patch.object(devboost, "_read_usage_command", side_effect=ValueError("temporary failure")):
+            second = devboost.get_usage_status(refresh=True)["snapshots"][account["id"]]
+        self.assertFalse(second["ok"])
+        self.assertEqual(second["last_valid_query_at"], first["last_valid_query_at"])
+
+    def test_usage_status_filters_disabled_and_account_id(self):
+        enabled = devboost.save_usage_account({"provider": "custom", "name": "enabled",
+                                                "usage_command": ["python3", "-c", "print('{}')"]})
+        disabled = devboost.save_usage_account({"provider": "custom", "name": "disabled",
+                                                 "enabled": False, "usage_command": ["python3", "-c", "print('{}')"]})
+        status = devboost.get_usage_status(account_id=disabled["id"])
+        self.assertEqual(status["accounts"], [])
+        status = devboost.get_usage_status(account_id=enabled["id"])
+        self.assertEqual([a["id"] for a in status["accounts"]], [enabled["id"]])
+
+    @patch.object(devboost, "_read_remote_transcript_usage", return_value={"quotas": [{"remaining": 7, "unit": "%"}]})
+    def test_usage_status_refreshes_against_selected_server(self, remote):
+        devboost.save_usage_account({"provider": "codex", "name": "remote"})
+        cfg = devboost.load_config()
+        server = devboost.add_server("box", name="Remote box")
+        status = devboost.get_usage_status(refresh=True, server_ref=server["id"])
+        self.assertEqual(status["server_id"], server["id"])
+        self.assertEqual(status["server_host"], "box")
+        self.assertEqual(status["snapshots"]["codex-remote"]["quotas"][0]["remaining"], 7)
+        remote.assert_called_once_with({"provider": "codex", "name": "remote", "id": "codex-remote", "enabled": True}, "box")
+
+    def test_remove_usage_account_removes_snapshot(self):
+        account = devboost.save_usage_account({"provider": "custom", "name": "remove",
+                                                "usage_command": ["python3", "-c", "print('{}')"]})
+        devboost.get_usage_status(refresh=True)
+        self.assertTrue(devboost.remove_usage_account(account["id"]))
+        self.assertFalse(devboost.remove_usage_account(account["id"]))
+        cfg = devboost.load_config()
+        self.assertNotIn(account["id"], cfg["usage_snapshots"])
 
     def test_http_requires_safe_url(self):
         with self.assertRaises(ValueError):

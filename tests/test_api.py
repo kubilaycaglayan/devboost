@@ -77,13 +77,17 @@ class TestDashboardAPI(unittest.TestCase):
         self.assertIn("font-size: 14px", css)
         self.assertIn("font-weight: 800", css)
 
-    def test_server_tabs_keep_edit_and_drag_order_controls_without_extra_details(self):
+    def test_server_tabs_are_read_only_and_management_view_has_controls(self):
         with urllib.request.urlopen(self.base_url + "/dashboard/app.js") as resp:
             app_js = resp.read().decode("utf-8")
         self.assertIn("editServer", app_js)
         self.assertIn('draggable="true"', app_js)
         self.assertIn("onTabDrop", app_js)
-        self.assertIn("title=\"Edit server\"", app_js)
+        self.assertIn("Manage servers", app_js)
+        self.assertIn("renderServerManagement", app_js)
+        self.assertIn("onclick=\"editServer('${s.id}')\"", app_js)
+        self.assertIn("onclick=\"removeServerTab('${s.id}')\"", app_js)
+        self.assertNotIn("title=\"Edit server\"", app_js)
         self.assertIn("tab-drop-shadow", app_js)
         self.assertNotIn("s.active_count || 0", app_js)
         self.assertNotIn("s.always_count || 0", app_js)

@@ -33,6 +33,7 @@
     <!-- SSH connection tabs stay available while moving between workspaces. -->
     <div class="tabs-bar" id="tabs-bar">
       <span style="font-size:12px; color:var(--text-muted);">Loading servers...</span>
+      <button class="btn btn-sm server-manage-button" onclick="navigatePage('servers')">Manage servers</button>
     </div>
 
     <nav class="workspace-tabs" id="workspace-tabs" aria-label="Workspace pages">
@@ -42,6 +43,7 @@
       <button class="workspace-tab" data-page="syncs" onclick="navigatePage('syncs')">Syncs</button>
       <button class="workspace-tab" data-page="usage" onclick="navigatePage('usage')">Quotas</button>
       <button class="workspace-tab" data-page="services" onclick="navigatePage('services')">Services</button>
+      <button class="workspace-tab" data-page="servers" onclick="navigatePage('servers')">Servers</button>
     </nav>
 
     <div class="page-view active" id="page-home">
@@ -53,6 +55,21 @@
         <a class="feature-tile tile-green" href="#syncs" onclick="navigatePage('syncs'); return false;"><span class="feature-icon">⟳</span><span><strong>Folder Sync</strong><small id="home-syncs-summary">Loading active syncs…</small></span><span class="feature-arrow">›</span></a>
         <a class="feature-tile tile-orange" href="#services" onclick="navigatePage('services'); return false;"><span class="feature-icon">⌁</span><span><strong>Service Discovery</strong><small>Find remote services and local listeners</small></span><span class="feature-arrow">›</span></a>
         <a class="feature-tile tile-pink" href="#usage" onclick="navigatePage('usage'); return false;"><span class="feature-icon">◔</span><span><strong>AI Usage &amp; Balances</strong><small id="home-usage-summary">Loading usage…</small></span><span class="feature-arrow">›</span></a>
+      </div>
+    </div>
+
+    <div class="page-view" id="page-servers">
+      <div class="section-card server-management-card">
+        <div class="section-header">
+          <div>
+            <h2>Manage servers</h2>
+            <div class="section-subtitle">Configure the SSH connections available in your server bar.</div>
+          </div>
+          <button class="btn btn-primary" onclick="openServerModal()">+ Add server</button>
+        </div>
+        <div class="server-management-grid" id="server-management-list">
+          <div class="empty-state">Loading servers...</div>
+        </div>
       </div>
     </div>
 
@@ -412,12 +429,12 @@
       <div class="modal-body">
         <div class="form-group"><label>Provider</label><select id="usage-provider"><option value="codex">Codex</option><option value="agy">Agy</option><option value="claude">Claude</option><option value="opencode">OpenCode</option><option value="custom">Custom</option></select></div>
         <div class="form-group"><label>Account name</label><input type="text" id="usage-name" placeholder="e.g. Work" /></div>
-        <div class="form-group"><label>JSON command (optional)</label><input type="text" id="usage-command" placeholder="command --usage --json" /><div class="form-hint">Runs locally; output must be JSON. Use this for CLI-authenticated accounts.</div></div>
+        <div class="form-group"><label>JSON command (optional)</label><input type="text" id="usage-command" placeholder="command --usage --json" /><div class="form-hint">Runs on the selected SSH server; output must be JSON. Use this for CLI-authenticated accounts.</div></div>
         <div class="form-group"><label>HTTPS usage/balance URL (optional)</label><input type="text" id="usage-url" placeholder="https://provider.example/usage" /></div>
         <div class="form-group"><label>Token environment variable (optional)</label><input type="text" id="usage-token-env" placeholder="PROVIDER_API_KEY" /><div class="form-hint">Only the variable name is stored; the token itself is never saved.</div></div>
         <div class="form-group"><label>Organization / project (optional)</label><div style="display:flex; gap:8px;"><input type="text" id="usage-organization" placeholder="OpenAI organization" /><input type="text" id="usage-project" placeholder="OpenAI project" /></div></div>
         <div class="form-group"><label class="form-checkbox"><input type="checkbox" id="usage-api-mode" /><span>Use provider admin usage API (Codex / Claude)</span></label><div class="form-hint">Requires an admin key in the token variable; reports the last <input type="number" id="usage-api-days" value="1" min="1" max="30" style="width:55px;" /> day(s).</div></div>
-        <div class="form-group"><label>Local records directory (optional)</label><input type="text" id="usage-local-path" placeholder="Uses the provider default" /><div class="form-hint">Useful when separate accounts use separate CLI profiles or data roots.</div></div>
+        <div class="form-group"><label>Provider records directory (optional)</label><input type="text" id="usage-local-path" placeholder="Uses the provider default" /><div class="form-hint">Read on the selected server for Codex/Claude; useful for separate CLI profiles or data roots.</div></div>
       </div>
       <div class="modal-footer"><button class="btn" onclick="closeUsageModal()">Cancel</button><button class="btn btn-primary" id="usage-save-button" onclick="saveUsageFromModal()">Save Account</button></div>
     </div>

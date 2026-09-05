@@ -251,7 +251,6 @@ def _bound_functions(runtime):
     return namespace
 
 
-def invoke(name, runtime, *args, **kwargs):
+def invoke(function_name, runtime, *args, **kwargs):
     namespace = _bound_functions(runtime)
-    return namespace[name](*args, **kwargs)
-
+    return namespace[function_name](*args, **kwargs)

@@ -137,9 +137,11 @@ curl -X POST http://127.0.0.1:3080/api/usage/accounts \
 curl -X POST http://127.0.0.1:3080/api/usage/refresh
 ```
 
+The dashboard queries local-provider usage on the currently selected SSH server. The CLI can target one explicitly with `devboost usage --refresh --server <id-or-host>`.
+
 Responses are normalized into `quotas` (`used`, `limit`, `remaining`, reset time) and `balances` (`remaining`, currency), allowing multiple accounts per provider.
 
-Codex accounts automatically read local rollout rate-limit records from `~/.codex/sessions`; Claude accounts read observed token usage from `~/.claude/projects`; OpenCode accounts use `opencode stats`; Agy accounts use `agy-quota --json` when that helper is installed. Set `local_path` per account when separate CLI profiles use separate data roots. Local Claude token totals are observed usage, not a provider-reported remaining subscription quota.
+Codex accounts automatically read rollout rate-limit records from `~/.codex/sessions`; Claude accounts read observed token usage from `~/.claude/projects`; OpenCode accounts use `opencode stats`; Agy accounts use `agy-quota --json` when that helper is installed. In the dashboard, these local-provider adapters run on the selected SSH server, so the selected host's CLI state and records are queried. Set `local_path` per account when separate CLI profiles use separate data roots. Claude token totals are observed usage, not a provider-reported remaining subscription quota. Provider HTTPS/admin API accounts continue to query the provider directly from DevBoost.
 
 For API-backed Codex or Claude accounts, enable `api_mode` and set `token_env`. DevBoost then queries the provider’s organization usage report for the configured `api_days` window. These require provider-admin credentials and report usage/spend; they do not imply remaining subscription credits.
 

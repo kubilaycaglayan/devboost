@@ -2,6 +2,7 @@ import os
 import tempfile
 import unittest
 import sys
+from unittest.mock import patch
 
 # Ensure parent directory is in sys.path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
@@ -49,6 +50,23 @@ class TestEnvLoading(unittest.TestCase):
         finally:
             for k in ["PORT_TRACKER_TEST_VAR", "PORT_TRACKER_QUOTED", "PORT_TRACKER_DOUBLE_QUOTED", "EMPTY_VALUE"]:
                 os.environ.pop(k, None)
+
+    def test_load_env_reads_explicit_app_directory_without_overwriting(self):
+        with open(os.path.join(self.temp_dir.name, ".env"), "w", encoding="utf-8") as stream:
+            stream.write("DEVBOOST_TEST_LOADED=from-file\nDEVBOOST_TEST_EXISTING=file\n")
+        with patch.dict(os.environ, {"DEVBOOST_TEST_EXISTING": "already-set"}, clear=False):
+            os.environ.pop("DEVBOOST_TEST_LOADED", None)
+            devboost.load_env(self.temp_dir.name)
+            self.assertEqual(os.environ["DEVBOOST_TEST_LOADED"], "from-file")
+            self.assertEqual(os.environ["DEVBOOST_TEST_EXISTING"], "already-set")
+            os.environ.pop("DEVBOOST_TEST_LOADED", None)
+
+    def test_load_env_ignores_malformed_lines(self):
+        with open(os.path.join(self.temp_dir.name, ".env"), "w", encoding="utf-8") as stream:
+            stream.write("not an assignment\n=missing-key\nDEVBOOST_TEST_OK=yes\n")
+        os.environ.pop("DEVBOOST_TEST_OK", None)
+        devboost.load_env(self.temp_dir.name)
+        self.assertEqual(os.environ.pop("DEVBOOST_TEST_OK"), "yes")
 
 
 if __name__ == "__main__":

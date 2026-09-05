@@ -38,6 +38,21 @@ class TestFolderSync(unittest.TestCase):
         self.assertIn("syncs", cfg)
         self.assertIn("folder_history", cfg)
 
+    def test_sync_migration_normalizes_invalid_entries_and_history(self):
+        cfg = {
+            "servers": [{"id": "one"}],
+            "syncs": [{"id": "same", "direction": "invalid", "mirror": True,
+                        "interval": 9999}, {"id": "same"}, "bad"],
+            "folder_history": [{"local_path": "/tmp/a"}, {}, "bad"],
+        }
+        migrated, changed = devboost.ensure_syncs_migrated(cfg)
+        self.assertTrue(changed)
+        self.assertEqual(migrated["syncs"][0]["direction"], "two-way")
+        self.assertFalse(migrated["syncs"][0]["mirror"])
+        self.assertEqual(migrated["syncs"][0]["interval"], 600)
+        self.assertNotEqual(migrated["syncs"][0]["id"], migrated["syncs"][1]["id"])
+        self.assertEqual(len(migrated["folder_history"]), 1)
+
     def test_validate_rejects_root_and_empty(self):
         with self.assertRaises(ValueError):
             devboost.validate_sync_paths("/", "/data")
@@ -374,6 +389,92 @@ class TestFolderSync(unittest.TestCase):
             with open(devboost.get_sync_plist_path(sync_id), "rb") as f:
                 data = plistlib.load(f)
         self.assertEqual(data["StartInterval"], 60)
+
+    def test_restore_auto_sync_agents_recreates_only_auto_entries(self):
+        created = []
+        def create(sync):
+            created.append(sync)
+        sid = self._server_id()
+        devboost.add_sync(server_ref=sid, local_path="/tmp/auto-a", remote_path="~/a",
+                          always=True, run_now=False)
+        devboost.add_sync(server_ref=sid, local_path="/tmp/once-b", remote_path="~/b",
+                          always=False, run_now=False)
+        with patch("devboost_app.folder_sync.create_sync_agent", create):
+            devboost.restore_auto_sync_agents()
+        self.assertEqual(len(created), 1)
+        self.assertTrue(created[0]["always"])
+
+    def test_remove_sync_agents_for_server_removes_its_entries(self):
+        removed = []
+        def remove(sync_id):
+            removed.append(sync_id)
+        sid = self._server_id()
+        result = devboost.add_sync(server_ref=sid, local_path="/tmp/a", remote_path="~/a",
+                                   run_now=False)
+        with patch("devboost_app.folder_sync.remove_sync_agent", remove):
+            devboost.remove_sync_agents_for_server(sid)
+        self.assertEqual(removed, [result["sync"]["id"]])
+
+    @patch.object(devboost, "_ssh_remote_cmd")
+    def test_browse_remote_expands_home_and_lists_hidden_directories(self, remote):
+        remote.side_effect = [
+            MagicMock(returncode=0, stdout="/home/test\n", stderr=""),
+            MagicMock(returncode=0, stdout=".config/\nvisible/\nfile.txt\n", stderr=""),
+        ]
+        result = devboost.browse_remote(self._server_id(), "~")
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["path"], "/home/test")
+        self.assertEqual([e["name"] for e in result["entries"]], [".config", "visible"])
+        self.assertTrue(result["entries"][0]["hidden"])
+        self.assertIn("ls -1pa", remote.call_args_list[1].args[1])
+
+    @patch.object(devboost, "_ssh_remote_cmd")
+    def test_browse_remote_reports_unreachable_server(self, remote):
+        remote.return_value = MagicMock(returncode=255, stdout="", stderr="")
+        result = devboost.browse_remote(self._server_id(), "~")
+        self.assertFalse(result["ok"])
+        self.assertIn("Cannot reach", result["message"])
+
+    @patch.object(devboost, "_ssh_remote_cmd")
+    def test_mkdir_remote_expands_home_and_quotes_path(self, remote):
+        remote.side_effect = [
+            MagicMock(returncode=0, stdout="/home/test\n", stderr=""),
+            MagicMock(returncode=0, stdout="", stderr=""),
+        ]
+        result = devboost.mkdir_remote(self._server_id(), "~/projects", "new folder")
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["path"], "/home/test/projects/new folder")
+        self.assertIn("mkdir -p", remote.call_args_list[1].args[1])
+        self.assertIn("new folder", remote.call_args_list[1].args[1])
+
+    def test_run_sync_success_updates_state_and_history(self):
+        sid = self._server_id()
+        result = devboost.add_sync(server_ref=sid, local_path="/tmp/devboost-sync-test",
+                                   remote_path="~/remote", direction="two-way",
+                                   run_now=False)
+        with patch.object(devboost, "_ensure_remote_dir", return_value=True), \
+                patch.object(devboost, "check_rsync_prereqs", return_value=None), \
+                patch("subprocess.run", return_value=MagicMock(returncode=0, stdout="", stderr="")) as run:
+            outcome = devboost.run_sync(result["sync"]["id"])
+        self.assertTrue(outcome["ok"])
+        self.assertEqual(run.call_count, 2)
+        saved = devboost.get_syncs_status(sid)["syncs"][0]
+        self.assertEqual(saved["last_status"], "ok")
+        self.assertIsNotNone(saved["last_sync"])
+        self.assertTrue(devboost.get_folder_history(server_id=sid))
+
+    def test_run_sync_timeout_is_persisted_as_error(self):
+        sid = self._server_id()
+        result = devboost.add_sync(server_ref=sid, local_path="/tmp/devboost-sync-test",
+                                   remote_path="~/remote", run_now=False)
+        with patch.object(devboost, "_ensure_remote_dir", return_value=True), \
+                patch.object(devboost, "check_rsync_prereqs", return_value=None), \
+                patch("subprocess.run", side_effect=__import__("subprocess").TimeoutExpired("rsync", 1)):
+            outcome = devboost.run_sync(result["sync"]["id"], timeout=7)
+        self.assertFalse(outcome["ok"])
+        self.assertIn("timed out after 7s", outcome["message"])
+        saved = devboost.get_syncs_status(sid)["syncs"][0]
+        self.assertEqual(saved["last_status"], "error")
 
 
 if __name__ == "__main__":
