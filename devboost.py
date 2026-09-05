@@ -926,18 +926,42 @@ def get_all_forwards_status(server_ref=None):
         lp = proc["local_port"]
         proc_map.setdefault(lp, []).append(proc)
 
-    # Cross-server local-port conflict detection: same local port bound by another host
-    conflicting_ports = set()
+    # Cross-server local-port conflict detection: same local port bound by another host.
+    # Maps port -> owner info so the UI can say *which* connection holds the port.
+    conflicting_owners = {}
     try:
         all_procs = get_ssh_forwards()
-        other_ports = set()
+        own_dests = {d for d in (server.get("ssh_host"), server.get("ip")) if d}
+        # Known servers by ssh_host/ip for attribution
+        dest_to_server = {}
+        for srv in cfg.get("servers", []):
+            if srv.get("id") == sid:
+                continue
+            for key in (srv.get("ssh_host"), srv.get("ip")):
+                if key:
+                    dest_to_server.setdefault(key, srv)
         for p in all_procs:
-            dest = p.get("ssh_dest", "")
-            if dest and dest not in (server.get("ssh_host"), server.get("ip")):
-                # Only flag if that other proc is actually listening
-                if p.get("is_listening"):
-                    other_ports.add(p["local_port"])
-        conflicting_ports = other_ports
+            if not p.get("is_listening"):
+                continue
+            dest = p.get("ssh_dest", "") or ""
+            if dest and dest in own_dests:
+                continue
+            if not dest and own_dests and any(h in (p.get("cmd") or "") for h in own_dests):
+                continue
+            port = p["local_port"]
+            if port in conflicting_owners:
+                continue
+            owner = dest_to_server.get(dest)
+            if owner is not None:
+                conflicting_owners[port] = {
+                    "server_id": owner.get("id"),
+                    "name": owner.get("name") or owner.get("ssh_host"),
+                    "ssh_host": owner.get("ssh_host"),
+                }
+            elif dest:
+                # Listening proc for an unknown host — still report the raw destination
+                conflicting_owners[port] = {"server_id": None, "name": dest, "ssh_host": dest}
+            # else: unattributed listener (no dest parsed) — leave unclaimed
     except Exception:
         pass
 
@@ -964,6 +988,7 @@ def get_all_forwards_status(server_ref=None):
         is_active = active_proc is not None
         pid = active_proc["pid"] if active_proc else None
 
+        owner = conflicting_owners.get(port)
         results.append({
             "local_port": port,
             "remote_port": remote_port,
@@ -973,7 +998,8 @@ def get_all_forwards_status(server_ref=None):
             "pid": pid,
             "orphans": orphans,
             "plist_label": agents[port]["label"] if is_always else None,
-            "conflict": port in conflicting_ports and not is_active,
+            "conflict": owner is not None and not is_active,
+            "conflict_with": owner if (owner is not None and not is_active) else None,
         })
 
     return {
@@ -2053,7 +2079,8 @@ HTML_DASHBOARD = """<!DOCTYPE html>
 
       tbody.innerHTML = data.forwards.map(f => {
         const url = `http://localhost:${f.local_port}`;
-        const conflictBadge = f.conflict ? `<span class="badge badge-inactive" title="Another server tab is already listening on this local port">⚠️ Port in use by another tab</span>` : "";
+        const conflictOwner = (f.conflict_with && (f.conflict_with.name || f.conflict_with.ssh_host)) || "";
+        const conflictBadge = f.conflict ? `<span class="badge badge-inactive" title="${conflictOwner ? `Local port ${f.local_port} is already held by ${conflictOwner}` : "Another server tab is already listening on this local port"}">⚠️ ${conflictOwner ? `Port in use by ${escapeHtml(conflictOwner)}` : "Port in use by another tab"}</span>` : "";
         const activeBadge = f.active
           ? `<span class="badge badge-active">🟢 Active ${f.pid ? '(PID ' + f.pid + ')' : ''}</span>`
           : `<span class="badge badge-inactive">🔴 Stopped</span>`;
@@ -2415,7 +2442,8 @@ def cli_list(server_ref=None, show_all=False):
             mode_str = "ALWAYS" if f["always"] else "SESSION"
             status_str = f"ACTIVE (PID {f['pid']})" if f["active"] else "STOPPED"
             label_str = (f["label"] or "")[:24]
-            flag = " ⚠️" if f.get("conflict") else ""
+            owner = (f.get("conflict_with") or {}).get("name") or (f.get("conflict_with") or {}).get("ssh_host")
+            flag = f" ⚠️ in use by {owner}" if f.get("conflict") and owner else (" ⚠️" if f.get("conflict") else "")
             print(f"{local_str:<10}{remote_str:<10}{mode_str:<12}{status_str:<18}{label_str:<25}{flag}")
         print("=" * 80)
         if status["orphaned_count"] > 0:
