@@ -22,7 +22,6 @@ def load_env():
         os.path.join(os.path.dirname(os.path.realpath(__file__)), ".env"),
         os.path.expanduser("~/.config/devboost/.env"),
         os.path.expanduser("~/.config/port-tracker/.env"),
-        os.path.expanduser("~/.config/asus-ports/.env"),
         os.path.join(os.getcwd(), ".env"),
     ]
     for env_path in candidates:

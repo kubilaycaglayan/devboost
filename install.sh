@@ -48,9 +48,8 @@ if [ -f "$SCRIPT_DIR/.env" ]; then
   cp "$SCRIPT_DIR/.env" "$CONFIG_DIR/.env"
 fi
 
-# Symlink CLI commands (devboost canonical, asus-ports legacy alias)
+# Symlink CLI command
 ln -sf "$CONFIG_DIR/devboost.py" "$HOME/.local/bin/devboost"
-ln -sf "$CONFIG_DIR/devboost.py" "$HOME/.local/bin/asus-ports"
 
 # Render and install dashboard LaunchAgent
 PLIST_TARGET="$HOME/Library/LaunchAgents/${AGENT_DOMAIN}.dashboard.plist"
