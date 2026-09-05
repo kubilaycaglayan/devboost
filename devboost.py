@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Port Tracker • SSH Port Forward Manager & Discovery Dashboard
+DevBoost • SSH Port Forward Manager & Discovery Dashboard
 CLI & Web Dashboard for managing persistent (launchd) and session-based SSH port forwards.
 """
 
@@ -20,6 +20,7 @@ def load_env():
     """Loads key-value pairs from .env files without requiring external libraries."""
     candidates = [
         os.path.join(os.path.dirname(os.path.realpath(__file__)), ".env"),
+        os.path.expanduser("~/.config/devboost/.env"),
         os.path.expanduser("~/.config/port-tracker/.env"),
         os.path.expanduser("~/.config/asus-ports/.env"),
         os.path.join(os.getcwd(), ".env"),
@@ -44,19 +45,25 @@ def load_env():
 # Initialize environment configuration
 load_env()
 
-SSH_HOST = os.getenv("PORT_TRACKER_SSH_HOST", "remote-server")
-SERVER_NAME = os.getenv("PORT_TRACKER_SERVER_NAME", "Remote Server")
-SERVER_IP = os.getenv("PORT_TRACKER_SERVER_IP", "")
-DEFAULT_DASHBOARD_PORT = int(os.getenv("PORT_TRACKER_DASHBOARD_PORT", "3080"))
-AGENT_DOMAIN = os.getenv("PORT_TRACKER_AGENT_DOMAIN", "com.user.port-tracker")
-AGENT_PREFIX = os.getenv("PORT_TRACKER_AGENT_PREFIX", "com.user.ssh-forward")
-CONFIG_DIR = os.path.expanduser(os.getenv("PORT_TRACKER_CONFIG_DIR", "~/.config/port-tracker"))
+
+def _env(new_key, legacy_key, default):
+    """Reads DevBoost-prefixed env var with fallback to legacy PORT_TRACKER_ name."""
+    return os.getenv(new_key, os.getenv(legacy_key, default))
+
+
+SSH_HOST = _env("DEVBOOST_SSH_HOST", "PORT_TRACKER_SSH_HOST", "remote-server")
+SERVER_NAME = _env("DEVBOOST_SERVER_NAME", "PORT_TRACKER_SERVER_NAME", "Remote Server")
+SERVER_IP = _env("DEVBOOST_SERVER_IP", "PORT_TRACKER_SERVER_IP", "")
+DEFAULT_DASHBOARD_PORT = int(_env("DEVBOOST_DASHBOARD_PORT", "PORT_TRACKER_DASHBOARD_PORT", "3080"))
+AGENT_DOMAIN = _env("DEVBOOST_AGENT_DOMAIN", "PORT_TRACKER_AGENT_DOMAIN", "com.user.devboost")
+AGENT_PREFIX = _env("DEVBOOST_AGENT_PREFIX", "PORT_TRACKER_AGENT_PREFIX", "com.user.devboost-forward")
+CONFIG_DIR = os.path.expanduser(_env("DEVBOOST_CONFIG_DIR", "PORT_TRACKER_CONFIG_DIR", "~/.config/devboost"))
 CONFIG_FILE = os.path.join(CONFIG_DIR, "config.json")
 BIN_DIR = os.path.join(CONFIG_DIR, "bin")
 DASHBOARD_WRAPPER_NAME = "DevBoost-dashboard"
 TUNNEL_WRAPPER_NAME = "DevBoost-tunnel"
 LAUNCH_AGENTS_DIR = os.path.expanduser("~/Library/LaunchAgents")
-LOG_DIR = os.path.expanduser(os.getenv("PORT_TRACKER_LOG_DIR", "~/Library/Logs"))
+LOG_DIR = os.path.expanduser(_env("DEVBOOST_LOG_DIR", "PORT_TRACKER_LOG_DIR", "~/Library/Logs"))
 
 
 def get_tunnel_executable():
@@ -301,8 +308,8 @@ def create_launchagent(local_port, remote_port):
         "RunAtLoad": True,
         "KeepAlive": True,
         "ThrottleInterval": 10,
-        "StandardOutPath": os.path.join(LOG_DIR, f"ssh-forward-{local_port}.log"),
-        "StandardErrorPath": os.path.join(LOG_DIR, f"ssh-forward-{local_port}.err"),
+        "StandardOutPath": os.path.join(LOG_DIR, f"devboost-forward-{local_port}.log"),
+        "StandardErrorPath": os.path.join(LOG_DIR, f"devboost-forward-{local_port}.err"),
     }
     with open(plist_path, "wb") as f:
         plistlib.dump(data, f)
@@ -436,7 +443,7 @@ HTML_DASHBOARD = """<!DOCTYPE html>
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Port Forward Manager</title>
+  <title>DevBoost • Port Forward Manager</title>
   <style>
     :root {
       --bg: #0d1117;
@@ -638,7 +645,7 @@ HTML_DASHBOARD = """<!DOCTYPE html>
   <div class="container">
     <header>
       <div class="title-group">
-        <h1 id="header-server-title">Port Forward Manager</h1>
+        <h1 id="header-server-title">DevBoost • Port Forward Manager</h1>
         <div class="server-tag">
           <span class="status-dot" id="server-status-dot"></span>
           <span id="server-status-text">Checking server...</span> •
@@ -809,9 +816,9 @@ HTML_DASHBOARD = """<!DOCTYPE html>
       }
 
       if (data.server_name) {
-        document.getElementById("header-server-title").innerText = `${data.server_name} • Port Forwards`;
+        document.getElementById("header-server-title").innerText = `DevBoost • ${data.server_name} • Port Forwards`;
         document.getElementById("remote-section-title").innerText = `Discovered Services on ${data.server_name}`;
-        document.title = `${data.server_name} • Port Forward Manager`;
+        document.title = `DevBoost • ${data.server_name} • Port Forward Manager`;
       }
       if (data.server_host) {
         currentServerHost = data.server_host;
@@ -1068,7 +1075,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
 
 def serve(port=DEFAULT_DASHBOARD_PORT):
     server = HTTPServer(("127.0.0.1", port), DashboardHandler)
-    print(f"Port Tracker Dashboard running at http://localhost:{port}")
+    print(f"DevBoost Dashboard running at http://localhost:{port}")
     try:
         server.serve_forever()
     except KeyboardInterrupt:
@@ -1088,7 +1095,7 @@ def cli_list():
     forwards = status["forwards"]
     if not forwards:
         print("No active or configured port forwards.")
-        print("Use 'asus-ports add <port>' to forward a port.")
+        print("Use 'devboost add <port>' to forward a port.")
         return
 
     header = f"{'LOCAL':<10}{'REMOTE':<10}{'MODE':<12}{'STATUS':<18}{'SERVICE / LABEL':<25}"
@@ -1103,7 +1110,7 @@ def cli_list():
         print(f"{local_str:<10}{remote_str:<10}{mode_str:<12}{status_str:<18}{label_str:<25}")
     print("=" * 80)
     if status["orphaned_count"] > 0:
-        print(f"⚠️  {status['orphaned_count']} duplicate/orphaned SSH processes detected. Run 'asus-ports clean' to clean them up.")
+        print(f"⚠️  {status['orphaned_count']} duplicate/orphaned SSH processes detected. Run 'devboost clean' to clean them up.")
     print(f"Dashboard: http://localhost:{DEFAULT_DASHBOARD_PORT}\n")
 
 
@@ -1119,22 +1126,22 @@ def cli_scan():
     for s in services:
         print(f":{s['port']:<9}{s['process']:<20}{s['label']:<35}")
     print("=" * 70)
-    print("To forward any port, run: asus-ports add <port> [--always]\n")
+    print("To forward any port, run: devboost add <port> [--always]\n")
 
 
 def print_help():
-    print("""Port Tracker • SSH Port Forward Manager
+    print("""DevBoost • SSH Port Forward Manager
 
 Usage:
-  asus-ports                       List all forwarded ports & status
-  asus-ports ls / list             List all forwarded ports & status
-  asus-ports add <port> [remote]   Forward a port (defaults to temporary session)
-  asus-ports add <port> --always   Forward a port persistently (starts on boot, auto-reconnects)
-  asus-ports rm / remove <port>    Remove a port forward and stop its tunnel
-  asus-ports clean                 Kill lingering duplicate/orphaned SSH processes
-  asus-ports scan                  Scan listening ports and services on remote server
-  asus-ports ui / dashboard        Open the web dashboard in Chrome/browser
-  asus-ports serve [--port 3080]   Run the web dashboard server
+  devboost                       List all forwarded ports & status
+  devboost ls / list             List all forwarded ports & status
+  devboost add <port> [remote]   Forward a port (defaults to temporary session)
+  devboost add <port> --always   Forward a port persistently (starts on boot, auto-reconnects)
+  devboost rm / remove <port>    Remove a port forward and stop its tunnel
+  devboost clean                 Kill lingering duplicate/orphaned SSH processes
+  devboost scan                  Scan listening ports and services on remote server
+  devboost ui / dashboard        Open the web dashboard in Chrome/browser
+  devboost serve [--port 3080]   Run the web dashboard server
 """)
 
 
@@ -1161,7 +1168,7 @@ def main():
         cli_scan()
     elif cmd in ("add", "forward"):
         if len(args) < 2:
-            print("Error: Specify at least a port number. e.g. 'asus-ports add 8080'")
+            print("Error: Specify at least a port number. e.g. 'devboost add 8080'")
             sys.exit(1)
         lp = int(args[1])
         rp = lp
@@ -1179,7 +1186,7 @@ def main():
         print(f"Port {lp} -> {SSH_HOST}:{rp} forwarded [{mode}].")
     elif cmd in ("rm", "remove", "del", "delete"):
         if len(args) < 2:
-            print("Error: Specify a port number to remove. e.g. 'asus-ports rm 8080'")
+            print("Error: Specify a port number to remove. e.g. 'devboost rm 8080'")
             sys.exit(1)
         lp = int(args[1])
         remove_forward(lp)
