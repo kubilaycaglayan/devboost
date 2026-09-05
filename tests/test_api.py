@@ -58,6 +58,7 @@ class TestDashboardAPI(unittest.TestCase):
         for page in ("home", "forwards", "docker", "syncs", "services", "usage"):
             self.assertIn(f'data-page="{page}"', html)
         self.assertIn(">Quotas</button>", html)
+        self.assertLess(html.index(">Quotas</button>"), html.index(">Services</button>"))
 
         with urllib.request.urlopen(self.base_url + "/dashboard/app.js") as resp:
             app_js = resp.read().decode("utf-8")
