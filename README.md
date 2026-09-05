@@ -1,4 +1,4 @@
-# Port Tracker • SSH Port Forward Manager & Discovery Dashboard
+# DevBoost • SSH Port Forward Manager & Discovery Dashboard
 
 A lightweight, zero-dependency port forward manager and discovery dashboard for macOS. It manages both persistent (auto-restarting macOS `launchd` LaunchAgents) and ad-hoc session-based SSH port forwards to your remote development servers.
 
@@ -7,7 +7,7 @@ A lightweight, zero-dependency port forward manager and discovery dashboard for 
 ## 🎯 Features
 
 1. **Full Discoverability**:
-   - Web Dashboard (`http://localhost:3080`) and CLI (`asus-ports`) to inspect all forwarded ports, PIDs, and active states.
+   - Web Dashboard (`http://localhost:3080`) and CLI (`devboost`) to inspect all forwarded ports, PIDs, and active states.
 2. **Persistent ("Always Forward") vs Session Mode**:
    - **Persistent (LaunchAgent)**: Starts automatically on login/boot and automatically reconnects if Wi-Fi drops, the machine wakes from sleep, or the remote server restarts.
    - **Session (Temporary)**: Lightweight background SSH tunnels for temporary tasks.
@@ -25,7 +25,7 @@ A lightweight, zero-dependency port forward manager and discovery dashboard for 
 
 ```text
 port_tracker/
-├── asus_ports.py           # Core CLI, REST API & embedded Web Dashboard SPA
+├── devboost.py           # Core CLI, REST API & embedded Web Dashboard SPA
 ├── install.sh              # Installation & deployment script
 ├── .env.example            # Environment template for private credentials & host settings
 ├── config.example.json     # Sample port-to-service label definitions
@@ -33,7 +33,7 @@ port_tracker/
 │   ├── dashboard.plist.template   # Dashboard background daemon template
 │   └── tunnel.plist.template      # Auto-restarting SSH tunnel template
 ├── bin/                    # Scoped wrappers so macOS shows DevBoost-* instead of ssh/python3
-│   ├── DevBoost-dashboard         # execs python3 asus_ports.py (dashboard agent entry point)
+│   ├── DevBoost-dashboard         # execs python3 devboost.py (dashboard agent entry point)
 │   └── DevBoost-tunnel            # execs ssh (tunnel agents entry point)
 ├── tests/                  # Automated unit test suite (100% stdlib unittest)
 │   ├── test_api.py
@@ -54,10 +54,10 @@ cp .env.example .env
 ```
 Edit `.env` to configure your remote SSH server:
 ```bash
-PORT_TRACKER_SSH_HOST=my-remote-server
-PORT_TRACKER_SERVER_NAME="My Remote Server"
-PORT_TRACKER_SERVER_IP=192.168.1.100
-PORT_TRACKER_DASHBOARD_PORT=3080
+DEVBOOST_SSH_HOST=my-remote-server
+DEVBOOST_SERVER_NAME="My Remote Server"
+DEVBOOST_SERVER_IP=192.168.1.100
+DEVBOOST_DASHBOARD_PORT=3080
 ```
 
 ### 2. Install & Deploy
@@ -66,7 +66,7 @@ Run the installer script:
 ./install.sh
 ```
 This will:
-- Install the CLI command `asus-ports` into `~/.local/bin/` (make sure it's in your `$PATH`).
+- Install the CLI command `devboost` into `~/.local/bin/` (make sure it's in your `$PATH`).
 - Render and load the macOS LaunchAgent so the dashboard runs in the background.
 
 ---
@@ -74,7 +74,7 @@ This will:
 ## 🌐 Web Dashboard
 
 Once deployed, access the dashboard anytime at:
-👉 **http://localhost:3080** (or run `asus-ports ui`).
+👉 **http://localhost:3080** (or run `devboost ui`).
 
 - **Live Status Dots**: 🟢 Connected / 🔴 Offline status for the remote server.
 - **Port Links**: Click on any forwarded port to open `http://localhost:<port>` directly in your browser.
@@ -84,32 +84,32 @@ Once deployed, access the dashboard anytime at:
 
 ---
 
-## 💻 CLI Reference (`asus-ports`)
+## 💻 CLI Reference (`devboost`)
 
 ```bash
 # List all forwarded ports, PIDs, and status
-asus-ports
+devboost
 
 # Forward a port for the current session
-asus-ports add 8080 "Docker Web App"
+devboost add 8080 "Docker Web App"
 
 # Forward a port persistently (starts on boot, auto-reconnects)
-asus-ports add 3030 --always "Grafana Dashboard"
+devboost add 3030 --always "Grafana Dashboard"
 
 # Forward with custom remote port (e.g. local 9000 -> remote 8080)
-asus-ports add 9000 8080 --always "Custom API"
+devboost add 9000 8080 --always "Custom API"
 
 # Remove a port forward and stop its tunnel / LaunchAgent
-asus-ports rm 8080
+devboost rm 8080
 
 # Scan listening services on remote server
-asus-ports scan
+devboost scan
 
 # Clean up duplicate / orphaned background SSH processes
-asus-ports clean
+devboost clean
 
 # Open the web dashboard in your browser
-asus-ports ui
+devboost ui
 ```
 
 ---
@@ -126,7 +126,7 @@ python3 -m unittest discover tests -v
 ## 🔒 Privacy & macOS Permissions
 
 - All private server hostnames, IPs, and custom agent domains are configured via `.env` (which is excluded via `.gitignore`).
-- **macOS TCC Sandbox Compliance**: Background daemons managed by macOS `launchd` are restricted from reading directly inside `~/Documents/` or `~/Desktop/`. The `install.sh` script deploys the runtime executable to `~/.config/port-tracker/` so background services operate smoothly without macOS privacy sandbox errors.
+- **macOS TCC Sandbox Compliance**: Background daemons managed by macOS `launchd` are restricted from reading directly inside `~/Documents/` or `~/Desktop/`. The `install.sh` script deploys the runtime executable to `~/.config/devboost/` so background services operate smoothly without macOS privacy sandbox errors.
 
 ---
 
