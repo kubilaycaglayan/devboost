@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>DevBoost • Port Forward Manager</title>
+  <title>DevBoost</title>
   <link rel="icon" type="image/png" href="/favicon.png" />
   <link rel="shortcut icon" type="image/png" href="/favicon.png" />
   <link rel="apple-touch-icon" href="/favicon.png" />
@@ -20,7 +20,8 @@
           <span id="header-server-host">Connecting...</span>
         </div>
       </div>
-      <div style="display:flex; gap:10px;">
+      <div style="display:flex; gap:10px;" id="header-actions">
+        <button class="btn" onclick="navigatePage('home')" id="home-btn" style="display:none;">⌂ Home</button>
         <button class="btn" onclick="cleanOrphans()" id="clean-orphans-btn" title="Clean up lingering duplicate ssh processes">
           🧹 Clean Orphans <span id="orphans-badge" style="font-size:11px; opacity:0.8;"></span>
         </button>
@@ -30,11 +31,24 @@
       </div>
     </header>
 
-    <!-- SSH connection tabs -->
+    <!-- SSH connection tabs stay available while moving between workspaces. -->
     <div class="tabs-bar" id="tabs-bar">
       <span style="font-size:12px; color:var(--text-muted);">Loading servers...</span>
     </div>
 
+    <div class="page-view active" id="page-home">
+      <div class="feature-grid">
+        <a class="feature-tile tile-blue" href="#forwards" onclick="navigatePage('forwards'); return false;">
+          <span class="feature-icon">⇄</span><span><strong>Port Management</strong><small id="home-forwards-summary">Loading forwarded ports…</small></span><span class="feature-arrow">›</span>
+        </a>
+        <a class="feature-tile tile-purple" href="#docker" onclick="navigatePage('docker'); return false;"><span class="feature-icon">▣</span><span><strong>Docker Observability</strong><small id="home-docker-summary">Loading containers…</small></span><span class="feature-arrow">›</span></a>
+        <a class="feature-tile tile-green" href="#syncs" onclick="navigatePage('syncs'); return false;"><span class="feature-icon">⟳</span><span><strong>Folder Sync</strong><small id="home-syncs-summary">Loading active syncs…</small></span><span class="feature-arrow">›</span></a>
+        <a class="feature-tile tile-orange" href="#services" onclick="navigatePage('services'); return false;"><span class="feature-icon">⌁</span><span><strong>Service Discovery</strong><small>Find remote services and local listeners</small></span><span class="feature-arrow">›</span></a>
+        <a class="feature-tile tile-pink" href="#usage" onclick="navigatePage('usage'); return false;"><span class="feature-icon">◔</span><span><strong>AI Usage &amp; Balances</strong><small id="home-usage-summary">Loading usage…</small></span><span class="feature-arrow">›</span></a>
+      </div>
+    </div>
+
+    <div class="page-view" id="page-forwards">
     <!-- Stats -->
     <div class="stats-bar">
       <div class="stat-card">
@@ -55,8 +69,14 @@
       </div>
     </div>
 
-    <!-- AI quota and API balance monitoring -->
     <div class="section-card">
+      <div class="section-header"><h2>Configured Port Forwards</h2><button class="btn btn-sm" onclick="fetchStatus()">↻ Refresh</button></div>
+      <table><thead><tr><th>LOCAL PORT</th><th>REMOTE</th><th>SERVICE / LABEL</th><th>MODE</th><th>STATUS</th><th style="text-align:right;">ACTIONS</th></tr></thead><tbody id="forwards-body"><tr><td colspan="6" style="text-align:center; color:var(--text-muted); padding:30px;">Loading forwards...</td></tr></tbody></table>
+    </div>
+    </div>
+
+    <!-- AI quota and API balance monitoring -->
+    <div class="page-view" id="page-usage"><div class="section-card">
       <div class="section-header">
         <h2>AI Usage &amp; Balances</h2>
         <div style="display:flex; gap:8px;">
@@ -65,13 +85,13 @@
         </div>
       </div>
       <table>
-        <thead><tr><th>PROVIDER</th><th>ACCOUNT</th><th>QUOTAS</th><th>BALANCES</th><th>UPDATED</th><th style="text-align:right;">ACTIONS</th></tr></thead>
+        <thead><tr><th>PROVIDER</th><th>ACCOUNT</th><th>QUOTAS</th><th>BALANCES</th><th>LAST VALID QUERY</th><th style="text-align:right;">ACTIONS</th></tr></thead>
         <tbody id="usage-body"><tr><td colspan="6" style="text-align:center; color:var(--text-muted); padding:24px;">No AI accounts configured.</td></tr></tbody>
       </table>
-    </div>
+    </div></div>
 
     <!-- Docker monitoring (cached snapshots from the active server) -->
-    <div class="section-card">
+    <div class="page-view" id="page-docker"><div class="section-card">
       <div class="section-header">
         <h2>Docker Containers <span class="muted" style="font-weight:400; font-size:12px;" id="docker-subtitle"></span></h2>
         <div style="display:flex; gap:8px;">
@@ -96,33 +116,10 @@
           <tr><td colspan="8" style="text-align:center; color:var(--text-muted); padding:30px;">Checking Docker on the active server...</td></tr>
         </tbody>
       </table>
-    </div>
-
-    <!-- Active Port Forwards Table -->
-    <div class="section-card">
-      <div class="section-header">
-        <h2>Configured Port Forwards</h2>
-        <button class="btn btn-sm" onclick="fetchStatus()">↻ Refresh</button>
-      </div>
-      <table>
-        <thead>
-          <tr>
-            <th>LOCAL PORT</th>
-            <th>REMOTE</th>
-            <th>SERVICE / LABEL</th>
-            <th>MODE</th>
-            <th>STATUS</th>
-            <th style="text-align:right;">ACTIONS</th>
-          </tr>
-        </thead>
-        <tbody id="forwards-body">
-          <tr><td colspan="6" style="text-align:center; color:var(--text-muted); padding:30px;">Loading forwards...</td></tr>
-        </tbody>
-      </table>
-    </div>
+    </div></div>
 
     <!-- Folder Syncs (tracked mirrors, managed like ports) -->
-    <div class="section-card">
+    <div class="page-view" id="page-syncs"><div class="section-card">
       <div class="section-header">
         <h2>Folder Syncs <span class="muted" style="font-weight:400; font-size:12px;" id="syncs-subtitle"></span></h2>
         <div style="display:flex; gap:8px;">
@@ -144,10 +141,10 @@
           <tr><td colspan="5" style="text-align:center; color:var(--text-muted); padding:30px;">Loading folder syncs...</td></tr>
         </tbody>
       </table>
-    </div>
+    </div></div>
 
     <!-- Discovered Services: Remote Server / This Mac tabs -->
-    <div class="section-card">
+    <div class="page-view" id="page-services"><div class="section-card">
       <div class="section-header">
         <div style="display:flex; align-items:center; gap:12px; flex-wrap:wrap;">
           <h2 id="services-section-title">Discovered Services on Remote Server</h2>
@@ -192,7 +189,7 @@
         </tbody>
       </table>
       </div>
-    </div>
+    </div></div>
   </div>
 
   <!-- Add Forward Modal -->
@@ -338,7 +335,7 @@
   <div class="modal-overlay" id="server-modal">
     <div class="modal" style="max-width:520px;">
       <div class="modal-header">
-        <h3>Add SSH Connection Tab</h3>
+        <h3 id="server-modal-title">Add SSH Connection Tab</h3>
         <button class="btn btn-sm" onclick="closeServerModal()" style="border:none; background:transparent;">✕</button>
       </div>
       <div class="modal-body">
@@ -358,10 +355,14 @@
           <label>Display name (optional)</label>
           <input type="text" id="manual-server-name" placeholder="e.g. Production Server" />
         </div>
+        <div class="form-group">
+          <label>IP address (optional)</label>
+          <input type="text" id="manual-server-ip" placeholder="e.g. 192.168.1.20" />
+        </div>
       </div>
       <div class="modal-footer">
         <button class="btn" onclick="closeServerModal()">Cancel</button>
-        <button class="btn btn-primary" onclick="submitManualServer()">Add Manually</button>
+        <button class="btn btn-primary" id="server-submit-btn" onclick="submitManualServer()">Add Manually</button>
       </div>
     </div>
   </div>

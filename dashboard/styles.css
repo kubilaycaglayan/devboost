@@ -21,6 +21,24 @@
       line-height: 1.5;
     }
     .container { max-width: 1060px; margin: 0 auto; }
+    .page-view { display: none; }
+    .page-view.active { display: block; }
+    .feature-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+    .feature-tile {
+      position: relative; min-height: 210px; display: flex; flex-direction: column; align-items: flex-start; justify-content: space-between; gap: 18px;
+      padding: 24px; border: 1px solid var(--border); border-radius: 18px; color: var(--text);
+      text-decoration: none; transition: transform .16s ease, border-color .16s ease, background .16s ease;
+    }
+    .feature-tile:hover { transform: translateY(-3px); border-color: #8b949e; color: #fff; }
+    .feature-tile strong { display: block; color: #fff; font-size: 16px; margin-bottom: 5px; }
+    .feature-tile small { display: block; color: var(--text-muted); font-size: 12px; line-height: 1.4; }
+    .feature-icon { width: 48px; height: 48px; display: grid; place-items: center; border-radius: 14px; color: #fff; font-size: 25px; font-weight: 500; background: rgba(255,255,255,.13); }
+    .feature-arrow { position: absolute; right: 24px; top: 22px; color: rgba(255,255,255,.65); font-size: 27px; text-align: right; }
+    .tile-blue { background: linear-gradient(135deg, rgba(35,134,214,.32), rgba(35,134,214,.10)); }
+    .tile-purple { background: linear-gradient(135deg, rgba(137,87,229,.32), rgba(137,87,229,.10)); }
+    .tile-green { background: linear-gradient(135deg, rgba(46,160,67,.30), rgba(46,160,67,.10)); }
+    .tile-orange { background: linear-gradient(135deg, rgba(210,153,34,.30), rgba(210,153,34,.10)); }
+    .tile-pink { background: linear-gradient(135deg, rgba(219,97,162,.30), rgba(219,97,162,.10)); }
     header {
       display: flex;
       justify-content: space-between;
@@ -83,6 +101,10 @@
     .btn-danger { color: var(--danger); }
     .btn-danger:hover { background: rgba(248, 81, 73, 0.15); border-color: var(--danger); }
     .btn-sm { padding: 4px 8px; font-size: 12px; }
+    @media (max-width: 650px) {
+      body { padding: 14px; }
+      .feature-grid { grid-template-columns: 1fr; }
+    }
 
     .section-card {
       background: var(--card-bg);
@@ -382,4 +404,3 @@
       z-index: 2000;
       font-size: 13px;
     }
-

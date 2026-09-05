@@ -14,6 +14,8 @@
     let usageRequestInFlight = false;
     let browserLocalCur = "";
     let browserRemoteCur = "";
+    let serversLoaded = false;
+    let editingServerId = null;
 
     function openUsageModal(account = null) {
       editingUsageId = account ? account.id : null;
@@ -41,13 +43,56 @@
     }
     function usageNumber(value) { return value == null ? "—" : String(value); }
     function usageUpdated(snapshot) {
-      if (!snapshot || !snapshot.updated_at) return "—";
-      return new Date(snapshot.updated_at).toLocaleTimeString();
+      const timestamp = snapshot && (snapshot.last_valid_query_at || (snapshot.ok && snapshot.updated_at));
+      if (!timestamp) return "—";
+      const elapsed = Math.max(0, Date.now() - new Date(timestamp).getTime());
+      const seconds = Math.floor(elapsed / 1000);
+      if (seconds < 60) return `${seconds} second${seconds === 1 ? "" : "s"} ago`;
+      const minutes = Math.floor(seconds / 60);
+      if (minutes < 60) return `${minutes} minute${minutes === 1 ? "" : "s"} ago`;
+      const hours = Math.floor(minutes / 60);
+      if (hours < 24) return `${hours} hour${hours === 1 ? "" : "s"} ago`;
+      const days = Math.floor(hours / 24);
+      return `${days} day${days === 1 ? "" : "s"} ago`;
+    }
+    function setHomeSummary(id, text) {
+      const el = document.getElementById(id);
+      if (el) el.textContent = text;
+    }
+    function renderHomeForwardsSummary(forwards) {
+      const ports = (forwards || []).map(f => `:${f.local_port}`);
+      setHomeSummary("home-forwards-summary", ports.length ? `${ports.length} forwarded · ${ports.join(", ")}` : "No forwarded ports");
+    }
+    function renderHomeDockerSummary(containers) {
+      const groups = {};
+      (containers || []).forEach(container => {
+        const labels = (container.labels || []).map(label => label.name).filter(Boolean);
+        (labels.length ? labels : ["Untagged"]).forEach(label => { groups[label] = (groups[label] || 0) + 1; });
+      });
+      const tags = Object.entries(groups).map(([label, count]) => `${count} ${label}`);
+      setHomeSummary("home-docker-summary", containers && containers.length ? `${containers.length} running · ${tags.join(" · ")}` : "No running containers");
+    }
+    function renderHomeSyncSummary(syncs) {
+      const paths = (syncs || []).map(sync => `${sync.local_path} → ${sync.remote_path}`);
+      const shown = paths.slice(0, 2);
+      if (paths.length > shown.length) shown.push(`+${paths.length - shown.length} more`);
+      setHomeSummary("home-syncs-summary", shown.length ? `${paths.length} active · ${shown.join(" · ")}` : "No active folder syncs");
+    }
+    function renderHomeUsageSummary(accounts, snapshots) {
+      const summaries = (accounts || []).map(account => {
+        const snapshot = (snapshots || {})[account.id] || {};
+        const left = [];
+        (snapshot.quotas || []).filter(q => q.remaining != null).forEach(q => left.push(`${q.remaining} ${q.unit || "left"}`));
+        (snapshot.balances || []).filter(b => b.remaining != null).forEach(b => left.push(`${b.remaining} ${b.currency || "USD"} left`));
+        return left.length ? `${account.name}: ${left.join(", ")}` : null;
+      }).filter(Boolean);
+      setHomeSummary("home-usage-summary", summaries.length ? summaries.join(" · ") : "No remaining usage data");
     }
     function renderUsage(data) {
       const body = document.getElementById("usage-body");
       usageAccounts = data.accounts || [];
       const snapshots = data.snapshots || {};
+      renderHomeUsageSummary(usageAccounts, snapshots);
       if (!data.accounts || !data.accounts.length) {
         body.innerHTML = '<tr><td colspan="6" style="text-align:center; color:var(--text-muted); padding:24px;">No AI accounts configured.</td></tr>'; return;
       }
@@ -55,8 +100,14 @@
         const s = snapshots[a.id] || {};
         const quotas = (s.quotas || []).map(q => `${escapeHtml(q.name)}: ${usageNumber(q.remaining)} ${escapeHtml(q.unit || "")}`).join("<br>") || (s.ok ? "No quota data" : escapeHtml(s.message || "Unavailable"));
         const balances = (s.balances || []).map(b => b.remaining != null ? `${usageNumber(b.remaining)} ${escapeHtml(b.currency || "USD")}` : (b.spent != null ? `spent ${usageNumber(b.spent)} ${escapeHtml(b.currency || "USD")}` : "—")).join("<br>") || "—";
-        return `<tr><td>${escapeHtml(a.provider)}</td><td>${escapeHtml(a.name)}</td><td>${quotas}</td><td>${balances}</td><td class="mono">${usageUpdated(s)}</td><td style="text-align:right;"><button class="btn btn-sm" onclick="editUsageAccount('${escapeHtml(a.id)}')">Edit</button> <button class="btn btn-sm" onclick="removeUsageAccount('${escapeHtml(a.id)}')">Remove</button></td></tr>`;
+        return `<tr><td>${escapeHtml(a.provider)}</td><td>${escapeHtml(a.name)}</td><td>${quotas}</td><td>${balances}</td><td class="mono usage-age" data-last-valid-query="${escapeHtml(s.last_valid_query_at || (s.ok ? s.updated_at : ""))}">${usageUpdated(s)}</td><td style="text-align:right;"><button class="btn btn-sm" onclick="editUsageAccount('${escapeHtml(a.id)}')">Edit</button> <button class="btn btn-sm" onclick="removeUsageAccount('${escapeHtml(a.id)}')">Remove</button></td></tr>`;
       }).join("");
+    }
+    function refreshUsageAges() {
+      document.querySelectorAll(".usage-age").forEach(cell => {
+        const timestamp = cell.dataset.lastValidQuery;
+        if (timestamp) cell.textContent = usageUpdated({last_valid_query_at: timestamp});
+      });
     }
     function editUsageAccount(id) {
       const account = usageAccounts.find(item => item.id === id);
@@ -213,15 +264,27 @@
       return currentServerId ? `?server=${encodeURIComponent(currentServerId)}` : "";
     }
 
+    // A response is safe to render only while the selection that produced it
+    // is still active. Some endpoints may not echo a server id, so an absent
+    // response id is accepted when the request itself was server-scoped.
+    function responseBelongsToServer(requestedServerId, activeServerId, responseServerId = "") {
+      return requestedServerId === activeServerId &&
+        (!requestedServerId || !responseServerId || responseServerId === requestedServerId);
+    }
+
     async function fetchServers() {
       try {
         const res = await fetch("/api/servers");
         const data = await res.json();
         allServers = data.servers || [];
-        if (!allServers.some(s => s.id === currentServerId)) {
+        // A background refresh must not undo an explicit tab selection. Only
+        // choose a default during startup (or after the selected tab was
+        // deliberately cleared, e.g. when it was removed).
+        if ((!currentServerId || (!serversLoaded && !allServers.some(s => s.id === currentServerId))) && allServers.length) {
           currentServerId = (allServers[0] || {}).id || "";
           localStorage.setItem("devboost-active-server", currentServerId);
         }
+        serversLoaded = true;
         renderTabs();
       } catch (err) {
         console.error(err);
@@ -237,16 +300,16 @@
       bar.innerHTML = allServers.map(s => {
         const isActive = s.id === currentServerId;
         const dotCls = serverReachability[s.id] === true ? "tab-dot online" : (serverReachability[s.id] === false ? "tab-dot" : "tab-dot");
-        const pinIcon = s.pinned ? "📍" : "📌";
         return `<div class="tab ${isActive ? 'active' : ''}" draggable="true" data-server-id="${s.id}"
             onclick="selectServer('${s.id}')"
             ondragstart="onTabDragStart(event, '${s.id}')" ondragover="onTabDragOver(event)" ondrop="onTabDrop(event, '${s.id}')" ondragend="onTabDragEnd(event)"
             title="${escapeHtml(s.ssh_host)}${s.ip ? ' (' + escapeHtml(s.ip) + ')' : ''} — drag to reorder">
           <span class="${dotCls}"></span>
           <span class="tab-name">${escapeHtml(s.name || s.ssh_host)}</span>
-          <span class="tab-meta">${s.active_count || 0}● ${s.always_count || 0}📌${(s.sync_count || 0) ? ` ${s.sync_count}🔄` : ''}</span>
-          <button onclick="event.stopPropagation(); togglePin('${s.id}')" title="${s.pinned ? 'Unpin tab' : 'Pin tab (stays first)'}">${pinIcon}</button>
-          <button onclick="event.stopPropagation(); removeServerTab('${s.id}')" title="Remove tab">✕</button>
+          <span class="tab-meta">${s.active_count || 0} active · ${s.always_count || 0} persistent${(s.sync_count || 0) ? ` · ${s.sync_count} sync` : ''}</span>
+          <button class="tab-action" onclick="event.stopPropagation(); editServer('${s.id}')" title="Edit server">Edit</button>
+          <button class="tab-action" onclick="event.stopPropagation(); togglePin('${s.id}')" title="${s.pinned ? 'Unpin tab' : 'Pin tab (stays first)'}">${s.pinned ? 'Pinned' : 'Pin'}</button>
+          <button class="tab-action" onclick="event.stopPropagation(); removeServerTab('${s.id}')" title="Remove tab">Remove</button>
         </div>`;
       }).join("") + `<button class="tab tab-add" onclick="openServerModal()">+ Add Server</button>`;
     }
@@ -314,13 +377,35 @@
     }
 
     function openServerModal() {
+      editingServerId = null;
+      document.getElementById("server-modal-title").textContent = "Add SSH Connection Tab";
+      document.getElementById("server-submit-btn").textContent = "Add Manually";
       document.getElementById("server-search").value = "";
       document.getElementById("manual-ssh-host").value = "";
+      document.getElementById("manual-ssh-host").readOnly = false;
       document.getElementById("manual-server-name").value = "";
+      document.getElementById("manual-server-ip").value = "";
+      document.getElementById("manual-server-ip").readOnly = false;
       document.getElementById("server-modal").style.display = "flex";
       loadSshHosts();
     }
-    function closeServerModal() { document.getElementById("server-modal").style.display = "none"; }
+    function closeServerModal() { editingServerId = null; document.getElementById("server-modal").style.display = "none"; }
+
+    function editServer(sid) {
+      const server = allServers.find(item => item.id === sid);
+      if (!server) return;
+      editingServerId = sid;
+      document.getElementById("server-modal-title").textContent = "Edit SSH Connection";
+      document.getElementById("server-submit-btn").textContent = "Save Changes";
+      document.getElementById("server-search").value = "";
+      document.getElementById("manual-ssh-host").value = server.ssh_host || "";
+      document.getElementById("manual-ssh-host").readOnly = true;
+      document.getElementById("manual-server-name").value = server.name || "";
+      document.getElementById("manual-server-ip").value = server.ip || "";
+      document.getElementById("manual-server-ip").readOnly = false;
+      document.getElementById("ssh-host-list").innerHTML = "";
+      document.getElementById("server-modal").style.display = "flex";
+    }
 
     async function loadSshHosts() {
       const list = document.getElementById("ssh-host-list");
@@ -379,21 +464,30 @@
     async function submitManualServer() {
       const sshHost = document.getElementById("manual-ssh-host").value.trim();
       const name = document.getElementById("manual-server-name").value.trim();
+      const ip = document.getElementById("manual-server-ip").value.trim();
       if (!sshHost) { alert("Enter an SSH Host alias."); return; }
       try {
-        const res = await fetch("/api/servers", { method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({ ssh_host: sshHost, name: name || sshHost }) });
+        const editing = !!editingServerId;
+        const url = editing ? "/api/servers/update" : "/api/servers";
+        const payload = editing ? { id: editingServerId, name: name, ip: ip } : { ssh_host: sshHost, name: name || sshHost, ip: ip };
+        const res = await fetch(url, { method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(payload) });
         const d = await res.json();
-        if (!d.ok) { alert(d.message || "Failed to add server"); return; }
+        if (!d.ok) { alert(d.message || (editing ? "Failed to update server" : "Failed to add server")); return; }
         closeServerModal();
         await fetchServers();
-        selectServer(d.server.id);
+        if (!editing) selectServer(d.server.id);
+        else showToast("Server settings saved");
       } catch (err) { alert("Failed to add server: " + err); }
     }
 
     async function fetchStatus() {
+      const requestedServerId = currentServerId;
       try {
         const res = await fetch("/api/status" + serverQuery());
         const data = await res.json();
+        // Responses can arrive after the user has selected another tab.
+        // Never let an old response repaint state for the newly selected tab.
+        if (!responseBelongsToServer(requestedServerId, currentServerId, data.server_id)) return;
         if (data.servers) { allServers = data.servers; if (!currentServerId && allServers[0]) { currentServerId = allServers[0].id; localStorage.setItem("devboost-active-server", currentServerId); } renderTabs(); }
         if (data.server_id) { serverReachability[data.server_id] = !!data.server_reachable; }
         renderStatus(data);
@@ -424,12 +518,12 @@
       }
       if (data.server_host) {
         currentServerHost = data.server_host;
-        if (data.server_id) { currentServerId = data.server_id; localStorage.setItem("devboost-active-server", currentServerId); }
         const ipPart = data.server_ip ? ` (${data.server_ip})` : "";
         document.getElementById("header-server-host").innerText = `Host: ${data.server_host}${ipPart}`;
       }
 
       currentForwards = data.forwards;
+      renderHomeForwardsSummary(currentForwards);
       cachedHistory = data.history || [];
       const activeCount = data.forwards.filter(f => f.active).length;
       const alwaysCount = data.forwards.filter(f => f.always).length;
@@ -563,11 +657,13 @@
     }
 
     async function scanRemoteServices() {
+      const requestedServerId = currentServerId;
       const tbody = document.getElementById("remote-services-body");
       tbody.innerHTML = `<tr><td colspan="5" style="text-align:center; color:var(--text-muted); padding:20px;">Scanning remote ports on ${currentServerHost || 'remote server'}...</td></tr>`;
       try {
         const res = await fetch("/api/scan" + serverQuery());
         const data = await res.json();
+        if (!responseBelongsToServer(requestedServerId, currentServerId)) return;
         document.getElementById("stat-remote").innerText = data.services.length;
         if (data.services.length === 0) {
           tbody.innerHTML = '<tr><td colspan="5" style="text-align:center; color:var(--text-muted); padding:20px;">No listening ports detected or server unreachable.</td></tr>';
@@ -703,16 +799,20 @@
       renderDockerSortIndicators();
     }
     async function fetchDocker() {
+      const requestedServerId = currentServerId;
       const tbody = document.getElementById("docker-body");
       const subtitle = document.getElementById("docker-subtitle");
       try {
         const res = await fetch("/api/docker" + serverQuery());
         const data = await res.json();
+        if (!responseBelongsToServer(requestedServerId, currentServerId)) return;
         if (data.available === null) {
+          setHomeSummary("home-docker-summary", "Checking Docker…");
           subtitle.innerText = "checking...";
           return;
         }
         if (!data.available) {
+          setHomeSummary("home-docker-summary", "Docker unavailable");
           subtitle.innerText = "unavailable";
           tbody.innerHTML = `<tr><td colspan="8" style="text-align:center; color:var(--warning); padding:30px;">${escapeHtml(data.message || "Docker is unavailable on this server.")}</td></tr>`;
           return;
@@ -724,8 +824,10 @@
           return;
         }
         dockerRows = data.containers || [];
+        renderHomeDockerSummary(dockerRows);
         renderDockerRows();
       } catch (err) {
+        setHomeSummary("home-docker-summary", "Docker unavailable");
         subtitle.innerText = "error";
         tbody.innerHTML = `<tr><td colspan="8" style="text-align:center; color:var(--danger); padding:30px;">Docker query failed: ${escapeHtml(String(err))}</td></tr>`;
       }
@@ -869,10 +971,11 @@
     }
 
     async function fetchSyncs() {
+      const requestedServerId = currentServerId;
       try {
         const res = await fetch("/api/syncs" + serverQuery());
         const data = await res.json();
-        if (data.server_id) { currentServerId = data.server_id; localStorage.setItem("devboost-active-server", currentServerId); }
+        if (!responseBelongsToServer(requestedServerId, currentServerId, data.server_id)) return;
         cachedFolderHistory = data.folder_history || [];
         renderSyncs(data);
       } catch (err) {
@@ -919,6 +1022,7 @@
 
     function renderSyncs(data) {
       currentSyncs = data.syncs || [];
+      renderHomeSyncSummary(currentSyncs);
       const autoCount = currentSyncs.filter(s => s.always).length;
       document.getElementById("stat-syncs").innerText = currentSyncs.length ? `${currentSyncs.length} (${autoCount} auto)` : "0";
       const sub = document.getElementById("syncs-subtitle");
@@ -1457,6 +1561,28 @@
       }
     }
 
+    const pageTitles = {
+      home: "DevBoost Workspace",
+      forwards: "DevBoost • Port Forward Manager",
+      docker: "DevBoost • Docker Observability",
+      syncs: "DevBoost • Folder Sync",
+      services: "DevBoost • Service Discovery",
+      usage: "DevBoost • AI Usage & Balances"
+    };
+    function navigatePage(page, updateHash = true) {
+      const valid = Object.prototype.hasOwnProperty.call(pageTitles, page) ? page : "home";
+      document.querySelectorAll(".page-view").forEach(view => view.classList.toggle("active", view.id === "page-" + valid));
+      document.getElementById("home-btn").style.display = valid === "home" ? "none" : "inline-flex";
+      document.getElementById("clean-orphans-btn").style.display = valid === "forwards" ? "inline-flex" : "none";
+      document.querySelector("#header-actions .btn-primary").style.display = valid === "forwards" ? "inline-flex" : "none";
+      document.getElementById("header-server-title").textContent = pageTitles[valid];
+      document.title = pageTitles[valid];
+      if (updateHash && window.location.hash !== "#" + valid) window.history.pushState(null, "", "#" + valid);
+    }
+    window.addEventListener("hashchange", () => navigatePage(window.location.hash.slice(1), false));
+    window.addEventListener("popstate", () => navigatePage(window.location.hash.slice(1), false));
+    navigatePage(window.location.hash.slice(1) || "home", false);
+
     fetchServers().then(() => { fetchStatus(); fetchDocker(); fetchSyncs(); fetchUsage(); });
     setInterval(fetchStatus, 4000);
     setInterval(fetchDocker, 5000);
@@ -1465,4 +1591,5 @@
     // Usage snapshots are persisted by the backend, so periodic reads must
     // explicitly refresh them to reflect provider/CLI changes.
     setInterval(() => fetchUsage(true), 60000);
+    setInterval(refreshUsageAges, 1000);
     setInterval(fetchServers, 15000);
