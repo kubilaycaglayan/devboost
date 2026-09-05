@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# The only development entry point: migrate state, rebuild, take port 3080,
-# and keep the packaged DevBoost app running until it is quit.
+# The development entry point: migrate state, rebuild, take port 3080, and
+# launch the packaged DevBoost app detached by default. Use --foreground when
+# developing the launcher itself and wanting the app/backend output in-place.
 set -euo pipefail
 
 SOURCE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -10,6 +11,13 @@ LEGACY_DIR="$USER_HOME/.config/devboost"
 LEGACY_PLIST="$USER_HOME/Library/LaunchAgents/com.user.port-tracker.dashboard.plist"
 APP_PATH="$USER_HOME/Applications/DevBoost.app"
 PORT="${DEVBOOST_DASHBOARD_PORT:-3080}"
+FOREGROUND=false
+
+case "${1:-}" in
+  "") ;;
+  --foreground|-f) FOREGROUND=true ;;
+  *) echo "Usage: $0 [--foreground]" >&2; exit 2 ;;
+esac
 
 copy_state_if_missing() {
   local name="$1" candidate
@@ -72,4 +80,16 @@ if lsof -tiTCP:"$PORT" -sTCP:LISTEN >/dev/null 2>&1; then
   exit 1
 fi
 
-exec "$APP_PATH/Contents/MacOS/DevBoost" --port "$PORT"
+APP_LOG="$STATE_DIR/logs/devboost-app.log"
+APP_PID_FILE="$STATE_DIR/devboost-app.pid"
+if "$FOREGROUND"; then
+  exec "$APP_PATH/Contents/MacOS/DevBoost" --port "$PORT"
+fi
+
+nohup "$APP_PATH/Contents/MacOS/DevBoost" --port "$PORT" \
+  >"$APP_LOG" 2>&1 </dev/null &
+APP_PID=$!
+printf '%s\n' "$APP_PID" > "$APP_PID_FILE"
+disown "$APP_PID" 2>/dev/null || true
+echo "DevBoost relaunched detached (PID $APP_PID, port $PORT)."
+echo "Logs: $APP_LOG"

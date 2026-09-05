@@ -174,11 +174,14 @@ python3 -m unittest discover tests -v
 
 Source can live anywhere, including `an external checkout`. Run the packaged app
 from the source checkout; it rebuilds `~/Applications/DevBoost.app` from the latest changes,
-uses port 3080, and remains in the menu bar until you choose **Quit DevBoost**:
+uses port 3080, and relaunches detached by default. The app remains in the menu bar until
+you choose **Quit DevBoost**:
 
 ```bash
 ./run-app.sh
 ```
+
+Use `./run-app.sh --foreground` when launcher or backend output should stay attached to the terminal.
 
 Rerunning takes over port 3080 and replaces the prior app. Auto sync workers execute through
 the installed app bundle, so they always use the same packaged version as the dashboard.
