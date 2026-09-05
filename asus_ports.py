@@ -47,7 +47,7 @@ load_env()
 SSH_HOST = os.getenv("PORT_TRACKER_SSH_HOST", "remote-server")
 SERVER_NAME = os.getenv("PORT_TRACKER_SERVER_NAME", "Remote Server")
 SERVER_IP = os.getenv("PORT_TRACKER_SERVER_IP", "")
-DEFAULT_DASHBOARD_PORT = int(os.getenv("PORT_TRACKER_DASHBOARD_PORT", "3031"))
+DEFAULT_DASHBOARD_PORT = int(os.getenv("PORT_TRACKER_DASHBOARD_PORT", "3080"))
 AGENT_DOMAIN = os.getenv("PORT_TRACKER_AGENT_DOMAIN", "com.user.port-tracker")
 AGENT_PREFIX = os.getenv("PORT_TRACKER_AGENT_PREFIX", "com.user.ssh-forward")
 CONFIG_DIR = os.path.expanduser(os.getenv("PORT_TRACKER_CONFIG_DIR", "~/.config/port-tracker"))
@@ -1120,7 +1120,7 @@ Usage:
   asus-ports clean                 Kill lingering duplicate/orphaned SSH processes
   asus-ports scan                  Scan listening ports and services on remote server
   asus-ports ui / dashboard        Open the web dashboard in Chrome/browser
-  asus-ports serve [--port 3031]   Run the web dashboard server
+  asus-ports serve [--port 3080]   Run the web dashboard server
 """)
 
 

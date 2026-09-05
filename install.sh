@@ -15,7 +15,7 @@ CONFIG_DIR="${CONFIG_DIR:-"$HOME/.config/port-tracker"}"
 LOG_DIR="${PORT_TRACKER_LOG_DIR/#\~/$HOME}"
 LOG_DIR="${LOG_DIR:-"$HOME/Library/Logs"}"
 AGENT_DOMAIN="${PORT_TRACKER_AGENT_DOMAIN:-"com.user.port-tracker"}"
-DASHBOARD_PORT="${PORT_TRACKER_DASHBOARD_PORT:-3031}"
+DASHBOARD_PORT="${PORT_TRACKER_DASHBOARD_PORT:-3080}"
 
 echo "Deploying Port Tracker..."
 echo "  Source: $SCRIPT_DIR"

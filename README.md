@@ -7,7 +7,7 @@ A lightweight, zero-dependency port forward manager and discovery dashboard for 
 ## 🎯 Features
 
 1. **Full Discoverability**:
-   - Web Dashboard (`http://localhost:3031`) and CLI (`asus-ports`) to inspect all forwarded ports, PIDs, and active states.
+   - Web Dashboard (`http://localhost:3080`) and CLI (`asus-ports`) to inspect all forwarded ports, PIDs, and active states.
 2. **Persistent ("Always Forward") vs Session Mode**:
    - **Persistent (LaunchAgent)**: Starts automatically on login/boot and automatically reconnects if Wi-Fi drops, the machine wakes from sleep, or the remote server restarts.
    - **Session (Temporary)**: Lightweight background SSH tunnels for temporary tasks.
@@ -54,7 +54,7 @@ Edit `.env` to configure your remote SSH server:
 PORT_TRACKER_SSH_HOST=my-remote-server
 PORT_TRACKER_SERVER_NAME="My Remote Server"
 PORT_TRACKER_SERVER_IP=192.168.1.100
-PORT_TRACKER_DASHBOARD_PORT=3031
+PORT_TRACKER_DASHBOARD_PORT=3080
 ```
 
 ### 2. Install & Deploy
@@ -71,7 +71,7 @@ This will:
 ## 🌐 Web Dashboard
 
 Once deployed, access the dashboard anytime at:
-👉 **http://localhost:3031** (or run `asus-ports ui`).
+👉 **http://localhost:3080** (or run `asus-ports ui`).
 
 - **Live Status Dots**: 🟢 Connected / 🔴 Offline status for the remote server.
 - **Port Links**: Click on any forwarded port to open `http://localhost:<port>` directly in your browser.
