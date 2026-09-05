@@ -9,16 +9,18 @@ if [ -f "$SCRIPT_DIR/.env" ]; then
   export $(grep -v '^#' "$SCRIPT_DIR/.env" | xargs)
 fi
 
-# Configuration defaults
-CONFIG_DIR="${PORT_TRACKER_CONFIG_DIR/#\~/$HOME}"
-CONFIG_DIR="${CONFIG_DIR:-"$HOME/.config/port-tracker"}"
-LOG_DIR="${PORT_TRACKER_LOG_DIR/#\~/$HOME}"
+# Configuration defaults (DEVBOOST_ canonical, PORT_TRACKER_ legacy fallback)
+CONFIG_DIR="${DEVBOOST_CONFIG_DIR:-${PORT_TRACKER_CONFIG_DIR/#\~/$HOME}}"
+CONFIG_DIR="${CONFIG_DIR/#\~/$HOME}"
+CONFIG_DIR="${CONFIG_DIR:-"$HOME/.config/devboost"}"
+LOG_DIR="${DEVBOOST_LOG_DIR:-${PORT_TRACKER_LOG_DIR/#\~/$HOME}}"
+LOG_DIR="${LOG_DIR/#\~/$HOME}"
 LOG_DIR="${LOG_DIR:-"$HOME/Library/Logs"}"
-AGENT_DOMAIN="${PORT_TRACKER_AGENT_DOMAIN:-"com.user.port-tracker"}"
-AGENT_PREFIX="${PORT_TRACKER_AGENT_PREFIX:-"com.user.ssh-forward"}"
-DASHBOARD_PORT="${PORT_TRACKER_DASHBOARD_PORT:-3080}"
+AGENT_DOMAIN="${DEVBOOST_AGENT_DOMAIN:-${PORT_TRACKER_AGENT_DOMAIN:-"com.user.devboost"}}"
+AGENT_PREFIX="${DEVBOOST_AGENT_PREFIX:-${PORT_TRACKER_AGENT_PREFIX:-"com.user.devboost-forward"}}"
+DASHBOARD_PORT="${DEVBOOST_DASHBOARD_PORT:-${PORT_TRACKER_DASHBOARD_PORT:-3080}}"
 
-echo "Deploying Port Tracker..."
+echo "Deploying DevBoost..."
 echo "  Source: $SCRIPT_DIR"
 echo "  Destination: $CONFIG_DIR"
 echo "  Dashboard Port: $DASHBOARD_PORT"
@@ -26,8 +28,8 @@ echo "  Dashboard Port: $DASHBOARD_PORT"
 mkdir -p "$CONFIG_DIR" "$CONFIG_DIR/bin" "$HOME/.local/bin" "$HOME/Library/LaunchAgents" "$LOG_DIR"
 
 # Copy python executable
-cp "$SCRIPT_DIR/asus_ports.py" "$CONFIG_DIR/asus_ports.py"
-chmod +x "$CONFIG_DIR/asus_ports.py"
+cp "$SCRIPT_DIR/devboost.py" "$CONFIG_DIR/devboost.py"
+chmod +x "$CONFIG_DIR/devboost.py"
 
 # Install scoped DevBoost wrappers so macOS Background Items shows
 # DevBoost-dashboard / DevBoost-tunnel instead of python3 / ssh.
@@ -46,8 +48,9 @@ if [ -f "$SCRIPT_DIR/.env" ]; then
   cp "$SCRIPT_DIR/.env" "$CONFIG_DIR/.env"
 fi
 
-# Symlink CLI command
-ln -sf "$CONFIG_DIR/asus_ports.py" "$HOME/.local/bin/asus-ports"
+# Symlink CLI commands (devboost canonical, asus-ports legacy alias)
+ln -sf "$CONFIG_DIR/devboost.py" "$HOME/.local/bin/devboost"
+ln -sf "$CONFIG_DIR/devboost.py" "$HOME/.local/bin/asus-ports"
 
 # Render and install dashboard LaunchAgent
 PLIST_TARGET="$HOME/Library/LaunchAgents/${AGENT_DOMAIN}.dashboard.plist"
@@ -97,6 +100,6 @@ for plist_path in glob.glob(os.path.join(launch_dir, f"{prefix}-*.plist")):
 PYEOF
 fi
 
-echo "Port Tracker installed and activated successfully!"
-echo "  CLI Command: asus-ports"
+echo "DevBoost installed and activated successfully!"
+echo "  CLI Command: devboost"
 echo "  Web Dashboard: http://localhost:$DASHBOARD_PORT"

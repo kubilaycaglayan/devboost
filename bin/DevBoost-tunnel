@@ -1,5 +1,5 @@
 #!/bin/sh
-# DevBoost-tunnel — scoped launcher for Port Tracker SSH tunnels.
+# DevBoost-tunnel — scoped launcher for DevBoost SSH tunnels.
 # Exists so macOS Background Items shows "DevBoost-tunnel" instead of "ssh".
 # Scope: only this app's tunnel LaunchAgents use it. Global ssh is untouched.
 # Usage (via launchd): DevBoost-tunnel -N -T -o ... -L <local>:127.0.0.1:<remote> <ssh-host>

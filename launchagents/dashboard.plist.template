@@ -18,8 +18,8 @@
     <key>ThrottleInterval</key>
     <integer>5</integer>
     <key>StandardOutPath</key>
-    <string>{{LOG_DIR}}/port-tracker-dashboard.log</string>
+    <string>{{LOG_DIR}}/devboost-dashboard.log</string>
     <key>StandardErrorPath</key>
-    <string>{{LOG_DIR}}/port-tracker-dashboard.err</string>
+    <string>{{LOG_DIR}}/devboost-dashboard.err</string>
 </dict>
 </plist>

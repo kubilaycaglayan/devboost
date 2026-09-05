@@ -28,8 +28,8 @@
     <key>ThrottleInterval</key>
     <integer>10</integer>
     <key>StandardOutPath</key>
-    <string>{{LOG_DIR}}/ssh-forward-{{LOCAL_PORT}}.log</string>
+    <string>{{LOG_DIR}}/devboost-forward-{{LOCAL_PORT}}.log</string>
     <key>StandardErrorPath</key>
-    <string>{{LOG_DIR}}/ssh-forward-{{LOCAL_PORT}}.err</string>
+    <string>{{LOG_DIR}}/devboost-forward-{{LOCAL_PORT}}.err</string>
 </dict>
 </plist>
