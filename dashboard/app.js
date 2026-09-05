@@ -65,9 +65,10 @@
         return `<div class="usage-quota-text"><span>${name}</span><strong>${detail}</strong>${reset ? `<small>${escapeHtml(reset)}</small>` : ""}</div>`;
       }
       const rounded = Math.round(percent);
+      const remainingPercent = 100 - percent;
       const remaining = quota.remaining != null ? `${usageNumber(quota.remaining)} ${escapeHtml(quota.unit || "remaining")} remaining` : "";
       const details = [remaining, reset].filter(Boolean).join(" · ");
-      return `<div class="usage-quota"><div class="usage-meter-header"><span>${name}</span><strong>${rounded}% used</strong></div><div class="usage-meter ${usageGrade(percent)}" role="meter" aria-label="${name} usage" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${rounded}"><span style="width:${percent.toFixed(2)}%"></span></div><div class="usage-meter-caption">${rounded}% used${details ? ` · ${escapeHtml(details)}` : ""}</div></div>`;
+      return `<div class="usage-quota"><div class="usage-meter-header"><span>${name}</span><strong>${rounded}% used</strong></div><div class="usage-meter ${usageGrade(percent)}" role="meter" aria-label="${name} remaining quota" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${Math.round(remainingPercent)}"><span style="width:${remainingPercent.toFixed(2)}%"></span></div><div class="usage-meter-caption">${rounded}% used${details ? ` · ${escapeHtml(details)}` : ""}</div></div>`;
     }
     function usageUpdated(snapshot) {
       const timestamp = snapshot && (snapshot.last_valid_query_at || (snapshot.ok && snapshot.updated_at));
@@ -364,13 +365,83 @@
       bar.innerHTML = allServers.map(s => {
         const isActive = s.id === currentServerId;
         const dotCls = serverReachability[s.id] === true ? "tab-dot online" : (serverReachability[s.id] === false ? "tab-dot" : "tab-dot");
-        return `<div class="tab ${isActive ? 'active' : ''}" data-server-id="${s.id}"
-            onclick="selectServer('${s.id}')"
+        return `<div class="tab ${isActive ? 'active' : ''}" data-server-id="${s.id}" draggable="true"
+            onclick="selectServer('${s.id}')" ondragstart="onServerTabDragStart(event, '${s.id}')"
+            ondragover="onServerTabDragOver(event)" ondrop="onServerTabDrop(event)"
+            ondragend="onServerTabDragEnd()"
             title="${escapeHtml(s.ssh_host)}${s.ip ? ' (' + escapeHtml(s.ip) + ')' : ''}">
           <span class="${dotCls}"></span>
           <span class="tab-name">${escapeHtml(s.name || s.ssh_host)}</span>
         </div>`;
       }).join("") + `<button class="btn btn-sm server-manage-button" onclick="navigatePage('servers')">Manage servers</button>`;
+    }
+
+    let draggedServerTabId = null;
+    let draggedServerTab = null;
+    function getServerTabDropShadow() {
+      return document.querySelector("#tabs-bar .server-tab-drop-shadow");
+    }
+    function onServerTabDragStart(e, sid) {
+      draggedServerTabId = sid;
+      draggedServerTab = e.currentTarget;
+      const rect = draggedServerTab.getBoundingClientRect();
+      const shadow = document.createElement("div");
+      shadow.className = "tab server-tab-drop-shadow";
+      shadow.style.width = `${rect.width}px`;
+      shadow.style.height = `${rect.height}px`;
+      shadow.setAttribute("aria-label", "Drop server here");
+      draggedServerTab.classList.add("dragging");
+      draggedServerTab.setAttribute("aria-grabbed", "true");
+      draggedServerTab.parentNode.insertBefore(shadow, draggedServerTab);
+      draggedServerTab.style.display = "none";
+      e.dataTransfer.effectAllowed = "move";
+      e.dataTransfer.setData("text/plain", sid);
+    }
+    function onServerTabDragOver(e) {
+      e.preventDefault();
+      const target = e.currentTarget;
+      if (!draggedServerTabId || target.dataset.serverId === draggedServerTabId) return;
+      e.dataTransfer.dropEffect = "move";
+      const shadow = getServerTabDropShadow();
+      if (!shadow) return;
+      const rect = target.getBoundingClientRect();
+      const insertBefore = e.clientY < rect.top ||
+        (e.clientY <= rect.bottom && e.clientX < rect.left + rect.width / 2);
+      target.parentNode.insertBefore(shadow, insertBefore ? target : target.nextSibling);
+    }
+    function onServerTabDragEnd() {
+      if (draggedServerTab) {
+        draggedServerTab.classList.remove("dragging");
+        draggedServerTab.style.display = "";
+        draggedServerTab.removeAttribute("aria-grabbed");
+      }
+      const shadow = getServerTabDropShadow();
+      if (shadow) shadow.remove();
+      draggedServerTab = null;
+      draggedServerTabId = null;
+    }
+    async function onServerTabDrop(e) {
+      e.preventDefault();
+      if (!draggedServerTabId) return;
+      const bar = document.getElementById("tabs-bar");
+      const shadow = getServerTabDropShadow();
+      if (!shadow) return;
+      const ids = Array.from(bar.children)
+        .filter(child => child === shadow || (child.dataset && child.dataset.serverId !== draggedServerTabId))
+        .map(child => child === shadow ? draggedServerTabId : child.dataset.serverId)
+        .filter(Boolean);
+      allServers.sort((a, b) => ids.indexOf(a.id) - ids.indexOf(b.id));
+      onServerTabDragEnd();
+      renderTabs();
+      renderServerManagement();
+      try {
+        const res = await fetch("/api/servers/reorder", { method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({ order: ids }) });
+        if (!res.ok) throw new Error(`Server reorder failed (${res.status})`);
+        await fetchServers();
+      } catch (err) {
+        console.error(err);
+        await fetchServers();
+      }
     }
 
     function renderServerManagement() {
