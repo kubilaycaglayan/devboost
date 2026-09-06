@@ -33,5 +33,8 @@ ios/DevBoost/.build/
 ios/DevBoost/DevBoost.xcodeproj/**/xcuserdata/
 ios/DevBoost/DevBoost.xcodeproj/DevBoost.xcodeproj/
 
-# Captured corrupted transfer sample used for local diagnosis
-IMG_7418.HEIC
+# Captured camera-transfer samples used for local diagnosis
+IMG_*.HEIC
+IMG_*.heic
+IMG_*.PNG
+IMG_*.png
