@@ -4,6 +4,10 @@ import Darwin
 private let appState = NSString(string: "~/Library/Application Support/DevBoost").expandingTildeInPath
 private let logState = (appState as NSString).appendingPathComponent("logs")
 
+private final class StatusTitleField: NSTextField {
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+}
+
 @main
 enum DevBoostMain {
     static func main() {
@@ -29,6 +33,7 @@ final class DevBoostApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private static let selectedUsageAccountsKey = "devboost-menubar-usage-selection"
     private var backend: Process?
     private var statusItem: NSStatusItem?
+    private var statusTitleField: StatusTitleField?
     private var statusMenu: NSMenu?
     private var usageStatusMenuItem: NSMenuItem?
     private var usageTimer: Timer?
@@ -69,9 +74,28 @@ final class DevBoostApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         statusItem = item
         item.isVisible = true
-        item.button?.contentTintColor = NSColor.white
-        item.button?.isHidden = false
-        item.button?.isEnabled = true
+        if let button = item.button {
+            button.title = ""
+            button.alternateTitle = ""
+            button.isHidden = false
+            button.isEnabled = true
+            let titleField = StatusTitleField(frame: .zero)
+            titleField.isBezeled = false
+            titleField.isEditable = false
+            titleField.isSelectable = false
+            titleField.drawsBackground = false
+            titleField.alignment = .center
+            titleField.font = NSFont.menuBarFont(ofSize: 0)
+            titleField.textColor = NSColor.white
+            titleField.alphaValue = 1
+            titleField.translatesAutoresizingMaskIntoConstraints = false
+            button.addSubview(titleField)
+            NSLayoutConstraint.activate([
+                titleField.centerXAnchor.constraint(equalTo: button.centerXAnchor),
+                titleField.centerYAnchor.constraint(equalTo: button.centerYAnchor)
+            ])
+            statusTitleField = titleField
+        }
         setStatusItemTitle("DevBoost")
         let menu = NSMenu()
         // Every row's enabled state is managed explicitly. AppKit's automatic
@@ -211,11 +235,14 @@ final class DevBoostApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
         button.isEnabled = true
         button.appearsDisabled = false
         button.alphaValue = 1
-        var attributes: [NSAttributedString.Key: Any] = [.foregroundColor: NSColor.white]
-        if let font = button.font { attributes[.font] = font }
-        let styledTitle = NSAttributedString(string: title, attributes: attributes)
-        button.attributedTitle = styledTitle
-        button.attributedAlternateTitle = styledTitle
+        button.title = ""
+        button.alternateTitle = ""
+        statusTitleField?.stringValue = title
+        statusTitleField?.textColor = NSColor.white
+        statusTitleField?.alphaValue = 1
+        if let width = statusTitleField?.intrinsicContentSize.width {
+            statusItem?.length = ceil(width) + 12
+        }
     }
 
     private func setUsageMenuStatus(_ title: String) {
