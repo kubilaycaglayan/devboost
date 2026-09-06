@@ -274,6 +274,14 @@ process.stdout.write(JSON.stringify([
         self.assertEqual(raised.exception.code, 403)
 
         request = urllib.request.Request(
+            f"{self.base_url}/api/status",
+            headers={"Origin": "http://localhost"},
+        )
+        with self.assertRaises(urllib.error.HTTPError) as raised:
+            urllib.request.urlopen(request)
+        self.assertEqual(raised.exception.code, 403)
+
+        request = urllib.request.Request(
             f"{self.base_url}/api/clean",
             data=b"{}",
             headers={
@@ -347,6 +355,12 @@ process.stdout.write(JSON.stringify([
             self.assertIn("forwards", data)
             self.assertIn("server_name", data)
             self.assertIn("server_host", data)
+
+    def test_remote_service_fields_are_escaped_before_inner_html(self):
+        with urllib.request.urlopen(self.base_url + "/dashboard/app.js") as resp:
+            app_js = resp.read().decode("utf-8")
+        self.assertIn('${escapeHtml(s.process)}', app_js)
+        self.assertIn('${escapeHtml(s.label)}', app_js)
 
     def test_service_binder_ignores_main_wrappers(self):
         """Running the packaged script as __main__ must not recurse in /api/status."""

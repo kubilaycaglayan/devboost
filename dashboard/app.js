@@ -813,7 +813,7 @@
         sshHostCache = data.hosts || [];
         renderSshHostList();
       } catch (err) {
-        list.innerHTML = `<div style="color:var(--danger); font-size:13px;">Failed to load ~/.ssh/config: ${err}</div>`;
+        list.innerHTML = `<div style="color:var(--danger); font-size:13px;">Failed to load ~/.ssh/config: ${escapeHtml(err)}</div>`;
       }
     }
 
@@ -1081,8 +1081,8 @@
           return `
             <tr>
               <td style="font-family:var(--font-mono); font-weight:600; color:#fff;">:${s.port}</td>
-              <td style="font-family:var(--font-mono); color:var(--text-muted);">${s.process}</td>
-              <td><strong>${s.label}</strong></td>
+              <td style="font-family:var(--font-mono); color:var(--text-muted);">${escapeHtml(s.process)}</td>
+              <td><strong>${escapeHtml(s.label)}</strong></td>
               <td>
                 ${isForwarded 
                   ? '<span class="badge badge-active">Forwarded</span>' 
@@ -1097,7 +1097,7 @@
           `;
         }).join("");
       } catch (err) {
-        tbody.innerHTML = `<tr><td colspan="5" style="text-align:center; color:var(--danger); padding:20px;">Scan failed: ${err}</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="5" style="text-align:center; color:var(--danger); padding:20px;">Scan failed: ${escapeHtml(err)}</td></tr>`;
       }
     }
 
