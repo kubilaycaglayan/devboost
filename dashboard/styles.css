@@ -37,7 +37,11 @@
     .feature-tile .tile-detail { font-weight: 700; }
     .feature-tile .tile-port { color: #b9dcff; font-family: var(--font-mono); }
     .feature-tile .tile-docker { color: #d8c2ff; }
-    .feature-tile .tile-sync { color: #b9efc1; }
+    .feature-tile .tile-sync { font-weight: 800; }
+    .feature-tile .tile-sync-local { color: #9fd3ff; }
+    .feature-tile .tile-sync-remote { color: #d8c2ff; }
+    .feature-tile .tile-sync-home { opacity: .62; font-weight: 600; }
+    .feature-tile .tile-sync-tail { font-weight: 850; }
     .feature-tile .tile-usage { color: #ffc6e4; }
     .feature-icon { width: 48px; height: 48px; display: grid; place-items: center; border-radius: 14px; color: #fff; font-size: 25px; font-weight: 500; background: rgba(255,255,255,.13); }
     .feature-arrow { position: absolute; right: 24px; top: 22px; color: rgba(255,255,255,.65); font-size: 27px; text-align: right; }
@@ -229,6 +233,7 @@
     .usage-quota-text small { flex-basis: 100%; color: var(--text-muted); font: 11px/1.25 var(--font-mono); }
     .usage-reset-summary { display: inline-flex; align-items: center; margin: 0 0 6px; padding: 3px 8px; border: 1px solid #536275; border-radius: 999px; background: #202a36; color: #dce7f2; font-size: 12px; font-weight: 700; letter-spacing: .4px; white-space: nowrap; }
     #page-usage table { table-layout: fixed; }
+    #page-usage th:first-child, #page-usage td:first-child { width: 7%; }
     #page-usage th:nth-child(3), #page-usage td:nth-child(3) { width: 28%; }
     #page-usage th:nth-child(5), #page-usage td:nth-child(5) { width: 72px; }
     #page-usage .usage-query-age-heading, #page-usage td.usage-age { text-align: center; }
@@ -504,7 +509,11 @@
     .browser-item:last-child { border-bottom: none; }
     .mono { font-family: var(--font-mono); }
     .muted { color: var(--text-muted); }
-    .sync-path { font-family: var(--font-mono); font-size: 12px; color: #fff; word-break: break-all; }
+    .sync-path { font-family: var(--font-mono); font-size: 12px; word-break: break-all; font-weight: 800; }
+    .sync-path-local { color: #9fd3ff; }
+    .sync-path-remote { color: #d8c2ff; }
+    .sync-path-home { opacity: .62; font-weight: 600; }
+    .sync-path-tail { font-weight: 850; }
     .sync-sub { font-size: 11px; color: var(--text-muted); font-family: var(--font-mono); word-break: break-all; }
     .form-checkbox { display: flex; align-items: center; gap: 8px; cursor: pointer; user-select: none; }
     .recent-chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }

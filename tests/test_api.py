@@ -214,6 +214,7 @@ process.stdout.write(JSON.stringify(result));'''
         self.assertIn(".usage-quota { min-width: 165px;", css)
         self.assertIn(".usage-meter { position: relative; height: 24px;", css)
         self.assertIn("#page-usage table { table-layout: fixed; }", css)
+        self.assertIn("#page-usage th:first-child, #page-usage td:first-child { width: 7%; }", css)
         self.assertIn("#page-usage th:nth-child(3), #page-usage td:nth-child(3) { width: 28%; }", css)
         self.assertIn("#page-usage th:last-child, #page-usage td:last-child { width: 132px;", css)
         self.assertIn(".usage-row-drop-shadow", css)
