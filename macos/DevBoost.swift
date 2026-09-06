@@ -66,7 +66,7 @@ final class DevBoostApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         statusItem = item
         item.isVisible = true
-        item.button?.contentTintColor = NSColor.labelColor
+        item.button?.contentTintColor = NSColor.white
         item.button?.isHidden = false
         item.button?.isEnabled = true
         setStatusItemTitle("DevBoost")

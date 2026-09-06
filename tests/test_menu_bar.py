@@ -49,7 +49,7 @@ class TestMenuBarUsage(unittest.TestCase):
         self.assertIn('summaries.joined(separator: " | ")', self.swift)
         self.assertIn('min(100, max(0, percent))', self.swift)
         self.assertIn("setStatusItemTitle(self.menuBarUsageTitle", self.swift)
-        self.assertIn("NSColor.labelColor", self.swift)
+        self.assertIn("item.button?.contentTintColor = NSColor.white", self.swift)
         self.assertIn("statusItem?.isVisible = true", self.swift)
         self.assertIn("statusItem?.button?.isEnabled = true", self.swift)
 
