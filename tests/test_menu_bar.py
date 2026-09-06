@@ -55,6 +55,7 @@ class TestMenuBarUsage(unittest.TestCase):
         self.assertIn("statusItem?.button?.isEnabled = true", self.swift)
 
     def test_usage_accounts_are_checkable_and_persisted(self):
+        self.assertIn("menu.autoenablesItems = false", self.swift)
         self.assertIn("selectedUsageAccountIDs", self.swift)
         self.assertIn("toggleUsageAccount", self.swift)
         self.assertIn("heading.state = self.selectedUsageAccountIDs.contains(aid) ? .on : .off", self.swift)

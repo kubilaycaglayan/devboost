@@ -72,6 +72,9 @@ final class DevBoostApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
         item.button?.isEnabled = true
         setStatusItemTitle("DevBoost")
         let menu = NSMenu()
+        // Every row's enabled state is managed explicitly. AppKit's automatic
+        // action validation can otherwise gray rows while an open menu refreshes.
+        menu.autoenablesItems = false
         menu.addItem(withTitle: "Open Dashboard", action: #selector(openDashboard), keyEquivalent: "o")
         menu.addItem(NSMenuItem.separator())
         let usageStatus = NSMenuItem(title: "Syncing usage…", action: nil, keyEquivalent: "")
