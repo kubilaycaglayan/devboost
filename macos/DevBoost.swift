@@ -86,7 +86,7 @@ final class DevBoostApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
             titleField.drawsBackground = false
             titleField.alignment = .center
             titleField.font = NSFont.menuBarFont(ofSize: 0)
-            titleField.textColor = NSColor.white
+            titleField.textColor = .labelColor
             titleField.alphaValue = 1
             titleField.translatesAutoresizingMaskIntoConstraints = false
             button.addSubview(titleField)
@@ -238,7 +238,7 @@ final class DevBoostApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
         button.title = ""
         button.alternateTitle = ""
         statusTitleField?.stringValue = title
-        statusTitleField?.textColor = NSColor.white
+        statusTitleField?.textColor = .labelColor
         statusTitleField?.alphaValue = 1
         if let width = statusTitleField?.intrinsicContentSize.width {
             statusItem?.length = ceil(width) + 12
