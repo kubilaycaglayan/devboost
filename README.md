@@ -63,7 +63,12 @@ Run checks before contributing:
 ```bash
 python3 -W error::SyntaxWarning -m py_compile devboost.py
 python3 -m unittest discover tests -v
+xcodebuild test -project ios/DevBoost/DevBoost.xcodeproj -scheme DevBoost \
+  -destination 'platform=iOS Simulator,name=iPhone 17' CODE_SIGNING_ALLOWED=NO
 ```
+
+The iOS scheme includes unit tests and first-run UI tests; see
+[`ios/DevBoost/README.md`](ios/DevBoost/README.md) for mobile coverage details.
 
 Please open an issue or pull request with improvements, bug reports, tests, or
 ideas. Contributions are welcome.
