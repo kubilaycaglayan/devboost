@@ -66,6 +66,12 @@ struct HomeView: View {
             .padding(.horizontal, 16)
         }
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            NavigationLink { DataRetentionView() } label: {
+                Image(systemName: "gearshape")
+            }
+            .accessibilityLabel("Data retention settings")
+        }
         .task {
             while !Task.isCancelled {
                 if let host = store.hosts.first, host.keyInstalled {
@@ -75,6 +81,26 @@ struct HomeView: View {
                 try? await Task.sleep(for: .seconds(60))
             }
         }
+    }
+}
+
+private struct DataRetentionView: View {
+    @EnvironmentObject private var store: AppStore
+
+    var body: some View {
+        Form {
+            Section {
+                Toggle("Keep data after app deletion", isOn: Binding(
+                    get: { store.retainsDataAfterDeletion },
+                    set: { store.setRetainsDataAfterDeletion($0) }
+                ))
+            } header: {
+                Text("Data retention")
+            } footer: {
+                Text("When enabled, DevBoost keeps an encrypted, device-only copy of your saved app data in the Keychain. Reinstalling the app restores it. Turn this off to remove that retained copy.")
+            }
+        }
+        .navigationTitle("Settings")
     }
 }
 

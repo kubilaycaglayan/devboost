@@ -1,6 +1,13 @@
 import XCTest
 @testable import DevBoost
 
+private final class InMemoryRetentionStore: SecretStore, @unchecked Sendable {
+    var values: [String: Data] = [:]
+    func set(_ value: Data, for key: String) throws { values[key] = value }
+    func data(for key: String) throws -> Data? { values[key] }
+    func remove(_ key: String) throws { values[key] = nil }
+}
+
 @MainActor
 final class PersistenceTests: XCTestCase {
     private var directory: URL!
@@ -64,5 +71,44 @@ final class PersistenceTests: XCTestCase {
         let store = AppStore(fileURL: stateURL)
         XCTAssertTrue(store.hosts.isEmpty)
         XCTAssertTrue(store.transfers.isEmpty)
+    }
+
+    func testRetainedStateRestoresAfterAppContainerIsRemoved() throws {
+        let retained = InMemoryRetentionStore()
+        let host = Host(name: "Lab", hostname: "example.test", username: "ubuntu")
+        let first = AppStore(fileURL: stateURL, retentionStore: retained)
+        first.setRetainsDataAfterDeletion(true)
+        first.upsert(host)
+        first.remember(destination: "/srv/apps", for: host)
+
+        try FileManager.default.removeItem(at: stateURL)
+        let restored = AppStore(fileURL: stateURL, retentionStore: retained)
+        XCTAssertTrue(restored.retainsDataAfterDeletion)
+        XCTAssertEqual(restored.hosts, [host])
+        XCTAssertEqual(restored.destinations(for: host).map(\.path), ["/srv/apps"])
+    }
+
+    func testTurningOffRetentionRemovesTheRestoreCopy() throws {
+        let retained = InMemoryRetentionStore()
+        let host = Host(hostname: "example.test", username: "ubuntu")
+        let first = AppStore(fileURL: stateURL, retentionStore: retained)
+        first.setRetainsDataAfterDeletion(true)
+        first.upsert(host)
+        first.setRetainsDataAfterDeletion(false)
+
+        try FileManager.default.removeItem(at: stateURL)
+        let restored = AppStore(fileURL: stateURL, retentionStore: retained)
+        XCTAssertFalse(restored.retainsDataAfterDeletion)
+        XCTAssertTrue(restored.hosts.isEmpty)
+    }
+
+    func testResetDoesNotRestoreRetainedDataForUITests() {
+        let retained = InMemoryRetentionStore()
+        let first = AppStore(fileURL: stateURL, retentionStore: retained)
+        first.setRetainsDataAfterDeletion(true)
+        first.upsert(Host(hostname: "example.test", username: "ubuntu"))
+
+        let reset = AppStore(fileURL: stateURL, reset: true, retentionStore: retained)
+        XCTAssertTrue(reset.hosts.isEmpty)
     }
 }

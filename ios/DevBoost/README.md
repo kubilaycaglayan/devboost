@@ -20,6 +20,14 @@ The first connection uses SSH trust-on-first-use. Verify the fingerprint before
 accepting it. Private device keys and any future provider secrets are kept in
 the device-only Keychain.
 
+## Keep data after deleting the app
+
+By default, saved app data lives in the app container and is removed with the
+app. In **Home → Settings**, turn on **Keep data after app deletion** to keep an
+encrypted, device-only Keychain copy of saved SSH connections, recent transfer
+destinations, transfer history, and cached usage. A reinstall restores that
+copy. Turn the setting off before deleting the app to remove the retained copy.
+
 ## Test the mobile app
 
 Run the unit and first-run UI suites on an installed simulator runtime:
