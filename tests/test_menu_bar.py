@@ -24,6 +24,7 @@ class TestMenuBarUsage(unittest.TestCase):
         self.assertIn('return name + (reset.map { " · \\($0)" } ?? "")', self.swift)
         self.assertIn('indentationLevel: 2', self.swift)
         self.assertIn("compactNumber(max(0, limit - used))", self.swift)
+        self.assertIn("item.isEnabled = true", self.swift)
 
     def test_menu_bar_follows_quota_order_and_omits_empty_accounts(self):
         self.assertIn("let orderedAccounts = accounts.filter", self.swift)
@@ -36,6 +37,13 @@ class TestMenuBarUsage(unittest.TestCase):
         self.assertIn("func menuWillOpen(_ menu: NSMenu)", self.swift)
         self.assertIn("refreshUsage(force: true)", self.swift)
         self.assertIn('force ? "?refresh=1" : ""', self.swift)
+
+    def test_status_item_shows_compact_usage_title(self):
+        self.assertIn("private func menuBarUsageTitle", self.swift)
+        self.assertIn('case "codex": label = "Cdx"', self.swift)
+        self.assertIn('return "\\(label) L:', self.swift)
+        self.assertIn('min(100, max(0, percent))', self.swift)
+        self.assertIn("self.statusItem?.button?.title = self.menuBarUsageTitle", self.swift)
 
 
 if __name__ == "__main__":

@@ -83,6 +83,7 @@ final class DevBoostApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
                   let snapshots = root["snapshots"] as? [String: Any] else { return }
             DispatchQueue.main.async {
                 guard let self = self, let menu = self.statusMenu else { return }
+                self.statusItem?.button?.title = self.menuBarUsageTitle(accounts: accounts, snapshots: snapshots)
                 menu.removeAllItems()
                 menu.addItem(withTitle: "Open Dashboard", action: #selector(DevBoostApp.openDashboard), keyEquivalent: "o")
                 menu.addItem(NSMenuItem.separator())
@@ -147,7 +148,9 @@ final class DevBoostApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private func addIndentedItem(to menu: NSMenu, title: String, indentationLevel: Int = 1) {
         let item = NSMenuItem(title: title, action: nil, keyEquivalent: "")
         item.indentationLevel = indentationLevel
-        item.isEnabled = false
+        // These entries are informational, but should use the normal menu
+        // text color rather than the disabled gray used for section headings.
+        item.isEnabled = true
         menu.addItem(item)
     }
 
@@ -160,6 +163,27 @@ final class DevBoostApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }) { return true }
         let balances = snapshot["balances"] as? [[String: Any]] ?? []
         return balances.contains { numberText($0["remaining"]) != nil || numberText($0["spent"]) != nil }
+    }
+
+    private func menuBarUsageTitle(accounts: [[String: Any]], snapshots: [String: Any]) -> String {
+        for account in accounts where (account["enabled"] as? Bool) ?? true {
+            let aid = account["id"] as? String ?? ""
+            guard let snapshot = snapshots[aid] as? [String: Any],
+                  let quotas = snapshot["quotas"] as? [[String: Any]] else { continue }
+            for quota in quotas {
+                guard let percent = quotaRemainingPercent(quota) else { continue }
+                let provider = account["provider"] as? String ?? "Provider"
+                let label: String
+                switch provider.lowercased() {
+                case "codex": label = "Cdx"
+                case "claude": label = "Cl"
+                case "opencode": label = "OC"
+                default: label = String(provider.prefix(3))
+                }
+                return "\(label) L:\(String(format: "%.0f", min(100, max(0, percent))))%"
+            }
+        }
+        return "DevBoost"
     }
 
     private func numberText(_ value: Any?) -> String? {
@@ -181,16 +205,7 @@ final class DevBoostApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let remaining = (quota["remaining"] as? NSNumber)?.doubleValue
         let used = (quota["used"] as? NSNumber)?.doubleValue
         let limit = (quota["limit"] as? NSNumber)?.doubleValue
-        let percent: Double?
-        if unit == "%", let remaining = remaining {
-            percent = remaining
-        } else if let limit = limit, limit > 0, let remaining = remaining {
-            percent = remaining / limit * 100
-        } else if let limit = limit, limit > 0, let used = used {
-            percent = (limit - used) / limit * 100
-        } else {
-            percent = nil
-        }
+        let percent = quotaRemainingPercent(quota)
         if let percent = percent {
             let clamped = min(100, max(0, percent))
             return "\(String(format: "%.0f", clamped))% left"
@@ -203,6 +218,23 @@ final class DevBoostApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         if let used = used {
             return "\(compactNumber(used)) \(unit)"
+        }
+        return nil
+    }
+
+    private func quotaRemainingPercent(_ quota: [String: Any]) -> Double? {
+        let unit = quota["unit"] as? String ?? "units"
+        let remaining = (quota["remaining"] as? NSNumber)?.doubleValue
+        let used = (quota["used"] as? NSNumber)?.doubleValue
+        let limit = (quota["limit"] as? NSNumber)?.doubleValue
+        if unit == "%", let remaining = remaining {
+            return remaining
+        }
+        if let limit = limit, limit > 0, let remaining = remaining {
+            return remaining / limit * 100
+        }
+        if let limit = limit, limit > 0, let used = used {
+            return (limit - used) / limit * 100
         }
         return nil
     }
