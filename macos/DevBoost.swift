@@ -256,24 +256,47 @@ final class DevBoostApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
         for account in accounts where (account["enabled"] as? Bool) ?? true {
             let aid = account["id"] as? String ?? ""
             guard selectedUsageAccountIDs.contains(aid) else { continue }
-            guard let snapshot = snapshots[aid] as? [String: Any],
-                  let quotas = snapshot["quotas"] as? [[String: Any]] else { continue }
+            guard let snapshot = snapshots[aid] as? [String: Any] else { continue }
+            let label = menuBarProviderLabel(account["provider"] as? String ?? "Provider")
+            let quotas = snapshot["quotas"] as? [[String: Any]] ?? []
+            var value: String?
             for quota in quotas {
-                guard let percent = quotaRemainingPercent(quota) else { continue }
-                let provider = account["provider"] as? String ?? "Provider"
-                let label: String
-                switch provider.lowercased() {
-                case "codex": label = "Cdx"
-                case "agy": label = "Agy"
-                case "claude": label = "Cl"
-                case "opencode": label = "OC"
-                default: label = provider.prefix(1).uppercased() + provider.dropFirst().prefix(2)
+                if let percent = quotaRemainingPercent(quota) {
+                    value = "L:\(String(format: "%.0f", min(100, max(0, percent))))%"
+                } else if let remaining = (quota["remaining"] as? NSNumber)?.doubleValue {
+                    value = "L:\(compactNumber(remaining)) \(quota["unit"] as? String ?? "units")"
+                } else if let used = (quota["used"] as? NSNumber)?.doubleValue {
+                    value = "U:\(compactNumber(used)) \(quota["unit"] as? String ?? "units")"
                 }
-                summaries.append("\(label): L:\(String(format: "%.0f", min(100, max(0, percent))))%")
-                break
+                if value != nil { break }
             }
+            if value == nil, snapshot["credits_unlimited"] as? Bool == true {
+                value = "B:∞"
+            }
+            if value == nil {
+                let balances = snapshot["balances"] as? [[String: Any]] ?? []
+                if let balance = balances.first {
+                    let currency = balance["currency"] as? String ?? "USD"
+                    if let remaining = (balance["remaining"] as? NSNumber)?.doubleValue {
+                        value = "B:\(compactNumber(remaining)) \(currency)"
+                    } else if let spent = (balance["spent"] as? NSNumber)?.doubleValue {
+                        value = "U:\(compactNumber(spent)) \(currency)"
+                    }
+                }
+            }
+            if let value = value { summaries.append("\(label): \(value)") }
         }
         return summaries.isEmpty ? "DevBoost" : summaries.joined(separator: " | ")
+    }
+
+    private func menuBarProviderLabel(_ provider: String) -> String {
+        switch provider.lowercased() {
+        case "codex": return "Cdx"
+        case "agy": return "Agy"
+        case "claude": return "Cl"
+        case "opencode": return "OC"
+        default: return provider.prefix(1).uppercased() + provider.dropFirst().prefix(2)
+        }
     }
 
     private func numberText(_ value: Any?) -> String? {

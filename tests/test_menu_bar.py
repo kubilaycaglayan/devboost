@@ -46,9 +46,9 @@ class TestMenuBarUsage(unittest.TestCase):
 
     def test_status_item_shows_compact_usage_title(self):
         self.assertIn("private func menuBarUsageTitle", self.swift)
-        self.assertIn('case "codex": label = "Cdx"', self.swift)
-        self.assertIn('case "agy": label = "Agy"', self.swift)
-        self.assertIn('summaries.append("\\(label): L:', self.swift)
+        self.assertIn('case "codex": return "Cdx"', self.swift)
+        self.assertIn('case "agy": return "Agy"', self.swift)
+        self.assertIn('summaries.append("\\(label): \\(value)")', self.swift)
         self.assertIn('summaries.joined(separator: " | ")', self.swift)
         self.assertIn('min(100, max(0, percent))', self.swift)
         self.assertIn("setStatusItemTitle(self.menuBarUsageTitle", self.swift)
@@ -56,6 +56,12 @@ class TestMenuBarUsage(unittest.TestCase):
         self.assertIn(".foregroundColor: NSColor.white", self.swift)
         self.assertIn("statusItem?.isVisible = true", self.swift)
         self.assertIn("button.alphaValue = 1", self.swift)
+
+    def test_status_item_supports_non_percentage_providers(self):
+        self.assertIn('case "claude": return "Cl"', self.swift)
+        self.assertIn('value = "U:\\(compactNumber(used))', self.swift)
+        self.assertIn('value = "B:\\(compactNumber(remaining))', self.swift)
+        self.assertIn('value = "B:∞"', self.swift)
 
     def test_usage_accounts_are_checkable_and_persisted(self):
         self.assertIn("menu.autoenablesItems = false", self.swift)
