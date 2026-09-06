@@ -27,3 +27,11 @@ htmlcov/
 
 # Local instance config (use config.example.json as template)
 config.json
+
+# iOS local build and Xcode workspace state
+ios/DevBoost/.build/
+ios/DevBoost/DevBoost.xcodeproj/**/xcuserdata/
+ios/DevBoost/DevBoost.xcodeproj/DevBoost.xcodeproj/
+
+# Captured corrupted transfer sample used for local diagnosis
+IMG_7418.HEIC
