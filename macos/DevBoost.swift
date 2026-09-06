@@ -405,11 +405,22 @@ final class DevBoostApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
             date = nil
         }
         guard let date = date else { return nil }
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.timeZone = TimeZone.current
-        formatter.dateFormat = "MMM d, h:mm a"
-        return "Resets \(formatter.string(from: date))"
+        let minutes = Int(ceil(date.timeIntervalSinceNow / 60))
+        guard minutes > 0 else { return "Resets now" }
+        if minutes < 60 { return "Resets in \(minutes)m" }
+        let hours = minutes / 60
+        let remainingMinutes = minutes % 60
+        if hours < 24 {
+            return "Resets in \(hours)h\(remainingMinutes > 0 ? "\(remainingMinutes)m" : "")"
+        }
+        let days = hours / 24
+        let remainingHours = hours % 24
+        if days < 7 {
+            return "Resets in \(days)d\(remainingHours > 0 ? "\(remainingHours)h" : "")"
+        }
+        let weeks = days / 7
+        let remainingDays = days % 7
+        return "Resets in \(weeks)w\(remainingDays > 0 ? "\(remainingDays)d" : "")"
     }
 
     @objc private func openDashboard() {

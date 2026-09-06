@@ -17,7 +17,7 @@ class TestMenuBarUsage(unittest.TestCase):
         self.assertIn('menu.addItem(withTitle: "Quit DevBoost"', self.swift)
 
     def test_root_menu_contains_quota_balance_and_reset_details(self):
-        for text in ("Balance:", "Resets ", "You have \\(resetCount) usage limit"):
+        for text in ("Balance:", "Resets in ", "You have \\(resetCount) usage limit"):
             self.assertIn(text, self.swift)
         self.assertIn("addIndentedItem", self.swift)
         self.assertIn('return "\\(String(format: "%.0f", clamped))% left"', self.swift)

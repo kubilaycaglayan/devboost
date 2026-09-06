@@ -19,16 +19,24 @@
     return "usage-grade-red";
   }
 
-  function formatResetTime(value, timeZone) {
+  function formatResetTime(value, _timeZone, now = Date.now()) {
     if (value == null || value === "") return null;
     const raw = String(value).trim();
     const numeric = /^\d+(?:\.\d+)?$/.test(raw) ? Number(raw) : NaN;
     const date = new Date(Number.isFinite(numeric) ? (numeric < 1e12 ? numeric * 1000 : numeric) : raw);
     if (Number.isNaN(date.getTime())) return null;
-    const options = {month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit"};
-    if (timeZone) options.timeZone = timeZone;
-    const parts = Object.fromEntries(new Intl.DateTimeFormat("en-US", options).formatToParts(date).map(part => [part.type, part.value]));
-    return `Resets ${parts.month} ${parts.day}, ${parts.year} ${parts.hour}:${parts.minute} ${parts.dayPeriod}`;
+    const minutes = Math.ceil((date.getTime() - now) / 60_000);
+    if (minutes <= 0) return "Resets now";
+    if (minutes < 60) return `Resets in ${minutes}m`;
+    const hours = Math.floor(minutes / 60);
+    const remainingMinutes = minutes % 60;
+    if (hours < 24) return `Resets in ${hours}h${remainingMinutes ? `${remainingMinutes}m` : ""}`;
+    const days = Math.floor(hours / 24);
+    const remainingHours = hours % 24;
+    if (days < 7) return `Resets in ${days}d${remainingHours ? `${remainingHours}h` : ""}`;
+    const weeks = Math.floor(days / 7);
+    const remainingDays = days % 7;
+    return `Resets in ${weeks}w${remainingDays ? `${remainingDays}d` : ""}`;
   }
 
   return {usagePercent, usageGrade, formatResetTime};

@@ -14,8 +14,11 @@ const result = {
   clamped: metrics.usagePercent({used: 20, limit: 10}),
   unknown: metrics.usagePercent({used: 5}),
   grades: [50, 51, 75, 76, 90, 91].map(metrics.usageGrade),
-  resetEpoch: metrics.formatResetTime(1788663840, "UTC"),
-  resetIso: metrics.formatResetTime("2026-09-06T03:04:00Z", "UTC")
+  resetMinutes: metrics.formatResetTime(1788663840, "UTC", 1788663540000),
+  resetHours: metrics.formatResetTime(1788663840, "UTC", 1788658440000),
+  resetDays: metrics.formatResetTime(1788663840, "UTC", 1788447840000),
+  resetWeeks: metrics.formatResetTime("2026-09-06T03:04:00Z", "UTC", 1787886240000),
+  resetPast: metrics.formatResetTime(1788663840, "UTC", 1788663840000)
 };
 process.stdout.write(JSON.stringify(result));'''
         result = subprocess.run(["node", "-e", script, helper], capture_output=True, text=True, check=True)
@@ -23,8 +26,11 @@ process.stdout.write(JSON.stringify(result));'''
             "half": 50, "fromRemaining": 80, "clamped": 100, "unknown": None,
             "grades": ["usage-grade-green", "usage-grade-yellow", "usage-grade-yellow",
                         "usage-grade-orange", "usage-grade-orange", "usage-grade-red"],
-            "resetEpoch": "Resets Sep 6, 2026 3:04 AM",
-            "resetIso": "Resets Sep 6, 2026 3:04 AM",
+            "resetMinutes": "Resets in 5m",
+            "resetHours": "Resets in 1h30m",
+            "resetDays": "Resets in 2d12h",
+            "resetWeeks": "Resets in 1w2d",
+            "resetPast": "Resets now",
         })
 
 
