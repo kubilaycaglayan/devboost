@@ -41,6 +41,8 @@ class TestMenuBarUsage(unittest.TestCase):
         self.assertIn("usageMenuIsOpen", self.swift)
         self.assertIn("Syncing usage…", self.swift)
         self.assertIn("usageSyncStatus()", self.swift)
+        self.assertIn("RunLoop.main.add(statusTimer, forMode: .common)", self.swift)
+        self.assertIn('return "Synced \\(elapsed / 60)m ago"', self.swift)
 
     def test_status_item_shows_compact_usage_title(self):
         self.assertIn("private func menuBarUsageTitle", self.swift)
@@ -50,9 +52,10 @@ class TestMenuBarUsage(unittest.TestCase):
         self.assertIn('summaries.joined(separator: " | ")', self.swift)
         self.assertIn('min(100, max(0, percent))', self.swift)
         self.assertIn("setStatusItemTitle(self.menuBarUsageTitle", self.swift)
-        self.assertIn("item.button?.contentTintColor = NSColor.white", self.swift)
+        self.assertIn("button.attributedTitle = NSAttributedString", self.swift)
+        self.assertIn(".foregroundColor: NSColor.white", self.swift)
         self.assertIn("statusItem?.isVisible = true", self.swift)
-        self.assertIn("statusItem?.button?.isEnabled = true", self.swift)
+        self.assertIn("button.alphaValue = 1", self.swift)
 
     def test_usage_accounts_are_checkable_and_persisted(self):
         self.assertIn("menu.autoenablesItems = false", self.swift)

@@ -54,7 +54,9 @@ final class DevBoostApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
         runCommand(pythonArguments: ["serve"] + Array(CommandLine.arguments.dropFirst()))
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in self?.refreshUsage() }
         usageTimer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in self?.refreshUsage() }
-        usageStatusTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in self?.updateUsageMenuStatus() }
+        let statusTimer = Timer(timeInterval: 1, repeats: true) { [weak self] _ in self?.updateUsageMenuStatus() }
+        RunLoop.main.add(statusTimer, forMode: .common)
+        usageStatusTimer = statusTimer
     }
 
     func applicationWillTerminate(_ notification: Notification) {
@@ -204,9 +206,13 @@ final class DevBoostApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     private func setStatusItemTitle(_ title: String) {
         statusItem?.isVisible = true
-        statusItem?.button?.isHidden = false
-        statusItem?.button?.isEnabled = true
-        statusItem?.button?.title = title
+        guard let button = statusItem?.button else { return }
+        button.isHidden = false
+        button.isEnabled = true
+        button.alphaValue = 1
+        var attributes: [NSAttributedString.Key: Any] = [.foregroundColor: NSColor.white]
+        if let font = button.font { attributes[.font] = font }
+        button.attributedTitle = NSAttributedString(string: title, attributes: attributes)
     }
 
     private func setUsageMenuStatus(_ title: String) {
@@ -220,7 +226,9 @@ final class DevBoostApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     private func usageSyncStatus() -> String {
         guard let syncedAt = lastUsageSyncAt else { return "Syncing usage…" }
-        return "Synced \(max(0, Int(Date().timeIntervalSince(syncedAt))) )s ago"
+        let elapsed = max(0, Int(Date().timeIntervalSince(syncedAt)))
+        if elapsed < 60 { return "Synced \(elapsed)s ago" }
+        return "Synced \(elapsed / 60)m ago"
     }
 
     private func addIndentedItem(to menu: NSMenu, title: String, indentationLevel: Int = 1) {
