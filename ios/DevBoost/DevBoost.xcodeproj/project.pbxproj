@@ -9,6 +9,7 @@
 /* Begin PBXBuildFile section */
 		0090F297E9D9757BB0489020 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 0CAFBA3A9F08430558ECF2E9 /* Assets.xcassets */; };
 		04C28300A39113F9FFD98ED5 /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8BFB99299BC5D43C067D7C05 /* RootView.swift */; };
+		0FB53B0E00DB3D806D16FC0B /* PortForwardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0144B118E5FC4D5140830DE2 /* PortForwardView.swift */; };
 		0FC85D04FC6BD916E19C3DE4 /* Citadel in Frameworks */ = {isa = PBXBuildFile; productRef = 6C96F338745771F3E14220C1 /* Citadel */; };
 		16353749D6CA1286611468AA /* Docker.swift in Sources */ = {isa = PBXBuildFile; fileRef = B78580150CA7B640B8063758 /* Docker.swift */; };
 		1D562F7836E341DB881B66A1 /* FirstRunUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 88D43D29100FE8324A1E6DAD /* FirstRunUITests.swift */; };
@@ -28,6 +29,7 @@
 		9551D19ED3236ABD058DF539 /* DevBoostLiveActivityWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = D5ED62DF1083E1F554248E9F /* DevBoostLiveActivityWidget.swift */; };
 		9EC7D823CFDE851B5C9187AD /* SwiftTerm in Frameworks */ = {isa = PBXBuildFile; productRef = 635DB6289694CAA1C3B27D98 /* SwiftTerm */; };
 		A629C50BCC7AE304CA99D68D /* HostsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E8C19F5488198EF4E3CE1EE0 /* HostsView.swift */; };
+		B4D5E53BA9D7C7B4FB865A70 /* PortForwarding.swift in Sources */ = {isa = PBXBuildFile; fileRef = 89C7416270308BE1973B33E7 /* PortForwarding.swift */; };
 		B9E4A986C5E46D10B16F9186 /* SecurityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9BE00CC8F92945DC376E4348 /* SecurityTests.swift */; };
 		BBDF7CDEABCC4C52D1C47464 /* DevBoostUsageActivityAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = EF110CD9FDD70CAE23954213 /* DevBoostUsageActivityAttributes.swift */; };
 		C7189949287B5B8BC2EC3997 /* DevBoostUsageActivityAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = EF110CD9FDD70CAE23954213 /* DevBoostUsageActivityAttributes.swift */; };
@@ -78,6 +80,7 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		0144B118E5FC4D5140830DE2 /* PortForwardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PortForwardView.swift; sourceTree = "<group>"; };
 		0801BBE4DAEABCC030842FAB /* CodexUsage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexUsage.swift; sourceTree = "<group>"; };
 		0CAFBA3A9F08430558ECF2E9 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		16A4A520DF0FA2428165981B /* DevBoost.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = DevBoost.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -91,6 +94,7 @@
 		4A6B7FC253BC964F8C8DD850 /* Transfer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Transfer.swift; sourceTree = "<group>"; };
 		844F19991018B6F25111675C /* LiveUsageActivity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveUsageActivity.swift; sourceTree = "<group>"; };
 		88D43D29100FE8324A1E6DAD /* FirstRunUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FirstRunUITests.swift; sourceTree = "<group>"; };
+		89C7416270308BE1973B33E7 /* PortForwarding.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PortForwarding.swift; sourceTree = "<group>"; };
 		8BFB99299BC5D43C067D7C05 /* RootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootView.swift; sourceTree = "<group>"; };
 		8F023DB59CFCAB6001890B1C /* DevBoostLiveActivity.appex */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = DevBoostLiveActivity.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		92C4B6C3457D565DD6C7776E /* Models.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Models.swift; sourceTree = "<group>"; };
@@ -160,6 +164,7 @@
 				2E83EAE0ADFF5CF1A966490F /* CommandEscaping.swift */,
 				92C4B6C3457D565DD6C7776E /* Models.swift */,
 				CC666CF081840A0EE665FFBF /* Persistence.swift */,
+				89C7416270308BE1973B33E7 /* PortForwarding.swift */,
 				AE7E83444D8D5504EA1172ED /* Security.swift */,
 				B7508BDAFAC9991D80E6E6C2 /* SSHService.swift */,
 			);
@@ -194,6 +199,7 @@
 			isa = PBXGroup;
 			children = (
 				34507E69695BE41BB15CED77 /* Docker */,
+				EEE54C753652456EAEC1DAE3 /* Forwards */,
 				C99E23695CD50B1028315F93 /* Hosts */,
 				990AEE1C99F3849A932F4521 /* Terminal */,
 				8F11BA22DFF2C5AA7B9DC191 /* Transfers */,
@@ -273,6 +279,14 @@
 				844F19991018B6F25111675C /* LiveUsageActivity.swift */,
 			);
 			path = Usage;
+			sourceTree = "<group>";
+		};
+		EEE54C753652456EAEC1DAE3 /* Forwards */ = {
+			isa = PBXGroup;
+			children = (
+				0144B118E5FC4D5140830DE2 /* PortForwardView.swift */,
+			);
+			path = Forwards;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -441,6 +455,8 @@
 				626C28A5ACF34F371A8FD668 /* LiveUsageActivity.swift in Sources */,
 				D2C64CE8E944CC79F280B8DB /* Models.swift in Sources */,
 				F5C5A13B1C0D2574FD02D6DD /* Persistence.swift in Sources */,
+				0FB53B0E00DB3D806D16FC0B /* PortForwardView.swift in Sources */,
+				B4D5E53BA9D7C7B4FB865A70 /* PortForwarding.swift in Sources */,
 				04C28300A39113F9FFD98ED5 /* RootView.swift in Sources */,
 				5C912DCE0774BB809FCC3B04 /* SSHService.swift in Sources */,
 				6C0E56F57BFA6E5CF6692023 /* Security.swift in Sources */,

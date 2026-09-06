@@ -53,6 +53,9 @@ saved hosts.
   remembers recent per-host destinations.
 - Docker data is obtained from the selected server through authenticated SSH:
   running containers, one-shot stats, and recent logs.
+- Port Forwards opens remote TCP services through SSH `direct-tcpip` channels.
+  Forward definitions and auto-start settings are persisted; tunnels run while
+  DevBoost is active and can be opened in an in-app WebView.
 - Codex usage starts the signed-in `codex app-server` on the selected SSH host
   and reads only `account/rateLimits/read`; DevBoost does not copy ChatGPT
   credentials to the phone. A successful refresh creates or updates a Lock

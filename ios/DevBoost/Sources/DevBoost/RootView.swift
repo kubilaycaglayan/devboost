@@ -54,6 +54,8 @@ struct HomeView: View {
                     .accessibilityIdentifier("home-feature-terminal")
                 NavigationLink { DockerView() } label: { FeatureTile(title: "Docker", detail: "Containers, stats, logs", symbol: "shippingbox.fill", tint: .purple) }
                     .accessibilityIdentifier("home-feature-docker")
+                NavigationLink { PortForwardView() } label: { FeatureTile(title: "Port Forwards", detail: "Open remote apps on iPhone", symbol: "arrow.left.arrow.right", tint: .cyan) }
+                    .accessibilityIdentifier("home-feature-forwards")
                 NavigationLink { TransferView() } label: { FeatureTile(title: "File Transfer", detail: "Photos and files to Ubuntu", symbol: "arrow.up.doc.fill", tint: .green) }
                     .accessibilityIdentifier("home-feature-transfer")
                 NavigationLink { UsageView() } label: { FeatureTile(title: "AI Usage", detail: store.codexUsage.updatedAt == nil ? "Set up Codex usage" : "Updated just now", symbol: "chart.bar.fill", tint: .orange) }

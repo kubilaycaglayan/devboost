@@ -262,6 +262,18 @@ __DEVBOOST_STATS__
         }
     }
 
+    func testPortForwardManagerRejectsInvalidConfigurationBeforeOpeningSSH() async {
+        let forward = PortForward(hostID: UUID(), remotePort: 0)
+        do {
+            try await PortForwardManager().start(forward, on: Host(), keychain: KeychainStore())
+            XCTFail("Expected invalid forwarding configuration")
+        } catch let error as PortForwardError {
+            XCTAssertEqual(error, .invalidConfiguration)
+        } catch {
+            XCTFail("Unexpected error: \(error)")
+        }
+    }
+
     func testDockerParserMergesStatsByNameAndUsesSafeDefaults() {
         let output = #"""
 {"ID":"abc","Names":"web","Image":"nginx","Status":"Up"}
