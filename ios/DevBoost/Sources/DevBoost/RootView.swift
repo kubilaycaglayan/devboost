@@ -49,15 +49,21 @@ struct HomeView: View {
 
                 LazyVGrid(columns: columns, spacing: 14) {
                 NavigationLink { HostsView() } label: { FeatureTile(title: "SSH Connections", detail: "\(store.hosts.count) saved host\(store.hosts.count == 1 ? "" : "s")", symbol: "server.rack", tint: .blue) }
+                    .accessibilityIdentifier("home-feature-hosts")
                 NavigationLink { TerminalPickerView() } label: { FeatureTile(title: "Terminal", detail: "Open a secure shell", symbol: "terminal.fill", tint: .indigo) }
+                    .accessibilityIdentifier("home-feature-terminal")
                 NavigationLink { DockerView() } label: { FeatureTile(title: "Docker", detail: "Containers, stats, logs", symbol: "shippingbox.fill", tint: .purple) }
+                    .accessibilityIdentifier("home-feature-docker")
                 NavigationLink { TransferView() } label: { FeatureTile(title: "File Transfer", detail: "Photos and files to Ubuntu", symbol: "arrow.up.doc.fill", tint: .green) }
+                    .accessibilityIdentifier("home-feature-transfer")
                 NavigationLink { UsageView() } label: { FeatureTile(title: "AI Usage", detail: store.codexUsage.updatedAt == nil ? "Set up Codex usage" : "Updated just now", symbol: "chart.bar.fill", tint: .orange) }
+                    .accessibilityIdentifier("home-feature-usage")
                 }
+                .buttonStyle(FeatureTileButtonStyle())
                 if let used = store.codexUsage.primaryUsedPercent { CodexHomeCard(used: used, updatedAt: store.codexUsage.updatedAt) }
             }
             .padding(.vertical)
-            .padding(.horizontal, 2)
+            .padding(.horizontal, 16)
         }
         .navigationBarTitleDisplayMode(.inline)
         .task {
@@ -72,16 +78,28 @@ struct HomeView: View {
     }
 }
 
+// The tiles draw their own surfaces; avoid automatic navigation-link chrome.
+private struct FeatureTileButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .contentShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+            .opacity(configuration.isPressed ? 0.75 : 1)
+    }
+}
+
 private struct FeatureTile: View {
     let title: String; let detail: String; let symbol: String; let tint: Color
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
-                Image(systemName: symbol)
-                    .font(.title3.weight(.semibold))
-                    .foregroundStyle(tint)
+                Circle()
+                    .fill(tint.opacity(0.15))
                     .frame(width: 42, height: 42)
-                    .background(tint.opacity(0.15), in: Circle())
+                    .overlay {
+                        Image(systemName: symbol)
+                            .font(.title3.weight(.semibold))
+                            .foregroundStyle(tint)
+                    }
                 Spacer()
                 Image(systemName: "chevron.right")
                     .font(.caption.weight(.bold))
