@@ -196,6 +196,9 @@
       justify-content: center; line-height: 1; padding: 0; width: 30px;
     }
     #usage-body .usage-action-icon:hover { background: var(--btn-hover); border-color: var(--border); color: #fff; }
+    #usage-body .usage-nav-icon.selected { color: #6ee7a0; border-color: rgba(110,231,160,.45); }
+    #usage-body .usage-account-name { margin-right: 4px; }
+    #usage-body .usage-nav-icon { width: 22px; height: 22px; margin-left: 2px; font-size: 16px; vertical-align: -2px; }
     #usage-body .usage-remove-icon:hover { border-color: rgba(248, 81, 73, .55); color: var(--danger); }
     #usage-body tr.dragging td { opacity: .35; }
     #usage-body .usage-drag-handle {
@@ -229,6 +232,8 @@
     .usage-reset-summary { display: inline-flex; align-items: center; margin: 0 0 6px; padding: 3px 8px; border: 1px solid #536275; border-radius: 999px; background: #202a36; color: #dce7f2; font-size: 12px; font-weight: 700; letter-spacing: .4px; white-space: nowrap; }
     #page-usage table { table-layout: fixed; }
     #page-usage th:nth-child(3), #page-usage td:nth-child(3) { width: 28%; }
+    #page-usage th:nth-child(5), #page-usage td:nth-child(5) { width: 72px; }
+    #page-usage .usage-query-age-heading, #page-usage td.usage-age { text-align: center; }
     #page-usage th:last-child, #page-usage td:last-child { width: 132px; white-space: nowrap; }
     #page-usage .usage-actions { white-space: nowrap; }
     #page-usage .usage-quota { min-width: 165px; width: 100%; }
@@ -276,6 +281,11 @@
     .workspace-tab:hover { color: #fff; background: var(--btn-hover); }
     .workspace-tab.active { color: #fff; background: rgba(88,166,255,0.18); }
     .workspace-tab:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+    .quota-nav-tab { position: relative; display: inline-flex; }
+    .quota-nav-meter { position: absolute; right: 9px; bottom: 2px; left: 9px; height: 2px; overflow: hidden; border-radius: 999px; background: rgba(255,255,255,.16); }
+    .quota-nav-meter[hidden] { display: none; }
+    .quota-nav-meter span { display: block; height: 100%; border-radius: inherit; background: #6ee7a0; box-shadow: 0 0 5px rgba(110,231,160,.8); transition: width 260ms ease; }
+    .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
     .workspace-nav-divider { width: 1px; height: 24px; margin: 0 7px; background: var(--border); flex: 0 0 1px; }
     .tab {
       display: inline-flex;
