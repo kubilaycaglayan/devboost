@@ -50,6 +50,8 @@ class TestMenuBarUsage(unittest.TestCase):
         self.assertIn('min(100, max(0, percent))', self.swift)
         self.assertIn("setStatusItemTitle(self.menuBarUsageTitle", self.swift)
         self.assertIn("NSColor.labelColor", self.swift)
+        self.assertIn("statusItem?.isVisible = true", self.swift)
+        self.assertIn("statusItem?.button?.isEnabled = true", self.swift)
 
     def test_usage_accounts_are_checkable_and_persisted(self):
         self.assertIn("selectedUsageAccountIDs", self.swift)

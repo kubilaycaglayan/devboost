@@ -65,7 +65,10 @@ final class DevBoostApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private func setupMenu() {
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         statusItem = item
+        item.isVisible = true
         item.button?.contentTintColor = NSColor.labelColor
+        item.button?.isHidden = false
+        item.button?.isEnabled = true
         setStatusItemTitle("DevBoost")
         let menu = NSMenu()
         menu.addItem(withTitle: "Open Dashboard", action: #selector(openDashboard), keyEquivalent: "o")
@@ -194,10 +197,10 @@ final class DevBoostApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     private func setStatusItemTitle(_ title: String) {
-        statusItem?.button?.attributedTitle = NSAttributedString(
-            string: title,
-            attributes: [.foregroundColor: NSColor.labelColor]
-        )
+        statusItem?.isVisible = true
+        statusItem?.button?.isHidden = false
+        statusItem?.button?.isEnabled = true
+        statusItem?.button?.title = title
     }
 
     private func setUsageMenuStatus(_ title: String) {
