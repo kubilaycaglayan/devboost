@@ -30,8 +30,12 @@ final class DevBoostApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var backend: Process?
     private var statusItem: NSStatusItem?
     private var statusMenu: NSMenu?
+    private var usageStatusMenuItem: NSMenuItem?
     private var usageTimer: Timer?
+    private var usageStatusTimer: Timer?
     private var interruptSource: DispatchSourceSignal?
+    private var usageMenuNeedsRebuild = false
+    private var lastUsageSyncAt: Date?
     private var selectedUsageAccountIDs: Set<String> = Set(
         UserDefaults.standard.stringArray(forKey: DevBoostApp.selectedUsageAccountsKey) ?? []
     )
@@ -49,10 +53,12 @@ final class DevBoostApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
         runCommand(pythonArguments: ["serve"] + Array(CommandLine.arguments.dropFirst()))
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in self?.refreshUsage() }
         usageTimer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in self?.refreshUsage() }
+        usageStatusTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in self?.updateUsageMenuStatus() }
     }
 
     func applicationWillTerminate(_ notification: Notification) {
         usageTimer?.invalidate()
+        usageStatusTimer?.invalidate()
         backend?.terminate()
     }
 
@@ -64,7 +70,10 @@ final class DevBoostApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let menu = NSMenu()
         menu.addItem(withTitle: "Open Dashboard", action: #selector(openDashboard), keyEquivalent: "o")
         menu.addItem(NSMenuItem.separator())
-        menu.addItem(withTitle: "Loading usage…", action: nil, keyEquivalent: "")
+        let usageStatus = NSMenuItem(title: "Syncing usage…", action: nil, keyEquivalent: "")
+        usageStatus.isEnabled = true
+        usageStatusMenuItem = usageStatus
+        menu.addItem(usageStatus)
         menu.addItem(NSMenuItem.separator())
         menu.addItem(withTitle: "Quit DevBoost", action: #selector(quit), keyEquivalent: "q")
         item.menu = menu
@@ -75,7 +84,16 @@ final class DevBoostApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
     func menuWillOpen(_ menu: NSMenu) {
         // Opening the status menu is an explicit request to see current
         // quotas, so do not wait for the background one-minute refresh.
+        setUsageMenuStatus("Syncing usage…")
         refreshUsage(force: true)
+    }
+
+    func menuDidClose(_ menu: NSMenu) {
+        guard usageMenuNeedsRebuild else { return }
+        usageMenuNeedsRebuild = false
+        // Apply the latest provider rows only after the menu is closed. This
+        // avoids replacing visible NSMenuItems while AppKit is tracking them.
+        refreshUsage()
     }
 
     private func refreshUsage(force: Bool = false) {
@@ -88,9 +106,20 @@ final class DevBoostApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
                   let snapshots = root["snapshots"] as? [String: Any] else { return }
             DispatchQueue.main.async {
                 guard let self = self, let menu = self.statusMenu else { return }
+                self.lastUsageSyncAt = Date()
+                self.setUsageMenuStatus(self.usageSyncStatus())
                 self.setStatusItemTitle(self.menuBarUsageTitle(accounts: accounts, snapshots: snapshots))
+                if menu.isVisible {
+                    self.usageMenuNeedsRebuild = true
+                    return
+                }
                 menu.removeAllItems()
                 menu.addItem(withTitle: "Open Dashboard", action: #selector(DevBoostApp.openDashboard), keyEquivalent: "o")
+                menu.addItem(NSMenuItem.separator())
+                let usageStatus = NSMenuItem(title: self.usageSyncStatus(), action: nil, keyEquivalent: "")
+                usageStatus.isEnabled = true
+                self.usageStatusMenuItem = usageStatus
+                menu.addItem(usageStatus)
                 menu.addItem(NSMenuItem.separator())
                 // The backend returns accounts in the persisted quotas-page
                 // order. Keep that order here so dragging a row also moves
@@ -169,6 +198,20 @@ final class DevBoostApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
             string: title,
             attributes: [.foregroundColor: NSColor.labelColor]
         )
+    }
+
+    private func setUsageMenuStatus(_ title: String) {
+        usageStatusMenuItem?.title = title
+    }
+
+    private func updateUsageMenuStatus() {
+        guard usageStatusMenuItem != nil else { return }
+        setUsageMenuStatus(lastUsageSyncAt.map { _ in usageSyncStatus() } ?? "Syncing usage…")
+    }
+
+    private func usageSyncStatus() -> String {
+        guard let syncedAt = lastUsageSyncAt else { return "Syncing usage…" }
+        return "Synced \(max(0, Int(Date().timeIntervalSince(syncedAt))) )s ago"
     }
 
     private func addIndentedItem(to menu: NSMenu, title: String, indentationLevel: Int = 1) {

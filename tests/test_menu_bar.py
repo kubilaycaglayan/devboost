@@ -37,6 +37,9 @@ class TestMenuBarUsage(unittest.TestCase):
         self.assertIn("func menuWillOpen(_ menu: NSMenu)", self.swift)
         self.assertIn("refreshUsage(force: true)", self.swift)
         self.assertIn('force ? "?refresh=1" : ""', self.swift)
+        self.assertIn("func menuDidClose(_ menu: NSMenu)", self.swift)
+        self.assertIn("Syncing usage…", self.swift)
+        self.assertIn("usageSyncStatus()", self.swift)
 
     def test_status_item_shows_compact_usage_title(self):
         self.assertIn("private func menuBarUsageTitle", self.swift)
