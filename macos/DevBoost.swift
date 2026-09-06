@@ -166,6 +166,7 @@ final class DevBoostApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     private func menuBarUsageTitle(accounts: [[String: Any]], snapshots: [String: Any]) -> String {
+        var summaries: [String] = []
         for account in accounts where (account["enabled"] as? Bool) ?? true {
             let aid = account["id"] as? String ?? ""
             guard let snapshot = snapshots[aid] as? [String: Any],
@@ -176,14 +177,16 @@ final class DevBoostApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 let label: String
                 switch provider.lowercased() {
                 case "codex": label = "Cdx"
+                case "agy": label = "Agy"
                 case "claude": label = "Cl"
                 case "opencode": label = "OC"
-                default: label = String(provider.prefix(3))
+                default: label = provider.prefix(1).uppercased() + provider.dropFirst().prefix(2)
                 }
-                return "\(label) L:\(String(format: "%.0f", min(100, max(0, percent))))%"
+                summaries.append("\(label): L:\(String(format: "%.0f", min(100, max(0, percent))))%")
+                break
             }
         }
-        return "DevBoost"
+        return summaries.isEmpty ? "DevBoost" : summaries.joined(separator: " | ")
     }
 
     private func numberText(_ value: Any?) -> String? {

@@ -41,7 +41,9 @@ class TestMenuBarUsage(unittest.TestCase):
     def test_status_item_shows_compact_usage_title(self):
         self.assertIn("private func menuBarUsageTitle", self.swift)
         self.assertIn('case "codex": label = "Cdx"', self.swift)
-        self.assertIn('return "\\(label) L:', self.swift)
+        self.assertIn('case "agy": label = "Agy"', self.swift)
+        self.assertIn('summaries.append("\\(label): L:', self.swift)
+        self.assertIn('summaries.joined(separator: " | ")', self.swift)
         self.assertIn('min(100, max(0, percent))', self.swift)
         self.assertIn("self.statusItem?.button?.title = self.menuBarUsageTitle", self.swift)
 
