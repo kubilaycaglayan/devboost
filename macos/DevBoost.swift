@@ -35,6 +35,7 @@ final class DevBoostApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var usageStatusTimer: Timer?
     private var interruptSource: DispatchSourceSignal?
     private var usageMenuNeedsRebuild = false
+    private var usageMenuIsOpen = false
     private var lastUsageSyncAt: Date?
     private var selectedUsageAccountIDs: Set<String> = Set(
         UserDefaults.standard.stringArray(forKey: DevBoostApp.selectedUsageAccountsKey) ?? []
@@ -87,11 +88,13 @@ final class DevBoostApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
     func menuWillOpen(_ menu: NSMenu) {
         // Opening the status menu is an explicit request to see current
         // quotas, so do not wait for the background one-minute refresh.
+        usageMenuIsOpen = true
         setUsageMenuStatus("Syncing usage…")
         refreshUsage(force: true)
     }
 
     func menuDidClose(_ menu: NSMenu) {
+        usageMenuIsOpen = false
         guard usageMenuNeedsRebuild else { return }
         usageMenuNeedsRebuild = false
         // Apply the latest provider rows only after the menu is closed. This
@@ -112,7 +115,7 @@ final class DevBoostApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 self.lastUsageSyncAt = Date()
                 self.setUsageMenuStatus(self.usageSyncStatus())
                 self.setStatusItemTitle(self.menuBarUsageTitle(accounts: accounts, snapshots: snapshots))
-                if menu.isVisible {
+                if self.usageMenuIsOpen {
                     self.usageMenuNeedsRebuild = true
                     return
                 }
