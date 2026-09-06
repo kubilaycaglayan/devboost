@@ -514,6 +514,16 @@
     .sync-path-remote { color: #d8c2ff; }
     .sync-path-home { opacity: .62; font-weight: 600; }
     .sync-path-tail { font-weight: 850; }
+    #page-syncs table { table-layout: fixed; }
+    #page-syncs th:nth-child(1), #page-syncs td:nth-child(1) { width: 25%; }
+    #page-syncs th:nth-child(2), #page-syncs td:nth-child(2) { width: 25%; }
+    #page-syncs th:nth-child(3), #page-syncs td:nth-child(3) { width: 13%; }
+    #page-syncs th:nth-child(4), #page-syncs td:nth-child(4) { width: 13%; }
+    #page-syncs th:nth-child(5), #page-syncs td:nth-child(5) { width: 24%; padding-left: 10px; padding-right: 10px; }
+    #page-syncs .sync-actions-heading { text-align: center; }
+    #page-syncs td:nth-child(5) .actions-cell { justify-content: center; }
+    .sync-last-line { display: inline-flex; flex-direction: column; gap: 5px; margin-top: 6px; color: var(--text-muted); font-size: 11px; line-height: 1.2; }
+    .sync-last-line > span { white-space: nowrap; }
     .sync-sub { font-size: 11px; color: var(--text-muted); font-family: var(--font-mono); word-break: break-all; }
     .form-checkbox { display: flex; align-items: center; gap: 8px; cursor: pointer; user-select: none; }
     .recent-chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }

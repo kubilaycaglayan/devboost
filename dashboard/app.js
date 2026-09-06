@@ -178,11 +178,51 @@
       el.replaceChildren(...parts.map(part => {
         const span = document.createElement("span");
         span.className = part.className || "tile-detail";
-        span.textContent = part.text;
+        if (part.children) {
+          span.replaceChildren(...part.children.map(child => {
+            const nested = document.createElement("span");
+            nested.className = child.className || "";
+            nested.textContent = child.text;
+            return nested;
+          }));
+        } else {
+          span.textContent = part.text;
+        }
         return span;
       }));
     }
     function summarySeparator() { return {text: " · ", className: "tile-separator"}; }
+    function splitSyncPath(path, side) {
+      const value = String(path || "—");
+      const homePattern = side === "remote"
+        ? /^(.*?:~|.*?:\/home\/[^/]+)(\/.*)?$/
+        : /^(~|\/(?:Users|home)\/[^/]+)(\/.*)?$/;
+      const match = value.match(homePattern);
+      return {
+        value,
+        home: match ? match[1] : "",
+        remainder: match ? (match[2] || "") : value,
+        matched: Boolean(match)
+      };
+    }
+    function syncPathMarkup(path, side) {
+      const parts = splitSyncPath(path, side);
+      const home = parts.matched ? `<span class="sync-path-home">${escapeHtml(parts.home)}</span>` : "";
+      const remainder = `<span class="sync-path-tail">${escapeHtml(parts.remainder)}</span>`;
+      return `<span class="sync-path sync-path-${side}">${home}${remainder}</span>`;
+    }
+    function syncSummaryPath(path, side) {
+      const parts = splitSyncPath(path, side);
+      return {
+        className: `tile-detail tile-sync tile-sync-${side}`,
+        children: parts.matched
+          ? [
+              {text: parts.home, className: "tile-sync-home"},
+              {text: parts.remainder, className: "tile-sync-tail"}
+            ]
+          : [{text: parts.value, className: "tile-sync-tail"}]
+      };
+    }
     function renderHomeForwardsSummary(forwards) {
       const ports = (forwards || []).map(f => `:${f.local_port}`);
       if (!ports.length) { setHomeSummary("home-forwards-summary", "No forwarded ports"); return; }
@@ -205,12 +245,14 @@
       setHomeSummaryParts("home-docker-summary", parts);
     }
     function renderHomeSyncSummary(syncs) {
-      const paths = (syncs || []).map(sync => `${sync.local_path} → ${sync.remote_path}`);
-      const shown = paths.slice(0, 2);
-      if (paths.length > shown.length) shown.push(`+${paths.length - shown.length} more`);
+      const shown = (syncs || []).slice(0, 2);
       if (!shown.length) { setHomeSummary("home-syncs-summary", "No active folder syncs"); return; }
-      const parts = [{text: `${paths.length} active`, className: "tile-summary-count"}];
-      shown.forEach(path => parts.push(summarySeparator(), {text: path, className: "tile-detail tile-sync"}));
+      const parts = [{text: `${syncs.length} active`, className: "tile-summary-count"}];
+      shown.forEach(sync => {
+        parts.push(summarySeparator(), syncSummaryPath(sync.local_path, "local"));
+        parts.push({text: " → ", className: "tile-separator"}, syncSummaryPath(sync.remote_path, "remote"));
+      });
+      if (syncs.length > shown.length) parts.push(summarySeparator(), {text: `+${syncs.length - shown.length} more`, className: "tile-detail tile-sync"});
       setHomeSummaryParts("home-syncs-summary", parts);
     }
     function renderHomeUsageSummary(accounts, snapshots) {
@@ -1380,7 +1422,10 @@
       if (delta < 60) return Math.max(0, Math.floor(delta)) + "s ago";
       if (delta < 3600) return Math.floor(delta / 60) + "m ago";
       if (delta < 86400) return Math.floor(delta / 3600) + "h ago";
-      return new Date(ts * 1000).toLocaleString();
+      if (delta < 604800) return Math.floor(delta / 86400) + "d ago";
+      if (delta < 2592000) return Math.floor(delta / 604800) + "w ago";
+      if (delta < 31536000) return Math.floor(delta / 2592000) + "mo ago";
+      return Math.floor(delta / 31536000) + "y ago";
     }
 
     function directionBadge(direction, mirror) {
@@ -1399,7 +1444,12 @@
     function formatSyncTime(ts) {
       if (!ts) return "—";
       try {
-        return new Date(ts * 1000).toLocaleString();
+        return new Date(ts * 1000).toLocaleTimeString("en-GB", {
+          hour: "2-digit",
+          minute: "2-digit",
+          second: "2-digit",
+          hour12: false
+        });
       } catch (err) {
         return "—";
       }
@@ -1431,17 +1481,19 @@
         return;
       }
       tbody.innerHTML = currentSyncs.map(s => {
-        const msg = s.last_message ? `<br/><span class="muted" style="font-size:11px;">${escapeHtml((s.last_message || '').slice(0, 120))}</span>` : "";
+        const msg = s.last_message && s.last_status !== "ok"
+          ? `<br/><span class="muted" style="font-size:11px;">${escapeHtml((s.last_message || '').slice(0, 120))}</span>`
+          : "";
         const protectedWarn = s.local_protected && s.last_status !== "ok"
           ? `<br/><span style="font-size:11px; color:var(--warning);">⚠️ ${data.packaged_app ? 'Allow DevBoost to access this protected folder in macOS Privacy & Security before background sync can write here.' : 'Background runs from a source checkout cannot access this folder — run the packaged DevBoost app.'}</span>`
           : "";
         const lastSyncLine = (s.last_status === "ok" && s.last_sync)
-          ? `<br/><span class="muted mono" style="font-size:11px;" title="Exact time of the last successful sync">Last synced: ${escapeHtml(formatSyncTime(s.last_sync))}</span>`
+          ? `<br/><span class="sync-last-line mono" title="Relative age and exact time of the last successful sync"><span>Synced ${escapeHtml(formatSyncAge(s.last_sync))}</span><span>(${escapeHtml(formatSyncTime(s.last_sync))})</span></span>`
           : "";
         return `
           <tr>
-            <td><span class="sync-path">${escapeHtml(s.local_path)}</span><br/><span class="muted" style="font-size:11px;">this Mac</span></td>
-            <td><span class="sync-path">${escapeHtml(s.remote_path)}</span><br/><span class="muted" style="font-size:11px;">${escapeHtml(data.server_host || currentServerHost || 'server')}</span></td>
+            <td>${syncPathMarkup(s.local_path, "local")}<br/><span class="muted" style="font-size:11px;">this Mac</span></td>
+            <td>${syncPathMarkup(s.remote_path, "remote")}<br/><span class="muted" style="font-size:11px;">${escapeHtml(data.server_host || currentServerHost || 'server')}</span></td>
             <td>${directionBadge(s.direction, s.mirror)}<br/><span style="display:inline-block; margin-top:4px;">${modeBadge(s)}</span></td>
             <td>${syncStatusBadge(s)}${lastSyncLine}${protectedWarn}${msg}</td>
             <td>
