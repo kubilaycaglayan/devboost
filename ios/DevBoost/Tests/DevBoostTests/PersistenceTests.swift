@@ -43,6 +43,29 @@ final class PersistenceTests: XCTestCase {
         XCTAssertEqual(second.transfers, [transfer])
     }
 
+    func testPortForwardsAndSettingsRoundTrip() {
+        let host = Host(name: "Lab", hostname: "example.test", username: "ubuntu")
+        let forward = PortForward(name: "Web", hostID: host.id, remoteHost: "127.0.0.1", remotePort: 8080, localPort: 18080, autoStart: true)
+        let first = AppStore(fileURL: stateURL)
+        first.upsert(host)
+        first.upsert(forward)
+        first.forwardingSettings.autoStartSavedForwards = true
+
+        let second = AppStore(fileURL: stateURL)
+        XCTAssertEqual(second.forwards, [forward])
+        XCTAssertEqual(second.forwards(for: host), [forward])
+        XCTAssertTrue(second.forwardingSettings.autoStartSavedForwards)
+    }
+
+    func testDeletingHostAlsoDeletesItsPortForwards() {
+        let host = Host(hostname: "example.test", username: "ubuntu")
+        let store = AppStore(fileURL: stateURL)
+        store.upsert(host)
+        store.upsert(PortForward(hostID: host.id))
+        store.delete(host)
+        XCTAssertTrue(store.forwards.isEmpty)
+    }
+
     func testDestinationsRejectRelativePathsDeduplicateAndKeepNewestEight() {
         let host = Host(hostname: "host", username: "user")
         let store = AppStore(fileURL: stateURL)
@@ -80,12 +103,17 @@ final class PersistenceTests: XCTestCase {
         first.setRetainsDataAfterDeletion(true)
         first.upsert(host)
         first.remember(destination: "/srv/apps", for: host)
+        let forward = PortForward(name: "Web", hostID: host.id, remotePort: 8080, localPort: 18080, autoStart: true)
+        first.upsert(forward)
+        first.forwardingSettings.autoStartSavedForwards = true
 
         try FileManager.default.removeItem(at: stateURL)
         let restored = AppStore(fileURL: stateURL, retentionStore: retained)
         XCTAssertTrue(restored.retainsDataAfterDeletion)
         XCTAssertEqual(restored.hosts, [host])
         XCTAssertEqual(restored.destinations(for: host).map(\.path), ["/srv/apps"])
+        XCTAssertEqual(restored.forwards, [forward])
+        XCTAssertTrue(restored.forwardingSettings.autoStartSavedForwards)
     }
 
     func testTurningOffRetentionRemovesTheRestoreCopy() throws {

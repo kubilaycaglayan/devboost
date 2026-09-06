@@ -3,14 +3,37 @@ import Combine
 
 private struct PersistedState: Codable {
     var hosts: [Host] = []
+    var forwards: [PortForward] = []
+    var forwardingSettings = PortForwardingSettings()
     var recentDestinations: [UUID: [RemoteDestination]] = [:]
     var transfers: [TransferRecord] = []
     var codexUsage = CodexUsageSnapshot.empty
+
+    init(hosts: [Host] = [], forwards: [PortForward] = [], forwardingSettings: PortForwardingSettings = .init(), recentDestinations: [UUID: [RemoteDestination]] = [:], transfers: [TransferRecord] = [], codexUsage: CodexUsageSnapshot = .empty) {
+        self.hosts = hosts
+        self.forwards = forwards
+        self.forwardingSettings = forwardingSettings
+        self.recentDestinations = recentDestinations
+        self.transfers = transfers
+        self.codexUsage = codexUsage
+    }
+
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        hosts = try values.decodeIfPresent([Host].self, forKey: .hosts) ?? []
+        forwards = try values.decodeIfPresent([PortForward].self, forKey: .forwards) ?? []
+        forwardingSettings = try values.decodeIfPresent(PortForwardingSettings.self, forKey: .forwardingSettings) ?? .init()
+        recentDestinations = try values.decodeIfPresent([UUID: [RemoteDestination]].self, forKey: .recentDestinations) ?? [:]
+        transfers = try values.decodeIfPresent([TransferRecord].self, forKey: .transfers) ?? []
+        codexUsage = try values.decodeIfPresent(CodexUsageSnapshot.self, forKey: .codexUsage) ?? .empty
+    }
 }
 
 @MainActor
 final class AppStore: ObservableObject {
     @Published private(set) var hosts: [Host] = []
+    @Published private(set) var forwards: [PortForward] = []
+    @Published var forwardingSettings = PortForwardingSettings() { didSet { save() } }
     @Published private(set) var recentDestinations: [UUID: [RemoteDestination]] = [:]
     @Published private(set) var transfers: [TransferRecord] = []
     @Published var codexUsage = CodexUsageSnapshot.empty { didSet { save() } }
@@ -39,6 +62,8 @@ final class AppStore: ObservableObject {
         let data = (try? Data(contentsOf: self.fileURL)) ?? (retainsDataAfterDeletion ? try? self.retentionStore.data(for: Self.retainedStateKey) : nil)
         guard let data, let state = try? JSONDecoder().decode(PersistedState.self, from: data) else { return }
         hosts = state.hosts
+        forwards = state.forwards
+        forwardingSettings = state.forwardingSettings
         recentDestinations = state.recentDestinations
         transfers = state.transfers
         codexUsage = state.codexUsage
@@ -49,8 +74,12 @@ final class AppStore: ObservableObject {
         if let keyID = host.keyID { KeyManager(keychain: keychain).remove(id: keyID) }
         hosts.removeAll { $0.id == host.id }
         recentDestinations[host.id] = nil
+        forwards.removeAll { $0.hostID == host.id }
         save()
     }
+    func upsert(_ forward: PortForward) { replace(&forwards, with: forward); save() }
+    func delete(_ forward: PortForward) { forwards.removeAll { $0.id == forward.id }; save() }
+    func forwards(for host: Host) -> [PortForward] { forwards.filter { $0.hostID == host.id } }
     func remember(destination: String, for host: Host) {
         let clean = destination.trimmingCharacters(in: .whitespacesAndNewlines)
         guard clean.hasPrefix("/") else { return }
@@ -77,7 +106,7 @@ final class AppStore: ObservableObject {
         if let index = values.firstIndex(where: { $0.id == value.id }) { values[index] = value } else { values.append(value) }
     }
     private func save() {
-        let state = PersistedState(hosts: hosts, recentDestinations: recentDestinations, transfers: transfers, codexUsage: codexUsage)
+        let state = PersistedState(hosts: hosts, forwards: forwards, forwardingSettings: forwardingSettings, recentDestinations: recentDestinations, transfers: transfers, codexUsage: codexUsage)
         guard let data = try? JSONEncoder().encode(state) else { return }
         try? data.write(to: fileURL, options: [.atomic, .completeFileProtection])
         if retainsDataAfterDeletion { try? retentionStore.set(data, for: Self.retainedStateKey) }

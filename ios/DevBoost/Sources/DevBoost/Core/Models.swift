@@ -23,6 +23,33 @@ struct RemoteDestination: Codable, Identifiable, Hashable {
     var id: String { path }
 }
 
+struct PortForward: Codable, Identifiable, Equatable, Hashable {
+    var id = UUID()
+    var name = "Local service"
+    var hostID: UUID
+    var remoteHost = "127.0.0.1"
+    var remotePort = 3000
+    var localPort = 3000
+    var autoStart = false
+
+    var displayName: String {
+        name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Port \(remotePort)" : name
+    }
+
+    var localURL: URL? { URL(string: "http://127.0.0.1:\(localPort)") }
+
+    var isValid: Bool {
+        !remoteHost.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+        (1...65535).contains(remotePort) &&
+        (1...65535).contains(localPort)
+    }
+}
+
+struct PortForwardingSettings: Codable, Equatable {
+    var defaultRemoteHost = "127.0.0.1"
+    var autoStartSavedForwards = false
+}
+
 struct TransferRecord: Codable, Identifiable, Hashable {
     let id: UUID
     let hostID: UUID

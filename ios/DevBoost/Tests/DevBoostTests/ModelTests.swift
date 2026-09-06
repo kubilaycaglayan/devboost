@@ -18,6 +18,16 @@ final class ModelTests: XCTestCase {
         XCTAssertFalse(Host(hostname: "host", port: 65_536, username: "ubuntu").isConfigured)
     }
 
+    func testPortForwardValidationAndLocalURL() {
+        let hostID = UUID()
+        let forward = PortForward(name: "Web", hostID: hostID, remoteHost: "127.0.0.1", remotePort: 3000, localPort: 13000)
+        XCTAssertTrue(forward.isValid)
+        XCTAssertEqual(forward.localURL?.absoluteString, "http://127.0.0.1:13000")
+        XCTAssertFalse(PortForward(hostID: hostID, remotePort: 0).isValid)
+        XCTAssertFalse(PortForward(hostID: hostID, localPort: 65536).isValid)
+        XCTAssertFalse(PortForward(hostID: hostID, remoteHost: " ").isValid)
+    }
+
     func testCodexSnapshotStartsEmpty() {
         XCTAssertNil(CodexUsageSnapshot.empty.primaryUsedPercent)
         XCTAssertNotNil(CodexUsageSnapshot.empty.message)
