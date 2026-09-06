@@ -18,8 +18,6 @@
     let usageOrderVersion = 0;
     let usageNameAuto = false;
     let usageTab = "remote";
-    const quotaNavSelectionKey = "devboost-quota-nav-selection";
-    let quotaNavSelection = readQuotaNavSelection();
     const usageMetrics = globalThis.DevBoostUsageMetrics;
     let browserLocalCur = "";
     let browserRemoteCur = "";
@@ -82,30 +80,12 @@
     function usageGrade(percent) {
       return usageMetrics.usageGrade(percent);
     }
-    function readQuotaNavSelection() {
-      try {
-        const value = JSON.parse(localStorage.getItem(quotaNavSelectionKey) || "null");
-        return value && typeof value.accountId === "string" ? value : null;
-      } catch (_) { return null; }
-    }
     function quotaNavCandidate(accounts, snapshots) {
-      const configured = quotaNavSelection && (accounts || []).find(account => String(account.id) === quotaNavSelection.accountId);
-      if (configured) {
-        const quotas = ((snapshots || {})[configured.id] || {}).quotas || [];
-        const index = Number.isInteger(quotaNavSelection.quotaIndex) ? quotaNavSelection.quotaIndex : 0;
-        if (quotas[index] && usagePercent(quotas[index]) != null) return {account: configured, quota: quotas[index], index};
-      }
-      const codex = (accounts || []).find(account => account.provider === "codex");
-      const codexQuotas = codex ? ((snapshots || {})[codex.id] || {}).quotas || [] : [];
-      const fiveHourIndex = codexQuotas.findIndex(quota => /5\s*[- ]?hour/i.test(String(quota.name || "")));
-      const fallbackIndex = fiveHourIndex >= 0 ? fiveHourIndex : codexQuotas.findIndex(quota => usagePercent(quota) != null);
-      if (codex && fallbackIndex >= 0) return {account: codex, quota: codexQuotas[fallbackIndex], index: fallbackIndex};
-      for (const account of (accounts || [])) {
-        const quotas = ((snapshots || {})[account.id] || {}).quotas || [];
-        const index = quotas.findIndex(quota => usagePercent(quota) != null);
-        if (index >= 0) return {account, quota: quotas[index], index};
-      }
-      return null;
+      const account = (accounts || [])[0];
+      if (!account) return null;
+      const quotas = ((snapshots || {})[account.id] || {}).quotas || [];
+      const index = quotas.findIndex(quota => usagePercent(quota) != null);
+      return index >= 0 ? {account, quota: quotas[index], index} : null;
     }
     function renderQuotaNavIndicator(accounts = usageAccounts, snapshots = usageSnapshots) {
       const meter = document.getElementById("quota-nav-meter");
@@ -123,13 +103,6 @@
       fill.style.width = `${remaining.toFixed(2)}%`;
       label.textContent = `${Math.round(remaining)}% of ${candidate.account.name} ${candidate.quota.name || "selected quota"} remaining`;
       meter.hidden = false;
-    }
-    function selectQuotaForNavigation(accountId, quotaIndex = 0) {
-      quotaNavSelection = {accountId: String(accountId), quotaIndex: Number(quotaIndex) || 0};
-      try { localStorage.setItem(quotaNavSelectionKey, JSON.stringify(quotaNavSelection)); } catch (_) {}
-      renderQuotaNavIndicator();
-      renderUsage({accounts: usageAccounts, snapshots: usageSnapshots});
-      showToast("Quota indicator updated");
     }
     function usageResetTime(value) {
       return usageMetrics.formatResetTime(value);
