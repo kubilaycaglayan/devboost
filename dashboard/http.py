@@ -3,6 +3,7 @@
 import json
 import os
 import re
+import secrets
 import uuid
 import urllib.parse
 from http.server import BaseHTTPRequestHandler
@@ -10,6 +11,19 @@ from http.server import BaseHTTPRequestHandler
 
 class DashboardHandler(BaseHTTPRequestHandler):
     _MAX_JSON_BYTES = 1024 * 1024
+    _SESSION_COOKIE = "devboost_session"
+
+    def _api_authenticated(self):
+        """Require the per-launch session cookie when the server has one."""
+        expected = getattr(self.server, "auth_token", "")
+        if not expected:
+            return True
+        values = {}
+        for cookie in self.headers.get("Cookie", "").split(";"):
+            name, separator, value = cookie.strip().partition("=")
+            if separator:
+                values[name] = value
+        return secrets.compare_digest(values.get(self._SESSION_COOKIE, ""), expected)
 
     def _local_browser_request(self):
         """Allow dashboard-origin requests, while blocking cross-site browser calls.
@@ -26,7 +40,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 expected_port = self.server.server_port
                 if parsed.scheme not in ("http", "https") or parsed.hostname not in ("localhost", "127.0.0.1"):
                     return False
-                return parsed.port in (None, expected_port)
+                return parsed.port == expected_port
             except ValueError:
                 return False
         return True
@@ -36,6 +50,12 @@ class DashboardHandler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", "application/json")
         self.end_headers()
         self.wfile.write(b'{"ok":false,"message":"Request origin is not allowed"}')
+
+    def _reject_unauthenticated_request(self):
+        self.send_response(401)
+        self.send_header("Content-Type", "application/json")
+        self.end_headers()
+        self.wfile.write(b'{"ok":false,"message":"Dashboard session required"}')
 
     def _send_json(self, data, status=200):
         self.send_response(status)
@@ -70,9 +90,13 @@ class DashboardHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         parsed = urllib.parse.urlparse(self.path)
         path = parsed.path
-        if path.startswith("/api/") and not self._local_browser_request():
-            self._reject_untrusted_request()
-            return
+        if path.startswith("/api/"):
+            if not self._api_authenticated():
+                self._reject_unauthenticated_request()
+                return
+            if not self._local_browser_request():
+                self._reject_untrusted_request()
+                return
         query = urllib.parse.parse_qs(parsed.query)
         if path == "/" or path == "/index.html":
             self.send_response(200)
@@ -81,6 +105,12 @@ class DashboardHandler(BaseHTTPRequestHandler):
             # previously packaged inline dashboard keep running after an
             # upgrade (that was the source of misleading syntax errors).
             self.send_header("Cache-Control", "no-store, no-cache, must-revalidate")
+            auth_token = getattr(self.server, "auth_token", "")
+            if auth_token:
+                self.send_header(
+                    "Set-Cookie",
+                    f"{self._SESSION_COOKIE}={auth_token}; Path=/; HttpOnly; SameSite=Strict",
+                )
             self.end_headers()
             self.wfile.write(HTML_DASHBOARD.encode("utf-8"))
         elif path.startswith("/dashboard/"):
@@ -193,6 +223,9 @@ class DashboardHandler(BaseHTTPRequestHandler):
     def do_POST(self):
         parsed = urllib.parse.urlparse(self.path)
         path = parsed.path
+        if path.startswith("/api/") and not self._api_authenticated():
+            self._reject_unauthenticated_request()
+            return
         if not self._local_browser_request() or not self.headers.get("Content-Type", "").split(";", 1)[0].strip().lower() == "application/json":
             self._reject_untrusted_request()
             return

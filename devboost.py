@@ -12,6 +12,7 @@ import glob
 import time
 import signal
 import plistlib
+import secrets
 import posixpath
 import shlex
 import shutil
@@ -779,6 +780,10 @@ def serve(port=DEFAULT_DASHBOARD_PORT):
         restore_packaged_forward_agents()
         restore_auto_sync_agents()
     server = ReusableHTTPServer(("127.0.0.1", port), DashboardHandler)
+    # The dashboard controls local SSH, sync, Docker, and process-management
+    # operations. A fresh per-launch token prevents unrelated local web/API
+    # clients from invoking those endpoints without first loading the UI.
+    server.auth_token = secrets.token_urlsafe(32)
     print(f"DevBoost Dashboard running at http://localhost:{port}")
     try:
         server.serve_forever()

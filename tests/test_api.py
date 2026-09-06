@@ -284,6 +284,27 @@ process.stdout.write(JSON.stringify([
         with urllib.request.urlopen(request) as response:
             self.assertEqual(response.status, 200)
 
+    def test_production_session_cookie_authorizes_api(self):
+        token = "test-session-token"
+        self.server.auth_token = token
+        try:
+            request = urllib.request.Request(f"{self.base_url}/api/servers")
+            with self.assertRaises(urllib.error.HTTPError) as raised:
+                urllib.request.urlopen(request)
+            self.assertEqual(raised.exception.code, 401)
+
+            with urllib.request.urlopen(f"{self.base_url}/") as response:
+                self.assertIn(f"devboost_session={token}", response.headers.get("Set-Cookie", ""))
+
+            request = urllib.request.Request(
+                f"{self.base_url}/api/servers",
+                headers={"Cookie": f"devboost_session={token}"},
+            )
+            with urllib.request.urlopen(request) as response:
+                self.assertEqual(response.status, 200)
+        finally:
+            del self.server.auth_token
+
     def test_api_rejects_non_json_posts(self):
         request = urllib.request.Request(
             f"{self.base_url}/api/clean",
