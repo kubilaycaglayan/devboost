@@ -209,10 +209,13 @@ final class DevBoostApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
         guard let button = statusItem?.button else { return }
         button.isHidden = false
         button.isEnabled = true
+        button.appearsDisabled = false
         button.alphaValue = 1
         var attributes: [NSAttributedString.Key: Any] = [.foregroundColor: NSColor.white]
         if let font = button.font { attributes[.font] = font }
-        button.attributedTitle = NSAttributedString(string: title, attributes: attributes)
+        let styledTitle = NSAttributedString(string: title, attributes: attributes)
+        button.attributedTitle = styledTitle
+        button.attributedAlternateTitle = styledTitle
     }
 
     private func setUsageMenuStatus(_ title: String) {
