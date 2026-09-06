@@ -6,7 +6,7 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 
-const [chromePath, baseUrl] = process.argv.slice(2);
+const [chromePath, baseUrl, mode = "drag"] = process.argv.slice(2);
 const profile = fs.mkdtempSync(path.join(os.tmpdir(), "devboost-chrome-"));
 const chrome = spawn(chromePath, ["--headless=new", "--remote-debugging-pipe",
   "--no-first-run", "--no-default-browser-check", "--disable-background-networking",
@@ -154,6 +154,15 @@ async function main() {
     };
   `});
   await send("Page.navigate", {url: baseUrl + "/#servers"});
+  if (mode === "empty") {
+    await until("document.querySelector('#tabs-bar').textContent.includes('No servers yet.')", "Empty first-run tabs did not render");
+    assert.ok(await evaluate("document.querySelector('#server-management-list').textContent.includes('No servers configured yet. Add an SSH connection to get started.')"),
+      "Empty first-run server management state must explain the next step");
+    assert.ok(await evaluate("document.querySelector('.server-manage-button').textContent.includes('Manage servers')"),
+      "Empty first-run tabs must offer a path to server management");
+    process.stdout.write("PASS: web first-run empty state, next-step guidance, and mobile-safe server navigation\n");
+    return;
+  }
   await until("document.querySelectorAll('#server-management-list [data-server-id]').length === 3", "Servers did not load");
   await assertOrder(["alpha", "beta", "gamma"]);
   await evaluate("window.holdNextStatus = true; window.heldStatusRequest = fetchStatus(); true");

@@ -23,6 +23,28 @@ def chrome_executable():
 
 
 class TestServerDragBrowser(unittest.TestCase):
+    def test_web_first_run_empty_state(self):
+        chrome = chrome_executable()
+        if not chrome or not shutil.which("node"):
+            self.skipTest("First-run browser regression requires Chrome/Chromium and Node")
+        with tempfile.TemporaryDirectory(prefix="devboost-empty-browser-state-") as app_dir:
+            env = dict(os.environ, DEVBOOST_APP_DIR=app_dir, DEVBOOST_EMPTY_FIXTURE="1")
+            server = subprocess.Popen(
+                [sys.executable, __file__, "--serve"], cwd=ROOT, env=env,
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+            )
+            try:
+                url = server.stdout.readline().strip()
+                self.assertTrue(url.startswith("http://127.0.0.1:"), url)
+                result = subprocess.run(
+                    ["node", str(ROOT / "tests" / "server_drag_browser.js"), chrome, url, "empty"],
+                    cwd=ROOT, capture_output=True, text=True, timeout=60,
+                )
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            finally:
+                server.terminate()
+                server.communicate(timeout=10)
+
     def test_native_mouse_drag_reorders_cards_and_tabs(self):
         chrome = chrome_executable()
         if not chrome or not shutil.which("node"):
@@ -71,9 +93,10 @@ class TestServerDragBrowser(unittest.TestCase):
 def serve_fixture():
     """Use actual dashboard/reorder persistence; never start SSH or scan the host."""
     app_dir = Path(os.environ["DEVBOOST_APP_DIR"])
+    names = () if os.environ.get("DEVBOOST_EMPTY_FIXTURE") else ("alpha", "beta", "gamma")
     servers = [dict(id=name, ssh_host=f"{name}.invalid", name=name.title(),
                     ip="", order=index, pinned=False)
-               for index, name in enumerate(("alpha", "beta", "gamma"))]
+               for index, name in enumerate(names)]
     (app_dir / "config.json").write_text(json.dumps({"servers": servers}), encoding="utf-8")
     sys.path.insert(0, str(ROOT))
     import devboost
@@ -83,10 +106,11 @@ def serve_fixture():
             parsed = urllib.parse.urlparse(self.path)
             path = parsed.path
             query = urllib.parse.parse_qs(parsed.query)
+            configured_servers = [] if os.environ.get("DEVBOOST_EMPTY_FIXTURE") else devboost.get_servers()
             if path == "/api/servers":
-                return self._send_json({"servers": devboost.get_servers()})
+                return self._send_json({"servers": configured_servers})
             if path == "/api/status":
-                return self._send_json({"servers": devboost.get_servers(),
+                return self._send_json({"servers": configured_servers,
                                         "server_id": query.get("server", ["alpha"])[0],
                                         "server_reachable": False, "forwards": [],
                                         "history": [], "orphaned_count": 0})

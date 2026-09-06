@@ -97,6 +97,20 @@ async function main() {
   })()`);
   assert.ok(desktop.meterWidth >= 250, `Desktop quota bars should be wide enough to scan (${desktop.meterWidth}px)`);
   assert.ok(desktop.actionsRight <= desktop.cardRight, "Desktop quota actions must remain visible");
+
+  await send("Emulation.setDeviceMetricsOverride", {width: 390, height: 844, deviceScaleFactor: 3, mobile: true});
+  const mobile = await evaluate(`(() => {
+    const card = document.querySelector('#page-usage .section-card').getBoundingClientRect();
+    const table = document.querySelector('#usage-body');
+    const actions = document.querySelector('#usage-body tr[data-usage-id] .usage-actions').getBoundingClientRect();
+    return {cardLeft: card.left, cardRight: card.right, tableScrollWidth: table.scrollWidth,
+      tableWidth: table.getBoundingClientRect().width, actionsLeft: actions.left, actionsRight: actions.right,
+      viewport: {width: window.innerWidth, height: window.innerHeight}};
+  })()`);
+  assert.equal(mobile.viewport.width, 390, "Mobile emulation must use the phone viewport");
+  assert.ok(mobile.tableScrollWidth <= mobile.tableWidth + 1, "Mobile quotas must not overflow horizontally");
+  assert.ok(mobile.actionsLeft >= mobile.cardLeft && mobile.actionsRight <= mobile.cardRight,
+    "Mobile quota actions must remain inside the card");
 }
 main().catch(error => { console.error(error.stack || error); process.exitCode = 1; })
   .finally(() => chrome.kill());
