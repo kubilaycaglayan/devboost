@@ -196,9 +196,7 @@
       justify-content: center; line-height: 1; padding: 0; width: 30px;
     }
     #usage-body .usage-action-icon:hover { background: var(--btn-hover); border-color: var(--border); color: #fff; }
-    #usage-body .usage-nav-icon.selected { color: #6ee7a0; border-color: rgba(110,231,160,.45); }
     #usage-body .usage-account-name { margin-right: 4px; }
-    #usage-body .usage-nav-icon { width: 22px; height: 22px; margin-left: 2px; font-size: 16px; vertical-align: -2px; }
     #usage-body .usage-remove-icon:hover { border-color: rgba(248, 81, 73, .55); color: var(--danger); }
     #usage-body tr.dragging td { opacity: .35; }
     #usage-body .usage-drag-handle {

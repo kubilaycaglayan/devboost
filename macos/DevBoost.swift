@@ -26,11 +26,15 @@ enum DevBoostMain {
 }
 
 final class DevBoostApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
+    private static let selectedUsageAccountsKey = "devboost-menubar-usage-selection"
     private var backend: Process?
     private var statusItem: NSStatusItem?
     private var statusMenu: NSMenu?
     private var usageTimer: Timer?
     private var interruptSource: DispatchSourceSignal?
+    private var selectedUsageAccountIDs: Set<String> = Set(
+        UserDefaults.standard.stringArray(forKey: DevBoostApp.selectedUsageAccountsKey) ?? []
+    )
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         signal(SIGINT, SIG_IGN)
@@ -54,7 +58,9 @@ final class DevBoostApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     private func setupMenu() {
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-        item.button?.title = "DevBoost"
+        statusItem = item
+        item.button?.contentTintColor = NSColor.labelColor
+        setStatusItemTitle("DevBoost")
         let menu = NSMenu()
         menu.addItem(withTitle: "Open Dashboard", action: #selector(openDashboard), keyEquivalent: "o")
         menu.addItem(NSMenuItem.separator())
@@ -62,7 +68,6 @@ final class DevBoostApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.addItem(NSMenuItem.separator())
         menu.addItem(withTitle: "Quit DevBoost", action: #selector(quit), keyEquivalent: "q")
         item.menu = menu
-        statusItem = item
         statusMenu = menu
         menu.delegate = self
     }
@@ -83,7 +88,7 @@ final class DevBoostApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
                   let snapshots = root["snapshots"] as? [String: Any] else { return }
             DispatchQueue.main.async {
                 guard let self = self, let menu = self.statusMenu else { return }
-                self.statusItem?.button?.title = self.menuBarUsageTitle(accounts: accounts, snapshots: snapshots)
+                self.setStatusItemTitle(self.menuBarUsageTitle(accounts: accounts, snapshots: snapshots))
                 menu.removeAllItems()
                 menu.addItem(withTitle: "Open Dashboard", action: #selector(DevBoostApp.openDashboard), keyEquivalent: "o")
                 menu.addItem(NSMenuItem.separator())
@@ -101,8 +106,10 @@ final class DevBoostApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
                         let provider = account["provider"] as? String ?? "Provider"
                         let name = account["name"] as? String ?? provider
                         let snapshot = snapshots[aid] as? [String: Any]
-                        let heading = NSMenuItem(title: "\(provider) · \(name)", action: nil, keyEquivalent: "")
-                        heading.isEnabled = false
+                        let heading = NSMenuItem(title: "\(provider) · \(name)", action: #selector(DevBoostApp.toggleUsageAccount(_:)), keyEquivalent: "")
+                        heading.target = self
+                        heading.representedObject = aid
+                        heading.state = self.selectedUsageAccountIDs.contains(aid) ? .on : .off
                         menu.addItem(heading)
                         if self.snapshotHasData(snapshot) {
                             let quotas = snapshot?["quotas"] as? [[String: Any]] ?? []
@@ -145,6 +152,25 @@ final class DevBoostApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }.resume()
     }
 
+    @objc private func toggleUsageAccount(_ sender: NSMenuItem) {
+        guard let accountID = sender.representedObject as? String, !accountID.isEmpty else { return }
+        if selectedUsageAccountIDs.contains(accountID) {
+            selectedUsageAccountIDs.remove(accountID)
+        } else {
+            selectedUsageAccountIDs.insert(accountID)
+        }
+        UserDefaults.standard.set(Array(selectedUsageAccountIDs).sorted(), forKey: DevBoostApp.selectedUsageAccountsKey)
+        sender.state = selectedUsageAccountIDs.contains(accountID) ? .on : .off
+        refreshUsage()
+    }
+
+    private func setStatusItemTitle(_ title: String) {
+        statusItem?.button?.attributedTitle = NSAttributedString(
+            string: title,
+            attributes: [.foregroundColor: NSColor.labelColor]
+        )
+    }
+
     private func addIndentedItem(to menu: NSMenu, title: String, indentationLevel: Int = 1) {
         let item = NSMenuItem(title: title, action: nil, keyEquivalent: "")
         item.indentationLevel = indentationLevel
@@ -169,6 +195,7 @@ final class DevBoostApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
         var summaries: [String] = []
         for account in accounts where (account["enabled"] as? Bool) ?? true {
             let aid = account["id"] as? String ?? ""
+            guard selectedUsageAccountIDs.contains(aid) else { continue }
             guard let snapshot = snapshots[aid] as? [String: Any],
                   let quotas = snapshot["quotas"] as? [[String: Any]] else { continue }
             for quota in quotas {

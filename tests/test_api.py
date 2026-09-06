@@ -207,6 +207,7 @@ process.stdout.write(JSON.stringify(result));'''
         self.assertIn('aria-label="Edit account"', app_js)
         self.assertIn('aria-label="Remove account"', app_js)
         self.assertIn("usage-actions", app_js)
+        self.assertNotIn("usage-nav-icon", app_js)
         with urllib.request.urlopen(self.base_url + "/dashboard/styles.css") as resp:
             css = resp.read().decode("utf-8")
         self.assertIn("#usage-body td { font-size: 14px; padding: 10px 12px; }", css)

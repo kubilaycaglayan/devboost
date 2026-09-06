@@ -45,7 +45,14 @@ class TestMenuBarUsage(unittest.TestCase):
         self.assertIn('summaries.append("\\(label): L:', self.swift)
         self.assertIn('summaries.joined(separator: " | ")', self.swift)
         self.assertIn('min(100, max(0, percent))', self.swift)
-        self.assertIn("self.statusItem?.button?.title = self.menuBarUsageTitle", self.swift)
+        self.assertIn("setStatusItemTitle(self.menuBarUsageTitle", self.swift)
+        self.assertIn("NSColor.labelColor", self.swift)
+
+    def test_usage_accounts_are_checkable_and_persisted(self):
+        self.assertIn("selectedUsageAccountIDs", self.swift)
+        self.assertIn("toggleUsageAccount", self.swift)
+        self.assertIn("heading.state = self.selectedUsageAccountIDs.contains(aid) ? .on : .off", self.swift)
+        self.assertIn("UserDefaults.standard.set(Array(selectedUsageAccountIDs).sorted()", self.swift)
 
 
 if __name__ == "__main__":
