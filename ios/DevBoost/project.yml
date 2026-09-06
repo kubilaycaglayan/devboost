@@ -23,6 +23,7 @@ targets:
     platform: iOS
     sources:
       - path: Sources/DevBoost
+      - path: Sources/Shared
       - path: Resources
     settings:
       base:
@@ -40,6 +41,20 @@ targets:
         product: Crypto
       - package: swift-nio
         product: NIO
+      - target: DevBoostLiveActivity
+        embed: true
+  DevBoostLiveActivity:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: Sources/DevBoostLiveActivity
+      - path: Sources/Shared
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.personal.devboost.liveactivity
+        PRODUCT_NAME: DevBoostLiveActivity
+        INFOPLIST_FILE: Resources/DevBoostLiveActivity-Info.plist
+        SKIP_INSTALL: YES
   DevBoostTests:
     type: bundle.unit-test
     platform: iOS

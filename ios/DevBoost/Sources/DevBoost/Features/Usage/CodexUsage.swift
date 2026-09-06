@@ -176,6 +176,7 @@ struct UsageView: View {
         defer { refreshing = false }
         do {
             store.codexUsage = try await CodexUsageService(remote: RemoteCommandService(keychain: store.keychain)).refresh(on: host)
+            await LiveUsageActivity.sync(with: store.codexUsage, hostName: host.name)
         } catch {
             store.codexUsage = CodexUsageSnapshot(message: error.localizedDescription)
         }

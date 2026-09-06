@@ -60,7 +60,6 @@ struct HomeView: View {
                     .accessibilityIdentifier("home-feature-usage")
                 }
                 .buttonStyle(FeatureTileButtonStyle())
-                if let used = store.codexUsage.primaryUsedPercent { CodexHomeCard(used: used, updatedAt: store.codexUsage.updatedAt) }
             }
             .padding(.vertical)
             .padding(.horizontal, 16)
@@ -75,7 +74,10 @@ struct HomeView: View {
         .task {
             while !Task.isCancelled {
                 if let host = store.hosts.first, host.keyInstalled {
-                    do { store.codexUsage = try await CodexUsageService(remote: RemoteCommandService(keychain: store.keychain)).refresh(on: host) }
+                    do {
+                        store.codexUsage = try await CodexUsageService(remote: RemoteCommandService(keychain: store.keychain)).refresh(on: host)
+                        await LiveUsageActivity.sync(with: store.codexUsage, hostName: host.name)
+                    }
                     catch { store.codexUsage = CodexUsageSnapshot(message: error.localizedDescription) }
                 }
                 try? await Task.sleep(for: .seconds(60))
@@ -139,26 +141,5 @@ private struct FeatureTile: View {
         .padding(16)
         .background(LinearGradient(colors: [tint.opacity(0.34), tint.opacity(0.12)], startPoint: .topLeading, endPoint: .bottomTrailing), in: RoundedRectangle(cornerRadius: 22, style: .continuous))
         .overlay { RoundedRectangle(cornerRadius: 22, style: .continuous).stroke(.white.opacity(0.1), lineWidth: 1) }
-    }
-}
-
-private struct CodexHomeCard: View {
-    let used: Double; let updatedAt: Date?
-    var body: some View {
-        AppCard {
-            VStack(alignment: .leading, spacing: 10) {
-                HStack {
-                    Label("Codex short window", systemImage: "bolt.fill").font(.headline)
-                    Spacer()
-                    Text("\(Int(max(0, min(100, 100 - used)).rounded()))% left")
-                        .font(.title3.weight(.bold))
-                        .foregroundStyle(used <= 50 ? .green : used <= 75 ? .yellow : used <= 90 ? .orange : .red)
-                }
-                ProgressView(value: min(max(100 - used, 0), 100), total: 100).tint(used <= 50 ? .green : used <= 75 ? .yellow : used <= 90 ? .orange : .red)
-                Text(updatedAt.map { "Updated \($0.formatted(date: .omitted, time: .shortened))" } ?? "Not updated yet")
-                    .font(.caption).foregroundStyle(.secondary)
-            }
-        }
-        .padding(.horizontal)
     }
 }

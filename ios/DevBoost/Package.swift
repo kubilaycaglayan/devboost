@@ -19,7 +19,7 @@ let package = Package(
             .product(name: "NIOSSH", package: "swift-nio-ssh"),
             .product(name: "Crypto", package: "swift-crypto"),
             .product(name: "NIO", package: "swift-nio")
-        ], path: "Sources/DevBoost"),
+        ], path: "Sources", sources: ["DevBoost", "Shared"]),
         .testTarget(name: "DevBoostTests", dependencies: ["DevBoost"], path: "Tests/DevBoostTests")
     ]
 )

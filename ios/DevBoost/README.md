@@ -55,8 +55,10 @@ saved hosts.
   running containers, one-shot stats, and recent logs.
 - Codex usage starts the signed-in `codex app-server` on the selected SSH host
   and reads only `account/rateLimits/read`; DevBoost does not copy ChatGPT
-  credentials to the phone. The Home screen refreshes the short window while
-  it is visible.
+  credentials to the phone. A successful refresh creates or updates a Lock
+  Screen Live Activity with the remaining short-window quota and a continuously
+  updating “Resets in” countdown. Live Activities must be enabled for DevBoost
+  in iOS Settings; iOS does not expose a separate in-app permission prompt.
 
 Background uploads, downloads, and bidirectional folder synchronization are
 intentionally outside this first mobile upload scope.

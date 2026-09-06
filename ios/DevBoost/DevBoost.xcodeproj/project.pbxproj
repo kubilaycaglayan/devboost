@@ -19,17 +19,23 @@
 		5B0A7ABB9A1A222D3EF84EDE /* AppTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1F80245DABFBFC23FD5FD2E9 /* AppTheme.swift */; };
 		5C912DCE0774BB809FCC3B04 /* SSHService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7508BDAFAC9991D80E6E6C2 /* SSHService.swift */; };
 		5FF057F00FD6DD7BD45C6F06 /* CommandEscaping.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2E83EAE0ADFF5CF1A966490F /* CommandEscaping.swift */; };
+		626C28A5ACF34F371A8FD668 /* LiveUsageActivity.swift in Sources */ = {isa = PBXBuildFile; fileRef = 844F19991018B6F25111675C /* LiveUsageActivity.swift */; };
 		6C0E56F57BFA6E5CF6692023 /* Security.swift in Sources */ = {isa = PBXBuildFile; fileRef = AE7E83444D8D5504EA1172ED /* Security.swift */; };
 		735E4B16268D1C5187BF3DBC /* NIOSSH in Frameworks */ = {isa = PBXBuildFile; productRef = 87CB5D8244EA6D33E61EA281 /* NIOSSH */; };
 		788A2F944476DB72D423B274 /* FeatureTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 32740B0E2AB5AFF2DEBC5030 /* FeatureTests.swift */; };
 		7B824D99B86AB241F51A7437 /* PersistenceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A2F5FAC887D76511017EA33 /* PersistenceTests.swift */; };
 		7D5A6F2581B33DC53073E0CF /* NIO in Frameworks */ = {isa = PBXBuildFile; productRef = C1E7D8AECE3E6C32617C1A15 /* NIO */; };
+		9551D19ED3236ABD058DF539 /* DevBoostLiveActivityWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = D5ED62DF1083E1F554248E9F /* DevBoostLiveActivityWidget.swift */; };
 		9EC7D823CFDE851B5C9187AD /* SwiftTerm in Frameworks */ = {isa = PBXBuildFile; productRef = 635DB6289694CAA1C3B27D98 /* SwiftTerm */; };
 		A629C50BCC7AE304CA99D68D /* HostsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E8C19F5488198EF4E3CE1EE0 /* HostsView.swift */; };
 		B9E4A986C5E46D10B16F9186 /* SecurityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9BE00CC8F92945DC376E4348 /* SecurityTests.swift */; };
+		BBDF7CDEABCC4C52D1C47464 /* DevBoostUsageActivityAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = EF110CD9FDD70CAE23954213 /* DevBoostUsageActivityAttributes.swift */; };
+		C7189949287B5B8BC2EC3997 /* DevBoostUsageActivityAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = EF110CD9FDD70CAE23954213 /* DevBoostUsageActivityAttributes.swift */; };
 		CF3164FE65C32973700F30C7 /* Crypto in Frameworks */ = {isa = PBXBuildFile; productRef = 4F005AEF1A0130C09B9A2D62 /* Crypto */; };
 		D2C64CE8E944CC79F280B8DB /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = 92C4B6C3457D565DD6C7776E /* Models.swift */; };
+		DC0922E1F193A427A77593AB /* DevBoostLiveActivity.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 8F023DB59CFCAB6001890B1C /* DevBoostLiveActivity.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		F5C5A13B1C0D2574FD02D6DD /* Persistence.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC666CF081840A0EE665FFBF /* Persistence.swift */; };
+		FBA3F1CB783A862FAC313DE8 /* DevBoostLiveActivity-Info.plist in Resources */ = {isa = PBXBuildFile; fileRef = F7A74DC50BFBF4F131993BA8 /* DevBoostLiveActivity-Info.plist */; };
 		FBC242DA5D5079F37CF9A8C7 /* DevBoostApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49599E7382396178455E6A31 /* DevBoostApp.swift */; };
 /* End PBXBuildFile section */
 
@@ -41,6 +47,13 @@
 			remoteGlobalIDString = F3BDEF66C9D4F1A2B95A1F6A;
 			remoteInfo = DevBoost;
 		};
+		4976270309CF86EA30CB7B28 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 56138C15F10C8B3518FFD08B /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 9D0DB5F542C2E61041040782;
+			remoteInfo = DevBoostLiveActivity;
+		};
 		C15C3FABAA3103D6AF3A666C /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
 			containerPortal = 56138C15F10C8B3518FFD08B /* Project object */;
@@ -49,6 +62,20 @@
 			remoteInfo = DevBoost;
 		};
 /* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		72606CD0A6008AD10D7C789B /* Embed Foundation Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				DC0922E1F193A427A77593AB /* DevBoostLiveActivity.appex in Embed Foundation Extensions */,
+			);
+			name = "Embed Foundation Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
 		0801BBE4DAEABCC030842FAB /* CodexUsage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexUsage.swift; sourceTree = "<group>"; };
@@ -62,8 +89,10 @@
 		3EEAF3D11ACE21C1A0CCB61C /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		49599E7382396178455E6A31 /* DevBoostApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DevBoostApp.swift; sourceTree = "<group>"; };
 		4A6B7FC253BC964F8C8DD850 /* Transfer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Transfer.swift; sourceTree = "<group>"; };
+		844F19991018B6F25111675C /* LiveUsageActivity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveUsageActivity.swift; sourceTree = "<group>"; };
 		88D43D29100FE8324A1E6DAD /* FirstRunUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FirstRunUITests.swift; sourceTree = "<group>"; };
 		8BFB99299BC5D43C067D7C05 /* RootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootView.swift; sourceTree = "<group>"; };
+		8F023DB59CFCAB6001890B1C /* DevBoostLiveActivity.appex */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = DevBoostLiveActivity.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		92C4B6C3457D565DD6C7776E /* Models.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Models.swift; sourceTree = "<group>"; };
 		9A2F5FAC887D76511017EA33 /* PersistenceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PersistenceTests.swift; sourceTree = "<group>"; };
 		9BCE08721DAE5399A417B739 /* DevBoostUITests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = DevBoostUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -73,7 +102,10 @@
 		B78580150CA7B640B8063758 /* Docker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Docker.swift; sourceTree = "<group>"; };
 		CC666CF081840A0EE665FFBF /* Persistence.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Persistence.swift; sourceTree = "<group>"; };
 		D11C3CDA03C8F38B8B619D81 /* ModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelTests.swift; sourceTree = "<group>"; };
+		D5ED62DF1083E1F554248E9F /* DevBoostLiveActivityWidget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DevBoostLiveActivityWidget.swift; sourceTree = "<group>"; };
 		E8C19F5488198EF4E3CE1EE0 /* HostsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HostsView.swift; sourceTree = "<group>"; };
+		EF110CD9FDD70CAE23954213 /* DevBoostUsageActivityAttributes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DevBoostUsageActivityAttributes.swift; sourceTree = "<group>"; };
+		F7A74DC50BFBF4F131993BA8 /* DevBoostLiveActivity-Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = "DevBoostLiveActivity-Info.plist"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -113,6 +145,15 @@
 			path = Docker;
 			sourceTree = "<group>";
 		};
+		4E493B917B76C35FA4E9EC6F /* DevBoostLiveActivity */ = {
+			isa = PBXGroup;
+			children = (
+				D5ED62DF1083E1F554248E9F /* DevBoostLiveActivityWidget.swift */,
+			);
+			name = DevBoostLiveActivity;
+			path = Sources/DevBoostLiveActivity;
+			sourceTree = "<group>";
+		};
 		4F271DC33E0272A2BB0FAB78 /* Core */ = {
 			isa = PBXGroup;
 			children = (
@@ -129,9 +170,11 @@
 			isa = PBXGroup;
 			children = (
 				00C7B8564DA933606C7AF30E /* DevBoost */,
+				4E493B917B76C35FA4E9EC6F /* DevBoostLiveActivity */,
 				A0E875A3F83B179E2CA8B1EA /* DevBoostTests */,
 				CC96FE56188A13A7BCD43652 /* DevBoostUITests */,
 				968A2945FBBECDCB8EF40E88 /* Resources */,
+				98A1F9DF78918A9E9D523693 /* Shared */,
 				6FB342E2CE8E209151E69379 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -140,6 +183,7 @@
 			isa = PBXGroup;
 			children = (
 				16A4A520DF0FA2428165981B /* DevBoost.app */,
+				8F023DB59CFCAB6001890B1C /* DevBoostLiveActivity.appex */,
 				1E29CF665999EC229DD9E885 /* DevBoostTests.xctest */,
 				9BCE08721DAE5399A417B739 /* DevBoostUITests.xctest */,
 			);
@@ -170,9 +214,19 @@
 			isa = PBXGroup;
 			children = (
 				0CAFBA3A9F08430558ECF2E9 /* Assets.xcassets */,
+				F7A74DC50BFBF4F131993BA8 /* DevBoostLiveActivity-Info.plist */,
 				3EEAF3D11ACE21C1A0CCB61C /* Info.plist */,
 			);
 			path = Resources;
+			sourceTree = "<group>";
+		};
+		98A1F9DF78918A9E9D523693 /* Shared */ = {
+			isa = PBXGroup;
+			children = (
+				EF110CD9FDD70CAE23954213 /* DevBoostUsageActivityAttributes.swift */,
+			);
+			name = Shared;
+			path = Sources/Shared;
 			sourceTree = "<group>";
 		};
 		990AEE1C99F3849A932F4521 /* Terminal */ = {
@@ -216,6 +270,7 @@
 			isa = PBXGroup;
 			children = (
 				0801BBE4DAEABCC030842FAB /* CodexUsage.swift */,
+				844F19991018B6F25111675C /* LiveUsageActivity.swift */,
 			);
 			path = Usage;
 			sourceTree = "<group>";
@@ -223,6 +278,23 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
+		9D0DB5F542C2E61041040782 /* DevBoostLiveActivity */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = E1A884BD28CAE671559031AF /* Build configuration list for PBXNativeTarget "DevBoostLiveActivity" */;
+			buildPhases = (
+				B78AB9D3968CB22418FBA879 /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = DevBoostLiveActivity;
+			packageProductDependencies = (
+			);
+			productName = DevBoostLiveActivity;
+			productReference = 8F023DB59CFCAB6001890B1C /* DevBoostLiveActivity.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
 		EA1DFC0E649AB74BE50B0E6D /* DevBoostUITests */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = CE2728B2F602084E2F79FA1A /* Build configuration list for PBXNativeTarget "DevBoostUITests" */;
@@ -266,10 +338,12 @@
 				32590F6254BAF05C9ED82A2D /* Sources */,
 				160B3F5F1E12189310197451 /* Resources */,
 				87259C512E98056F2385996E /* Frameworks */,
+				72606CD0A6008AD10D7C789B /* Embed Foundation Extensions */,
 			);
 			buildRules = (
 			);
 			dependencies = (
+				6469D4C8A5D078C24719CAFE /* PBXTargetDependency */,
 			);
 			name = DevBoost;
 			packageProductDependencies = (
@@ -292,17 +366,21 @@
 				BuildIndependentTargetsInParallel = YES;
 				LastUpgradeCheck = 1430;
 				TargetAttributes = {
+					9D0DB5F542C2E61041040782 = {
+						DevelopmentTeam = "${IOS_DEVELOPMENT_TEAM}";
+						ProvisioningStyle = Automatic;
+					};
 					EA1DFC0E649AB74BE50B0E6D = {
-						DevelopmentTeam = XCG6729VTS;
+						DevelopmentTeam = "${IOS_DEVELOPMENT_TEAM}";
 						ProvisioningStyle = Automatic;
 						TestTargetID = F3BDEF66C9D4F1A2B95A1F6A;
 					};
 					ECA10C6FB78E739EA9A522CE = {
-						DevelopmentTeam = XCG6729VTS;
+						DevelopmentTeam = "${IOS_DEVELOPMENT_TEAM}";
 						ProvisioningStyle = Automatic;
 					};
 					F3BDEF66C9D4F1A2B95A1F6A = {
-						DevelopmentTeam = XCG6729VTS;
+						DevelopmentTeam = "${IOS_DEVELOPMENT_TEAM}";
 						ProvisioningStyle = Automatic;
 					};
 				};
@@ -329,6 +407,7 @@
 			projectRoot = "";
 			targets = (
 				F3BDEF66C9D4F1A2B95A1F6A /* DevBoost */,
+				9D0DB5F542C2E61041040782 /* DevBoostLiveActivity */,
 				ECA10C6FB78E739EA9A522CE /* DevBoostTests */,
 				EA1DFC0E649AB74BE50B0E6D /* DevBoostUITests */,
 			);
@@ -341,6 +420,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				0090F297E9D9757BB0489020 /* Assets.xcassets in Resources */,
+				FBA3F1CB783A862FAC313DE8 /* DevBoostLiveActivity-Info.plist in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -355,8 +435,10 @@
 				4C24E2495058F818D5919D01 /* CodexUsage.swift in Sources */,
 				5FF057F00FD6DD7BD45C6F06 /* CommandEscaping.swift in Sources */,
 				FBC242DA5D5079F37CF9A8C7 /* DevBoostApp.swift in Sources */,
+				C7189949287B5B8BC2EC3997 /* DevBoostUsageActivityAttributes.swift in Sources */,
 				16353749D6CA1286611468AA /* Docker.swift in Sources */,
 				A629C50BCC7AE304CA99D68D /* HostsView.swift in Sources */,
+				626C28A5ACF34F371A8FD668 /* LiveUsageActivity.swift in Sources */,
 				D2C64CE8E944CC79F280B8DB /* Models.swift in Sources */,
 				F5C5A13B1C0D2574FD02D6DD /* Persistence.swift in Sources */,
 				04C28300A39113F9FFD98ED5 /* RootView.swift in Sources */,
@@ -364,6 +446,15 @@
 				6C0E56F57BFA6E5CF6692023 /* Security.swift in Sources */,
 				4408802B69960EC30AC000EF /* TerminalView.swift in Sources */,
 				26B0468CEF93CDDFACE8C0C6 /* Transfer.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		B78AB9D3968CB22418FBA879 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				9551D19ED3236ABD058DF539 /* DevBoostLiveActivityWidget.swift in Sources */,
+				BBDF7CDEABCC4C52D1C47464 /* DevBoostUsageActivityAttributes.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -398,6 +489,11 @@
 			isa = PBXTargetDependency;
 			target = F3BDEF66C9D4F1A2B95A1F6A /* DevBoost */;
 			targetProxy = C15C3FABAA3103D6AF3A666C /* PBXContainerItemProxy */;
+		};
+		6469D4C8A5D078C24719CAFE /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 9D0DB5F542C2E61041040782 /* DevBoostLiveActivity */;
+			targetProxy = 4976270309CF86EA30CB7B28 /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
@@ -438,7 +534,7 @@
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
-				DEVELOPMENT_TEAM = XCG6729VTS;
+				DEVELOPMENT_TEAM = "${IOS_DEVELOPMENT_TEAM}";
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				GCC_C_LANGUAGE_STANDARD = gnu11;
@@ -460,6 +556,23 @@
 				SWIFT_OPTIMIZATION_LEVEL = "-O";
 				SWIFT_VERSION = 6.0;
 				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Release;
+		};
+		34706BE390F4AC3622E2E556 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				INFOPLIST_FILE = "Resources/DevBoostLiveActivity-Info.plist";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.personal.devboost.liveactivity;
+				PRODUCT_NAME = DevBoostLiveActivity;
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				TARGETED_DEVICE_FAMILY = "1,2";
 			};
 			name = Release;
 		};
@@ -533,7 +646,7 @@
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
 				DEBUG_INFORMATION_FORMAT = dwarf;
-				DEVELOPMENT_TEAM = XCG6729VTS;
+				DEVELOPMENT_TEAM = "${IOS_DEVELOPMENT_TEAM}";
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
 				GCC_C_LANGUAGE_STANDARD = gnu11;
@@ -562,6 +675,23 @@
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 				SWIFT_VERSION = 6.0;
 				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Debug;
+		};
+		92DC235D9603AD694C29513E /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				INFOPLIST_FILE = "Resources/DevBoostLiveActivity-Info.plist";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.personal.devboost.liveactivity;
+				PRODUCT_NAME = DevBoostLiveActivity;
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				TARGETED_DEVICE_FAMILY = "1,2";
 			};
 			name = Debug;
 		};
@@ -657,6 +787,15 @@
 			buildConfigurations = (
 				A9672C5F516BAE861AA49492 /* Debug */,
 				756614FE47CD9604FCF73961 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		E1A884BD28CAE671559031AF /* Build configuration list for PBXNativeTarget "DevBoostLiveActivity" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				92DC235D9603AD694C29513E /* Debug */,
+				34706BE390F4AC3622E2E556 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Debug;

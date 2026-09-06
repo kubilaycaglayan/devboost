@@ -5,8 +5,11 @@
   <key>CFBundleName</key><string>$(PRODUCT_NAME)</string>
   <key>CFBundleExecutable</key><string>$(EXECUTABLE_NAME)</string>
   <key>CFBundleDisplayName</key><string>DevBoost</string>
+  <key>CFBundleShortVersionString</key><string>1.0</string>
+  <key>CFBundleVersion</key><string>1</string>
   <key>UILaunchScreen</key>
   <dict/>
   <key>NSLocalNetworkUsageDescription</key><string>DevBoost connects to your development servers on your local network.</string>
   <key>NSPhotoLibraryUsageDescription</key><string>DevBoost lets you select photos and videos to upload to your server.</string>
+  <key>NSSupportsLiveActivities</key><true/>
 </dict></plist>
