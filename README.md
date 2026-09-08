@@ -70,5 +70,10 @@ xcodebuild test -project ios/DevBoost/DevBoost.xcodeproj -scheme DevBoost \
 The iOS scheme includes unit tests and first-run UI tests; see
 [`ios/DevBoost/README.md`](ios/DevBoost/README.md) for mobile coverage details.
 
+Optional local helpers are collected in [`scripts/`](scripts/). For example,
+`scripts/send_state_to_phone.py` can publish a redacted dashboard summary via
+ntfy; keep `NTFY_TOPIC` and any other personal settings in your environment or
+the user-owned DevBoost `.env`, never in this repository.
+
 Please open an issue or pull request with improvements, bug reports, tests, or
 ideas. Contributions are welcome.
