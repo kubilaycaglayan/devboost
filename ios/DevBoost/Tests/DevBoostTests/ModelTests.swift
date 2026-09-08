@@ -50,4 +50,19 @@ final class ModelTests: XCTestCase {
         XCTAssertEqual(snapshot.primaryResetAt, Date(timeIntervalSince1970: 1_700_003_600))
         XCTAssertEqual(snapshot.updatedAt, now)
     }
+
+    func testCodexUsageParserReadsChatGPTUpstreamWindows() throws {
+        let now = Date(timeIntervalSince1970: 1_700_000_000)
+        let payload: [String: Any] = ["devboostSource": "https", "plan_type": "plus",
+            "rate_limit": ["primary_window": ["used_percent": 63, "reset_at": 1_700_003_600],
+                            "secondary_window": ["used_percent": 10, "reset_at": 1_700_086_400]],
+            "credits": ["balance": "0", "unlimited": false],
+            "rate_limit_reset_credits": ["available_count": 1]]
+        let snapshot = try CodexUsageParser.decode(payload, now: now)
+        XCTAssertEqual(snapshot.primaryUsedPercent, 63)
+        XCTAssertEqual(snapshot.secondaryUsedPercent, 10)
+        XCTAssertEqual(snapshot.primaryResetAt, Date(timeIntervalSince1970: 1_700_003_600))
+        XCTAssertEqual(snapshot.source, "[HTTPS] OpenAI upstream")
+        XCTAssertEqual(snapshot.availableResets, 1)
+    }
 }

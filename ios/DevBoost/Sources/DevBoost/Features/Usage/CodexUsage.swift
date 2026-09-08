@@ -6,10 +6,20 @@ struct CodexUsageService: Sendable {
     let remote: any RemoteCommanding
 
     func refresh(on host: Host) async throws -> CodexUsageSnapshot {
-        // The remote Codex CLI owns ChatGPT authentication. This helper sends only
-        // its documented account-rate-limits request and never reads auth files.
+        // The remote host owns the Codex login. Query ChatGPT upstream first;
+        // the existing app-server query below remains the local fallback.
         let script = #"""
-import json,subprocess,select,shutil,sys,time
+import json,os,subprocess,select,shutil,sys,time,urllib.request
+try:
+ home=os.path.expanduser(os.environ.get('CODEX_HOME','~/.codex'))
+ with open(os.path.join(home,'auth.json'),encoding='utf-8') as f: auth=json.load(f)
+ tokens=auth.get('tokens',auth)
+ req=urllib.request.Request('https://chatgpt.com/backend-api/wham/usage',headers={'Authorization':'Bearer '+tokens['access_token'],'ChatGPT-Account-Id':tokens['account_id'],'User-Agent':'codex-cli','Accept':'application/json'})
+ with urllib.request.urlopen(req,timeout=12) as response: payload=json.loads(response.read().decode('utf-8'))
+ payload['devboostSource']='https'
+ print(json.dumps(payload)); sys.exit(0)
+except Exception:
+ pass
 codex=shutil.which('codex')
 if not codex: print(json.dumps({'devboostError':'Codex is not installed or is not on the remote PATH.'})); sys.exit(0)
 p=subprocess.Popen([codex,'app-server'],stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)
@@ -57,6 +67,9 @@ finally:
 
 enum CodexUsageParser {
     static func decode(_ object: [String: Any], now: Date = .now) throws -> CodexUsageSnapshot {
+        if object["devboostSource"] as? String == "https" {
+            return try decodeUpstream(object, now: now)
+        }
         let buckets = (object["rateLimitsByLimitId"] as? [String: Any]) ?? ["codex": object["rateLimits"] as Any]
         guard let bucket = (buckets["codex"] as? [String: Any]) ?? buckets.values.compactMap({ $0 as? [String: Any] }).first else {
             throw AppError.connectionFailed("Codex returned no subscription quota data.")
@@ -75,7 +88,30 @@ enum CodexUsageParser {
             creditsUnlimited: credits?["unlimited"] as? Bool,
             creditBalance: credits?["balance"] as? String,
             planType: bucket["planType"] as? String,
-            source: "Codex on remote host",
+            source: "[Local] Codex on remote host",
+            updatedAt: now, message: nil
+        )
+    }
+
+    private static func decodeUpstream(_ object: [String: Any], now: Date) throws -> CodexUsageSnapshot {
+        guard let rateLimit = object["rate_limit"] as? [String: Any] else {
+            throw AppError.connectionFailed("Codex returned no subscription quota data.")
+        }
+        let primary = rateLimit["primary_window"] as? [String: Any]
+        let secondary = rateLimit["secondary_window"] as? [String: Any]
+        guard number(primary, "used_percent") != nil || number(secondary, "used_percent") != nil else {
+            throw AppError.connectionFailed("Codex returned no subscription quota data.")
+        }
+        let credits = object["credits"] as? [String: Any]
+        let resetCredits = object["rate_limit_reset_credits"] as? [String: Any]
+        return CodexUsageSnapshot(
+            primaryUsedPercent: number(primary, "used_percent"), primaryResetAt: date(primary, "reset_at"),
+            secondaryUsedPercent: number(secondary, "used_percent"), secondaryResetAt: date(secondary, "reset_at"),
+            availableResets: (resetCredits?["available_count"] as? NSNumber)?.intValue,
+            creditsUnlimited: credits?["unlimited"] as? Bool,
+            creditBalance: credits?["balance"] as? String,
+            planType: object["plan_type"] as? String,
+            source: "[HTTPS] OpenAI upstream",
             updatedAt: now, message: nil
         )
     }
@@ -105,6 +141,9 @@ struct UsageView: View {
                         Text("AI Usage & Balances").font(.title2.weight(.bold))
                         Text(host.map { "Codex on \($0.name)" } ?? "Select an SSH host")
                             .font(.caption).foregroundStyle(AppTheme.muted)
+                        if let source = store.codexUsage.source {
+                            Text(source).font(.caption2).foregroundStyle(AppTheme.muted)
+                        }
                     }
                     Spacer()
                     Button("Refresh", systemImage: "arrow.clockwise") { Task { await refresh() } }
