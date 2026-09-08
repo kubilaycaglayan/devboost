@@ -7,8 +7,8 @@ variables or the per-user DevBoost runtime state.
 ## Send the latest state to a phone
 
 Install the [ntfy](https://ntfy.sh/) app on the phone, subscribe to a private
-topic, and set the topic only in your shell or in the user-owned DevBoost
-`.env` file:
+topic, and set the topic only in your shell (or export it from a user-owned
+configuration file):
 
 ```sh
 export NTFY_TOPIC='choose-your-private-topic'
@@ -25,5 +25,6 @@ export NTFY_TAGS='computer'
 export DEVBOOST_DASHBOARD_URL='http://127.0.0.1:3080'
 ```
 
-The message is a redacted summary. It does not send server hostnames,
+The standalone script reads environment variables; it does not read repo files
+or contain personal settings. The message is a redacted summary. It does not send server hostnames,
 filesystem paths, account names, raw configuration, or credentials.

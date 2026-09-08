@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
 """Send a redacted DevBoost status snapshot to a phone through ntfy.
 
-Configuration is supplied through the environment (or the user's DevBoost
-.env, when running through the installed launcher):
+Configuration is supplied through the environment:
 
   NTFY_TOPIC                 Required topic name; never store it in the repo.
   NTFY_SERVER                Optional server URL, default: https://ntfy.sh
