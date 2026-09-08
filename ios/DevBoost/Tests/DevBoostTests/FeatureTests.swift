@@ -332,6 +332,33 @@ not-json
         XCTAssertThrowsError(try RemoteTransferOutput.homeDirectory(from: ""))
     }
 
+    func testTmuxSessionsListsNamesAndBuildsSafelyQuotedTerminalCommands() async throws {
+        let remote = RecordingRemoteCommand(result: .success("work\nmy session\nwork\n"))
+        let host = Host(name: "Development", hostname: "server.example", username: "ubuntu")
+
+        let sessions = try await TmuxSessions.list(on: host, remote: remote)
+        let commands = await remote.commands
+
+        XCTAssertEqual(sessions, ["my session", "work"])
+        XCTAssertEqual(commands.count, 1)
+        XCTAssertTrue(commands[0].contains("command -v tmux"))
+        XCTAssertTrue(commands[0].contains("tmux list-sessions -F '#{session_name}'"))
+        XCTAssertEqual(TmuxSessions.createCommand(named: "dev'; touch /tmp/nope"), "exec tmux new-session -s 'dev'\"'\"'; touch /tmp/nope'")
+        XCTAssertEqual(TmuxSessions.attachCommand(named: "my session"), "exec tmux attach-session -t 'my session'")
+    }
+
+    func testTmuxSessionsReportsWhenTmuxIsUnavailable() async {
+        let remote = RecordingRemoteCommand(result: .success("__DEVBOOST_TMUX_UNAVAILABLE__\n"))
+        do {
+            _ = try await TmuxSessions.list(on: Host(name: "Development", hostname: "server.example", username: "ubuntu"), remote: remote)
+            XCTFail("A host without tmux must show an actionable error")
+        } catch let error as AppError {
+            XCTAssertEqual(error.errorDescription, "tmux is not installed on Development.")
+        } catch {
+            XCTFail("Unexpected error: \(error)")
+        }
+    }
+
     func testCodexParserAcceptsLegacyAndMillisecondResetDates() throws {
         let payload: [String: Any] = ["rateLimits": [
             "primary": ["usedPercent": NSNumber(value: 101), "resetsAt": NSNumber(value: 1_700_000_000_000)],

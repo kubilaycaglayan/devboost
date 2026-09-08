@@ -48,6 +48,8 @@ saved hosts.
 
 ## Current mobile behavior
 
+- Terminal first lets you open a normal shell, create a named tmux session, or
+  select and attach to an existing tmux session on the selected SSH host.
 - File Transfer is foreground SFTP upload. It supports Files and Photos
   selection, creates missing remote folders, lists server folders, and
   remembers recent per-host destinations.

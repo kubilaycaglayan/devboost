@@ -22,6 +22,32 @@ protocol RemoteCommanding: Sendable {
     func execute(_ command: String, on host: Host) async throws -> String
 }
 
+enum TmuxSessions {
+    private static let unavailableMarker = "__DEVBOOST_TMUX_UNAVAILABLE__"
+
+    /// Lists only session names, so the value can safely be presented and later
+    /// passed back to tmux as one quoted argument.
+    static func list(on host: Host, remote: any RemoteCommanding) async throws -> [String] {
+        let command = "if ! command -v tmux >/dev/null 2>&1; then printf '%s\\n' '\(unavailableMarker)'; else tmux list-sessions -F '#{session_name}' 2>/dev/null || true; fi"
+        let output = try await remote.execute(command, on: host)
+        if output.split(whereSeparator: \.isNewline).contains(where: { $0 == unavailableMarker }) {
+            throw AppError.connectionFailed("tmux is not installed on \(host.name).")
+        }
+        return Array(Set(output.split(whereSeparator: \.isNewline)
+            .map(String.init)
+            .filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }))
+            .sorted { $0.localizedStandardCompare($1) == .orderedAscending }
+    }
+
+    static func createCommand(named name: String) -> String {
+        "exec tmux new-session -s \(shellQuote(name))"
+    }
+
+    static func attachCommand(named name: String) -> String {
+        "exec tmux attach-session -t \(shellQuote(name))"
+    }
+}
+
 struct RemoteCommandService: RemoteCommanding {
     let keychain: KeychainStore
 
@@ -116,7 +142,7 @@ final class SSHManager: @unchecked Sendable {
 
     init(keys: KeyManager) { self.keys = keys }
 
-    func connect(_ host: Host, terminalSize: (cols: Int, rows: Int)?, onData: @escaping @Sendable (Data) -> Void, onState: @escaping @Sendable (ConnectionState) -> Void) async throws {
+    func connect(_ host: Host, terminalSize: (cols: Int, rows: Int)?, startupCommand: String? = nil, onData: @escaping @Sendable (Data) -> Void, onState: @escaping @Sendable (ConnectionState) -> Void) async throws {
         guard host.isConfigured else { throw AppError.invalidHost }
         guard let keyID = host.keyID else { throw AppError.noKey }
         disconnect()
@@ -135,6 +161,11 @@ final class SSHManager: @unchecked Sendable {
             do {
                 try await connected.withPTY(.init(wantReply: true, term: "xterm-256color", terminalCharacterWidth: columns, terminalRowHeight: rows, terminalPixelWidth: 0, terminalPixelHeight: 0, terminalModes: .init([.ECHO: 1]))) { inbound, outbound in
                     self?.stateLock.withLock { self?.writer = outbound }
+                    if let startupCommand {
+                        // A shell request backs withPTY. Sending this immediately is
+                        // intentional: SSH buffers stdin until the login shell is ready.
+                        try await outbound.write(ByteBuffer(data: Data((startupCommand + "\n").utf8)))
+                    }
                     for try await output in inbound {
                         switch output {
                         case .stdout(let buffer), .stderr(let buffer):

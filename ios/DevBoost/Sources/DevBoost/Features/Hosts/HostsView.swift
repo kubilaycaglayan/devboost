@@ -69,7 +69,7 @@ struct HostEditor: View {
                     Button("Install key on server", systemImage: "arrow.up.circle.fill") { installKey() }.disabled(isWorking)
                 }
             } header: { Text("Device key") } footer: { Text("Private keys stay in this iPhone's Keychain. You will be asked to trust a new server fingerprint before connecting.") }
-            if host.keyInstalled { Section { NavigationLink("Open terminal") { TerminalScreen(host: host) } } }
+            if host.keyInstalled { Section { NavigationLink("Open terminal") { TerminalLaunchView(host: host) } } }
         }
         .navigationTitle("Host")
         .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Save") { store.upsert(host); dismiss() }.disabled(!host.isConfigured) } }
