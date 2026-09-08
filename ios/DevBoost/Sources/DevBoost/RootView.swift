@@ -82,7 +82,7 @@ struct HomeView: View {
                     }
                     catch { store.codexUsage = CodexUsageSnapshot(message: error.localizedDescription) }
                 }
-                try? await Task.sleep(for: .seconds(60))
+                try? await Task.sleep(for: .seconds(UsageRefreshPolicy.foregroundInterval))
             }
         }
     }
