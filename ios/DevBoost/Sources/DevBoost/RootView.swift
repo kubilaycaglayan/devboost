@@ -5,6 +5,7 @@ struct RootView: View {
         TabView {
             NavigationStack { HomeView() }.tabItem { Label("Home", systemImage: "square.grid.2x2.fill") }
             NavigationStack { HostsView() }.tabItem { Label("Hosts", systemImage: "server.rack") }
+            NavigationStack { TerminalPickerView() }.tabItem { Label("Terminal", systemImage: "terminal.fill") }
             NavigationStack { DockerView() }.tabItem { Label("Docker", systemImage: "shippingbox.fill") }
             NavigationStack { TransferView() }.tabItem { Label("Transfer", systemImage: "arrow.up.doc.fill") }
             NavigationStack { UsageView() }.tabItem { Label("Usage", systemImage: "chart.bar.fill") }
