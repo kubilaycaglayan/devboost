@@ -13,6 +13,12 @@ app, installs it, launches it, and sends a redacted DevBoost state summary:
 python3 scripts/mobile_test.py
 ```
 
+The equivalent shell entry point is:
+
+```sh
+./scripts/build_and_send_to_phone.sh
+```
+
 The script discovers the first available paired physical iPhone. Set
 `DEVBOOST_IOS_DEVICE_NAME` in the user-owned `.env` to select a specific phone.
 Use `--no-notification` to only build/install/launch, or `--no-build` to only
