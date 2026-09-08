@@ -700,6 +700,10 @@ def _read_codex_api(account, server=None):
     return usage_service.read_codex_api(sys.modules[__name__], account, server=server)
 
 
+def _read_codex_upstream(account, server=None):
+    return usage_service.read_codex_upstream(sys.modules[__name__], account, server=server)
+
+
 def _read_agy_usage(account, server=None):
     return usage_service.read_agy_usage(sys.modules[__name__], account, server=server)
 

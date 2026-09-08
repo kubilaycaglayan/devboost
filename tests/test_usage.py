@@ -97,8 +97,9 @@ class TestUsageMonitoring(unittest.TestCase):
         status = devboost.get_usage_status(account_id=enabled["id"])
         self.assertEqual([a["id"] for a in status["accounts"]], [enabled["id"]])
 
+    @patch.object(devboost, "_read_codex_upstream", side_effect=ValueError("offline"))
     @patch.object(devboost, "_read_codex_api", return_value={"quotas": [{"remaining": 7, "unit": "%"}]})
-    def test_usage_status_refreshes_against_selected_server(self, remote):
+    def test_usage_status_refreshes_against_selected_server(self, remote, _upstream):
         devboost.save_usage_account({"provider": "codex", "name": "remote"})
         cfg = devboost.load_config()
         server = devboost.add_server("box", name="Remote box")
@@ -121,6 +122,47 @@ class TestUsageMonitoring(unittest.TestCase):
     def test_http_requires_safe_url(self):
         with self.assertRaises(ValueError):
             devboost._read_usage_http({"balance_url": "http://remote.example/balance"})
+
+    @patch.object(devboost.urllib.request, "urlopen")
+    def test_codex_upstream_maps_windows_and_auth_headers(self, urlopen):
+        auth_path = os.path.join(self.tmp.name, "auth.json")
+        with open(auth_path, "w", encoding="utf-8") as stream:
+            json.dump({"tokens": {"access_token": "access-secret", "account_id": "account-1"}}, stream)
+
+        class Response:
+            def __enter__(self): return self
+            def __exit__(self, *args): return False
+            def read(self):
+                return json.dumps({
+                    "plan_type": "plus",
+                    "rate_limit": {"primary_window": {"used_percent": 63, "limit_window_seconds": 18000, "reset_at": 1788904848},
+                                    "secondary_window": {"used_percent": 10, "limit_window_seconds": 604800, "reset_at": 1789491648}},
+                    "credits": {"balance": "0", "unlimited": False},
+                    "rate_limit_reset_credits": {"available_count": 1},
+                }).encode()
+        urlopen.return_value = Response()
+        result = devboost._read_codex_upstream({"codex_home": self.tmp.name})
+        request = urlopen.call_args.args[0]
+        self.assertEqual(request.full_url, "https://chatgpt.com/backend-api/wham/usage")
+        self.assertEqual(request.get_header("Authorization"), "Bearer access-secret")
+        self.assertEqual(request.get_header("Chatgpt-account-id"), "account-1")
+        self.assertEqual(result["source"], "[HTTPS] OpenAI upstream")
+        self.assertEqual(result["quotas"][0]["remaining"], 37)
+        self.assertEqual(result["quotas"][1]["window_minutes"], 10080)
+        self.assertEqual(result["available_resets"], 1)
+
+    def test_codex_upstream_failure_falls_back_to_local_records_with_label(self):
+        records = os.path.join(self.tmp.name, "codex-fallback")
+        os.makedirs(records)
+        with open(os.path.join(records, "rollout.jsonl"), "w", encoding="utf-8") as stream:
+            stream.write(json.dumps({"payload": {"thread_token_usage": {"input_tokens": 10, "output_tokens": 4}}}) + "\n")
+        account = {"provider": "codex", "name": "local", "local_path": records}
+        with patch.object(devboost, "_read_codex_upstream", side_effect=ValueError("offline")):
+            snapshot = devboost.refresh_usage_account(account)
+        self.assertTrue(snapshot["ok"])
+        self.assertTrue(snapshot["stale"])
+        self.assertTrue(snapshot["source"].startswith("[Local]"))
+        self.assertIn("Showing local usage", snapshot["message"])
 
     def test_opencode_stats_text_is_normalized(self):
         result = devboost._parse_opencode_stats("Total Cost                                        $1.25\nInput                                              3.9M\nOutput                                           217.1K\n")
@@ -205,8 +247,9 @@ class TestUsageMonitoring(unittest.TestCase):
         self.assertIn("start_time=", request.full_url)
         self.assertEqual(request.get_header("Authorization"), "Bearer secret")
 
+    @patch.object(devboost, "_read_codex_upstream", side_effect=ValueError("offline"))
     @patch.object(devboost.shutil, "which", return_value=None)
-    def test_provider_without_machine_adapter_is_explicit(self, _which):
+    def test_provider_without_machine_adapter_is_explicit(self, _which, _upstream):
         snapshot = devboost.refresh_usage_account({"provider": "codex", "name": "work", "local_path": os.path.join(self.tmp.name, "missing")})
         self.assertFalse(snapshot["ok"])
         self.assertIn("no codex usage records", snapshot["message"])
@@ -222,7 +265,8 @@ class TestUsageMonitoring(unittest.TestCase):
         self.assertIn("no safe machine-readable usage adapter", snapshot["message"])
         self.assertNotIn("shutil", snapshot["message"])
 
-    def test_codex_local_rate_limits_are_native_quota_data(self):
+    @patch.object(devboost, "_read_codex_upstream", side_effect=ValueError("offline"))
+    def test_codex_local_rate_limits_are_native_quota_data(self, _upstream):
         records = os.path.join(self.tmp.name, "codex")
         os.makedirs(records)
         with open(os.path.join(records, "rollout.jsonl"), "w", encoding="utf-8") as stream:
@@ -232,8 +276,9 @@ class TestUsageMonitoring(unittest.TestCase):
         self.assertEqual(snapshot["quotas"][0]["remaining"], 75)
         self.assertEqual(snapshot["balances"][0]["remaining"], 3)
 
+    @patch.object(devboost, "_read_codex_upstream", side_effect=ValueError("offline"))
     @patch.object(devboost.usage_service.time, "time", return_value=2000)
-    def test_codex_expired_record_does_not_invent_a_reset(self, _time):
+    def test_codex_expired_record_does_not_invent_a_reset(self, _time, _upstream):
         records = os.path.join(self.tmp.name, "codex-expired")
         os.makedirs(records)
         with open(os.path.join(records, "rollout.jsonl"), "w", encoding="utf-8") as stream:

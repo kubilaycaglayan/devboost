@@ -50,6 +50,27 @@ def refresh_usage_account(account, server=None):
         # adapter so the user receives a provider-specific actionable error.
         if account.get("api_mode"):
             payload = _read_provider_api(account)
+        elif account.get("provider") == "codex":
+            try:
+                payload = _read_codex_upstream(account)
+            except Exception as https_error:
+                try:
+                    if server and not account.get("local_path"):
+                        payload = _read_codex_api(account, server=server)
+                    else:
+                        payload = (_read_remote_transcript_usage(account, server["ssh_host"]) if server
+                                   else _read_local_transcript_usage(account))
+                except Exception as local_error:
+                    # A configured local path should retain the actionable
+                    # existing error when neither source can answer.
+                    if account.get("local_path"):
+                        raise local_error
+                    try:
+                        payload = (_read_remote_transcript_usage(account, server["ssh_host"]) if server
+                                   else _read_local_transcript_usage(account))
+                    except Exception:
+                        raise https_error
+                payload.update(stale=True, message=f"{https_error} Showing local usage.")
         elif explicit_url and not has_command:
             payload = _read_usage_http(account)
         elif explicit_command:
@@ -58,17 +79,7 @@ def refresh_usage_account(account, server=None):
             payload = _read_agy_usage(account, server=server)
         elif _provider_default_command(account.get("provider")):
             payload = _read_usage_command(account, server=server)
-        elif account.get("provider") == "codex" and not account.get("local_path"):
-            try:
-                payload = _read_codex_api(account, server=server)
-            except Exception as live_error:
-                try:
-                    payload = (_read_remote_transcript_usage(account, server["ssh_host"]) if server
-                               else _read_local_transcript_usage(account))
-                except Exception:
-                    raise live_error
-                payload.update(stale=True, message=f"{live_error} Showing historical records.")
-        elif account.get("provider") in ("codex", "claude"):
+        elif account.get("provider") == "claude":
             if server:
                 payload = _read_remote_transcript_usage(account, server["ssh_host"])
             else:
@@ -117,14 +128,8 @@ def get_usage_status(refresh=False, account_id=None, server_ref=None):
             for account, result in zip(due, results):
                 key = snapshot_key(account)
                 previous = snapshots.get(key, {})
-                if account.get("provider") in ("codex", "agy") and (not result.get("ok") or result.get("stale")):
-                    if previous.get("source") == "Codex live API":
-                        result.update({field: previous[field] for field in
-                                       ("quotas", "balances", "source", "plan_type", "credits_unlimited", "available_resets")
-                                       if field in previous})
-                        result["stale"] = True
-                        result["message"] = result.get("message", "Live query failed.").replace(" Showing historical records.", "") + " Showing last successful API values."
-                    elif account.get("provider") == "agy" and previous.get("source") == "Agy live usage":
+                if account.get("provider") == "agy" and (not result.get("ok") or result.get("stale")):
+                    if previous.get("source") == "Agy live usage":
                         result.update({field: previous[field] for field in ("quotas", "balances", "source") if field in previous})
                         result["stale"] = True
                         result["message"] = result.get("message", "Live query failed.") + " Showing last successful Agy values."

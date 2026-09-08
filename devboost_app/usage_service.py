@@ -9,11 +9,17 @@ import shutil
 import subprocess
 import time
 import urllib.parse
+import urllib.error
 import urllib.request
 
 from remote_transport import run_ssh_command
 from . import codex_usage
 from .usage import parse_opencode_stats, provider_default_command, safe_number
+
+
+# Auth is deliberately process-local.  It is never persisted in DevBoost
+# state, returned by the API, or included in error messages.
+_CODEX_AUTH_CACHE = {}
 
 
 def local_usage_path(account, provider):
@@ -101,6 +107,91 @@ def read_codex_api(runtime, account, server=None):
     return normalize_codex_api(payload)
 
 
+def _codex_auth(account):
+    codex_home = os.path.expanduser(str(account.get("codex_home") or
+                                        os.environ.get("CODEX_HOME") or "~/.codex"))
+    path = os.path.join(codex_home, "auth.json")
+    try:
+        stamp = os.stat(path).st_mtime_ns
+    except OSError:
+        raise ValueError("Codex auth file not found. Sign in with Codex and retry.") from None
+    cached = _CODEX_AUTH_CACHE.get(path)
+    if cached and cached[0] == stamp:
+        return cached[1]
+    try:
+        with open(path, encoding="utf-8") as stream:
+            data = json.load(stream)
+    except (OSError, UnicodeError, ValueError):
+        raise ValueError("Codex auth file could not be read. Sign in with Codex and retry.") from None
+    tokens = data.get("tokens") if isinstance(data, dict) else None
+    tokens = tokens if isinstance(tokens, dict) else data
+    access_token = tokens.get("access_token") if isinstance(tokens, dict) else None
+    account_id = tokens.get("account_id") if isinstance(tokens, dict) else None
+    if not access_token or not account_id:
+        raise ValueError("Codex auth file has no ChatGPT account session. Sign in with Codex and retry.")
+    value = (str(access_token), str(account_id))
+    _CODEX_AUTH_CACHE[path] = (stamp, value)
+    return value
+
+
+def read_codex_upstream(runtime, account, server=None):
+    """Read ChatGPT's subscription quota endpoint using the local auth cache."""
+    if server:
+        raise ValueError("Codex upstream quotas are queried from this DevBoost host.")
+    access_token, account_id = _codex_auth(account)
+    request = urllib.request.Request(
+        "https://chatgpt.com/backend-api/wham/usage",
+        headers={"Authorization": "Bearer " + access_token,
+                 "ChatGPT-Account-Id": account_id,
+                 "User-Agent": "codex-cli",
+                 "Accept": "application/json"},
+        method="GET")
+    try:
+        with urllib.request.urlopen(request, timeout=runtime.USAGE_TIMEOUT) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        raise ValueError(f"Codex upstream quota query failed (HTTP {exc.code}).") from None
+    except (urllib.error.URLError, TimeoutError, OSError, UnicodeError, ValueError):
+        raise ValueError("Codex upstream quota query failed. Check connectivity and ChatGPT sign-in.") from None
+    return normalize_codex_upstream(payload)
+
+
+def normalize_codex_upstream(payload):
+    """Map /wham/usage's windows to the existing Codex quota structure."""
+    if not isinstance(payload, dict):
+        raise ValueError("Codex upstream returned invalid quota data.")
+    rate_limit = payload.get("rate_limit")
+    if not isinstance(rate_limit, dict):
+        raise ValueError("Codex upstream returned no subscription quota data.")
+    quotas = []
+    for key, upstream_key in (("primary", "primary_window"), ("secondary", "secondary_window")):
+        window = rate_limit.get(upstream_key)
+        if not isinstance(window, dict):
+            continue
+        used = safe_number(window.get("used_percent"))
+        if used is None or not 0 <= used <= 100:
+            continue
+        seconds = safe_number(window.get("limit_window_seconds"))
+        quotas.append({"name": _window_label(key, {"window_minutes": seconds / 60 if seconds else None}),
+                       "used": used, "limit": 100, "remaining": 100 - used, "unit": "%",
+                       "reset_at": safe_number(window.get("reset_at")),
+                       "window_minutes": seconds / 60 if seconds else None})
+    if not quotas:
+        raise ValueError("Codex upstream returned no subscription quota data.")
+    result = {"source": "[HTTPS] OpenAI upstream", "stale": False, "quotas": quotas, "balances": [],
+              "plan_type": payload.get("plan_type")}
+    credits = payload.get("credits") or {}
+    balance = safe_number(credits.get("balance"))
+    if balance is not None:
+        result["balances"] = [{"remaining": balance, "currency": "credits"}]
+    result["credits_unlimited"] = credits.get("unlimited") is True
+    reset_credits = payload.get("rate_limit_reset_credits") or {}
+    available = safe_number(reset_credits.get("available_count"))
+    if available is not None and available >= 0:
+        result["available_resets"] = int(available)
+    return result
+
+
 def read_agy_usage(runtime, account, server=None):
     """Read Agy's built-in /usage command without starting a model turn."""
     timeout = max(1, runtime.USAGE_TIMEOUT - 4)
@@ -137,7 +228,7 @@ def normalize_codex_api(payload):
     if not isinstance(buckets, dict) or not buckets:
         legacy = payload.get("rateLimits")
         buckets = {"codex": legacy} if isinstance(legacy, dict) else {}
-    result = {"source": "Codex live API", "stale": False, "quotas": [], "balances": []}
+    result = {"source": "[Local] Codex live API", "stale": False, "quotas": [], "balances": []}
     for bucket_id, bucket in buckets.items():
         if not isinstance(bucket, dict):
             continue
@@ -218,7 +309,7 @@ def read_local_transcript_usage(runtime, account):
                     latest_observed_at = last_observed_at or datetime.datetime.fromtimestamp(mtime, datetime.timezone.utc).isoformat()
         except (OSError, UnicodeError):
             continue
-    result = {"source": f"{provider} local records", "quotas": [{"name": "tokens observed",
+    result = {"source": f"[Local] {provider} local records", "quotas": [{"name": "tokens observed",
               "used": sum(totals.values()), "unit": "tokens"}]}
     if provider == "codex" and latest_limits:
         result.update(_codex_rate_limit_result(latest_limits))
@@ -297,7 +388,7 @@ def read_remote_transcript_usage(runtime, account, ssh_host):
         latest_limits = current_limits
     if not found:
         raise ValueError(f"no {provider} usage records found at {root} on {ssh_host}")
-    result = {"source": f"{provider} remote records ({ssh_host})",
+    result = {"source": f"[Local] {provider} remote records ({ssh_host})",
               "quotas": [{"name": "tokens observed", "used": sum(totals.values()), "unit": "tokens"}]}
     if provider == "codex" and latest_limits:
         result.update(_codex_rate_limit_result(latest_limits))
