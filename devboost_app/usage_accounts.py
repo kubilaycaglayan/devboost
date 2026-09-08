@@ -50,7 +50,7 @@ def refresh_usage_account(account, server=None):
         # adapter so the user receives a provider-specific actionable error.
         if account.get("api_mode"):
             payload = _read_provider_api(account)
-        elif account.get("provider") == "codex":
+        elif account.get("provider") == "codex" and not explicit_url and not explicit_command and not account.get("local_path"):
             try:
                 payload = _read_codex_upstream(account)
             except Exception as https_error:
@@ -80,6 +80,11 @@ def refresh_usage_account(account, server=None):
         elif _provider_default_command(account.get("provider")):
             payload = _read_usage_command(account, server=server)
         elif account.get("provider") == "claude":
+            if server:
+                payload = _read_remote_transcript_usage(account, server["ssh_host"])
+            else:
+                payload = _read_local_transcript_usage(account)
+        elif account.get("provider") == "codex":
             if server:
                 payload = _read_remote_transcript_usage(account, server["ssh_host"])
             else:

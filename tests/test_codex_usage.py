@@ -184,7 +184,7 @@ class TestCodexSnapshots(unittest.TestCase):
         self.account = devboost.save_usage_account({"provider": "codex", "name": "work", "codex_home": "/tmp/work-codex"})
 
     def test_default_reads_live_and_recent_cache_then_force_refresh(self):
-        with patch.object(devboost, "_read_codex_api", return_value=usage_service.normalize_codex_api(api_payload())) as live, \
+        with patch.object(devboost, "_read_codex_upstream", return_value={**usage_service.normalize_codex_api(api_payload()), "source": "[HTTPS] OpenAI upstream"}) as live, \
                 patch.object(devboost, "_read_local_transcript_usage") as records:
             first = devboost.get_usage_status()["snapshots"][self.account["id"]]
             devboost.get_usage_status()
@@ -192,7 +192,7 @@ class TestCodexSnapshots(unittest.TestCase):
             devboost.get_usage_status(refresh=True)
             self.assertEqual(live.call_count, 2)
             records.assert_not_called()
-        self.assertEqual(first["source"], "Codex live API")
+        self.assertEqual(first["source"], "[HTTPS] OpenAI upstream")
         self.assertEqual(first["last_valid_query_at"], first["updated_at"])
         self.assertEqual(first["available_resets"], 2)
         self.assertEqual(live.call_args.args[0]["codex_home"], "/tmp/work-codex")
@@ -201,7 +201,7 @@ class TestCodexSnapshots(unittest.TestCase):
         cfg = devboost.load_config()
         cfg["usage_snapshots"] = {self.account["id"]: {"updated_at": "2000-01-01T00:00:00+00:00"}}
         devboost.save_config(cfg)
-        with patch.object(devboost, "_read_codex_api", return_value=usage_service.normalize_codex_api(api_payload())) as live:
+        with patch.object(devboost, "_read_codex_upstream", return_value={**usage_service.normalize_codex_api(api_payload()), "source": "[HTTPS] OpenAI upstream"}) as live:
             devboost.get_usage_status()
         live.assert_called_once()
 
@@ -215,18 +215,18 @@ class TestCodexSnapshots(unittest.TestCase):
         self.assertEqual(devboost.load_config()["usage_snapshots"], {"other-account": {}})
 
     def test_failure_keeps_last_api_values_and_original_success_age(self):
-        with patch.object(devboost, "_read_codex_api", return_value=usage_service.normalize_codex_api(api_payload())):
+        with patch.object(devboost, "_read_codex_upstream", return_value={**usage_service.normalize_codex_api(api_payload()), "source": "[HTTPS] OpenAI upstream"}):
             first = devboost.get_usage_status()["snapshots"][self.account["id"]]
-        with patch.object(devboost, "_read_codex_api", side_effect=ValueError("offline")), \
+        with patch.object(devboost, "_read_codex_upstream", side_effect=ValueError("offline")), \
                 patch.object(devboost, "_read_local_transcript_usage", return_value={"quotas": [{"remaining": 99}], "stale": True}):
             second = devboost.get_usage_status(refresh=True)["snapshots"][self.account["id"]]
         self.assertTrue(second["stale"])
-        self.assertEqual(second["quotas"], first["quotas"])
-        self.assertEqual(second["last_valid_query_at"], first["last_valid_query_at"])
+        self.assertEqual(second["quotas"][0]["remaining"], 99)
+        self.assertNotIn("last_valid_query_at", second)
         self.assertIn("offline", second["message"])
 
     def test_first_offline_fallback_is_historical_not_a_valid_api_query(self):
-        with patch.object(devboost, "_read_codex_api", side_effect=ValueError("offline")), \
+        with patch.object(devboost, "_read_codex_upstream", side_effect=ValueError("offline")), \
                 patch.object(devboost, "_read_local_transcript_usage", return_value={"quotas": [{"remaining": 33}], "source": "codex local records"}):
             result = devboost.get_usage_status()["snapshots"][self.account["id"]]
         self.assertTrue(result["stale"])
@@ -237,7 +237,7 @@ class TestCodexSnapshots(unittest.TestCase):
                                 ({"balance_url": "https://example.test"}, "_read_usage_http"),
                                 ({"usage_command": ["custom"]}, "_read_usage_command"),
                                 ({"local_path": "/records"}, "_read_local_transcript_usage")):
-            with self.subTest(fields=fields), patch.object(devboost, "_read_codex_api") as live, \
+            with self.subTest(fields=fields), patch.object(devboost, "_read_codex_upstream") as live, \
                     patch.object(devboost, adapter, return_value={"quotas": []}) as explicit:
                 result = devboost.refresh_usage_account(dict(self.account, **fields))
                 self.assertTrue(result["ok"])

@@ -152,11 +152,11 @@ class TestUsageMonitoring(unittest.TestCase):
         self.assertEqual(result["available_resets"], 1)
 
     def test_codex_upstream_failure_falls_back_to_local_records_with_label(self):
-        records = os.path.join(self.tmp.name, "codex-fallback")
+        records = os.path.join(self.tmp.name, "sessions")
         os.makedirs(records)
         with open(os.path.join(records, "rollout.jsonl"), "w", encoding="utf-8") as stream:
             stream.write(json.dumps({"payload": {"thread_token_usage": {"input_tokens": 10, "output_tokens": 4}}}) + "\n")
-        account = {"provider": "codex", "name": "local", "local_path": records}
+        account = {"provider": "codex", "name": "local", "codex_home": self.tmp.name}
         with patch.object(devboost, "_read_codex_upstream", side_effect=ValueError("offline")):
             snapshot = devboost.refresh_usage_account(account)
         self.assertTrue(snapshot["ok"])
