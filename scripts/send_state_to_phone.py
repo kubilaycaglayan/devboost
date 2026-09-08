@@ -35,6 +35,44 @@ def _env(name, default=""):
     return os.environ.get(name, default).strip()
 
 
+def load_env():
+    """Load the same user-owned .env locations as the DevBoost app."""
+    code_dir = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
+    app_override = _env("DEVBOOST_APP_DIR") or _env("PORT_TRACKER_APP_DIR")
+    candidates = []
+    for override in (app_override, _env("DEVBOOST_CONFIG_DIR"), _env("PORT_TRACKER_CONFIG_DIR")):
+        if override:
+            candidates.append(os.path.join(os.path.expanduser(override), ".env"))
+    candidates.extend((
+        os.path.expanduser("~/Library/Application Support/DevBoost/.env"),
+        os.path.join(code_dir, "app", ".env"),
+        os.path.join(code_dir, ".env"),
+        os.path.expanduser("~/.config/devboost/app/.env"),
+        os.path.expanduser("~/.config/devboost/.env"),
+        os.path.expanduser("~/.config/port-tracker/.env"),
+        os.path.join(os.getcwd(), "app", ".env"),
+        os.path.join(os.getcwd(), ".env"),
+    ))
+    seen = set()
+    for path in candidates:
+        path = os.path.abspath(path)
+        if path in seen or not os.path.exists(path):
+            continue
+        seen.add(path)
+        try:
+            with open(path, "r", encoding="utf-8") as handle:
+                for line in handle:
+                    line = line.strip()
+                    if not line or line.startswith("#") or "=" not in line:
+                        continue
+                    key, value = line.split("=", 1)
+                    key = key.strip()
+                    if key and key not in os.environ:
+                        os.environ[key] = value.strip().strip("'\"")
+        except OSError:
+            continue
+
+
 def _request_json(opener, url):
     try:
         with opener.open(url, timeout=15) as response:
@@ -110,6 +148,7 @@ def send_ntfy(message, server, topic, title, priority="", tags=""):
 
 
 def main():
+    load_env()
     topic = _env("NTFY_TOPIC")
     if not topic:
         print("Set NTFY_TOPIC in your environment before running this script.", file=sys.stderr)

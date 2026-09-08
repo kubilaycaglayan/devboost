@@ -25,6 +25,7 @@ export NTFY_TAGS='computer'
 export DEVBOOST_DASHBOARD_URL='http://127.0.0.1:3080'
 ```
 
-The standalone script reads environment variables; it does not read repo files
-or contain personal settings. The message is a redacted summary. It does not send server hostnames,
+The standalone script reads environment variables and the user-owned DevBoost
+`.env` locations. It does not contain personal settings. The message is a
+redacted summary. It does not send server hostnames,
 filesystem paths, account names, raw configuration, or credentials.

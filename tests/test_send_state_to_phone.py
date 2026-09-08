@@ -1,4 +1,6 @@
 import importlib.util
+import os
+import tempfile
 import threading
 import unittest
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -56,6 +58,25 @@ class SendStateTests(unittest.TestCase):
         self.assertEqual(urlparse(received["path"]).path, "/private%20topic")
         self.assertEqual(received["body"], "hello")
         self.assertEqual(received["title"], "DevBoost")
+
+    def test_load_env_reads_app_override_without_overwriting_environment(self):
+        with tempfile.TemporaryDirectory() as directory:
+            with open(os.path.join(directory, ".env"), "w", encoding="utf-8") as handle:
+                handle.write("NTFY_TOPIC=from-file\nNTFY_TITLE=Phone\n")
+            original = {key: os.environ.get(key) for key in ("DEVBOOST_APP_DIR", "NTFY_TOPIC", "NTFY_TITLE")}
+            try:
+                os.environ["DEVBOOST_APP_DIR"] = directory
+                os.environ.pop("NTFY_TOPIC", None)
+                os.environ["NTFY_TITLE"] = "from-environment"
+                MODULE.load_env()
+                self.assertEqual(os.environ["NTFY_TOPIC"], "from-file")
+                self.assertEqual(os.environ["NTFY_TITLE"], "from-environment")
+            finally:
+                for key, value in original.items():
+                    if value is None:
+                        os.environ.pop(key, None)
+                    else:
+                        os.environ[key] = value
 
 
 if __name__ == "__main__":
