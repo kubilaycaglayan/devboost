@@ -29,6 +29,7 @@
 		9551D19ED3236ABD058DF539 /* DevBoostLiveActivityWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = D5ED62DF1083E1F554248E9F /* DevBoostLiveActivityWidget.swift */; };
 		9EC7D823CFDE851B5C9187AD /* SwiftTerm in Frameworks */ = {isa = PBXBuildFile; productRef = 635DB6289694CAA1C3B27D98 /* SwiftTerm */; };
 		A629C50BCC7AE304CA99D68D /* HostsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E8C19F5488198EF4E3CE1EE0 /* HostsView.swift */; };
+		A8A7539FD55C5CA6FADDD5F2 /* UsageRefreshPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5ED7986EBF06DED3C4BD1B36 /* UsageRefreshPolicy.swift */; };
 		B4D5E53BA9D7C7B4FB865A70 /* PortForwarding.swift in Sources */ = {isa = PBXBuildFile; fileRef = 89C7416270308BE1973B33E7 /* PortForwarding.swift */; };
 		B9E4A986C5E46D10B16F9186 /* SecurityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9BE00CC8F92945DC376E4348 /* SecurityTests.swift */; };
 		BBDF7CDEABCC4C52D1C47464 /* DevBoostUsageActivityAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = EF110CD9FDD70CAE23954213 /* DevBoostUsageActivityAttributes.swift */; };
@@ -92,6 +93,7 @@
 		3EEAF3D11ACE21C1A0CCB61C /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		49599E7382396178455E6A31 /* DevBoostApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DevBoostApp.swift; sourceTree = "<group>"; };
 		4A6B7FC253BC964F8C8DD850 /* Transfer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Transfer.swift; sourceTree = "<group>"; };
+		5ED7986EBF06DED3C4BD1B36 /* UsageRefreshPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UsageRefreshPolicy.swift; sourceTree = "<group>"; };
 		844F19991018B6F25111675C /* LiveUsageActivity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveUsageActivity.swift; sourceTree = "<group>"; };
 		88D43D29100FE8324A1E6DAD /* FirstRunUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FirstRunUITests.swift; sourceTree = "<group>"; };
 		89C7416270308BE1973B33E7 /* PortForwarding.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PortForwarding.swift; sourceTree = "<group>"; };
@@ -277,6 +279,7 @@
 			children = (
 				0801BBE4DAEABCC030842FAB /* CodexUsage.swift */,
 				844F19991018B6F25111675C /* LiveUsageActivity.swift */,
+				5ED7986EBF06DED3C4BD1B36 /* UsageRefreshPolicy.swift */,
 			);
 			path = Usage;
 			sourceTree = "<group>";
@@ -462,6 +465,7 @@
 				6C0E56F57BFA6E5CF6692023 /* Security.swift in Sources */,
 				4408802B69960EC30AC000EF /* TerminalView.swift in Sources */,
 				26B0468CEF93CDDFACE8C0C6 /* Transfer.swift in Sources */,
+				A8A7539FD55C5CA6FADDD5F2 /* UsageRefreshPolicy.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

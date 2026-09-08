@@ -12,4 +12,8 @@
   <key>NSLocalNetworkUsageDescription</key><string>DevBoost connects to your development servers on your local network.</string>
   <key>NSPhotoLibraryUsageDescription</key><string>DevBoost lets you select photos and videos to upload to your server.</string>
   <key>NSSupportsLiveActivities</key><true/>
+  <key>BGTaskSchedulerPermittedIdentifiers</key>
+  <array>
+    <string>com.personal.devboost.usage-refresh</string>
+  </array>
 </dict></plist>
