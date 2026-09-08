@@ -75,11 +75,17 @@ def build_install_launch(device):
         raise MobileTestError("The selected iPhone is missing a usable device identifier.")
     derived_data = os.path.expanduser("~/Library/Developer/Xcode/DerivedData/DevBoost-mobile")
     project = os.path.join(REPO_DIR, "ios", "DevBoost", "DevBoost.xcodeproj")
-    _run([
+    team = _env("IOS_DEVELOPMENT_TEAM")
+    if not team:
+        raise MobileTestError("Set IOS_DEVELOPMENT_TEAM in your user-owned .env before building for a phone.")
+    command = [
         "xcodebuild", "-project", project, "-scheme", "DevBoost",
         "-destination", f"platform=iOS,id={device['xcode_id']}",
-        "-derivedDataPath", derived_data, "-allowProvisioningUpdates", "build",
-    ], f"Building DevBoost for {device['name']}")
+        "-derivedDataPath", derived_data, "-allowProvisioningUpdates",
+        f"DEVELOPMENT_TEAM={team}",
+        "build",
+    ]
+    _run(command, f"Building DevBoost for {device['name']}")
     app = os.path.join(derived_data, "Build", "Products", "Debug-iphoneos", "DevBoost.app")
     if not os.path.isdir(app):
         raise MobileTestError(f"Build succeeded but the app was not found at {app}")
