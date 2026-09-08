@@ -1,5 +1,6 @@
 import Foundation
 import SwiftUI
+import UIKit
 
 struct CodexUsageService: Sendable {
     let remote: any RemoteCommanding
@@ -121,6 +122,19 @@ struct UsageView: View {
                     .pickerStyle(.menu)
                     .tint(AppTheme.accent)
                     .onChange(of: hostID) { _, _ in Task { await refresh() } }
+                }
+
+                if !LiveUsageActivity.areActivitiesEnabled {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Label("Live Activities are disabled. Enable them in Settings → DevBoost.", systemImage: "bell.slash")
+                            .font(.footnote)
+                            .foregroundStyle(.orange)
+                        Button("Open DevBoost Settings", systemImage: "arrow.up.forward.app") {
+                            guard let url = URL(string: UIApplication.openSettingsURLString) else { return }
+                            UIApplication.shared.open(url)
+                        }
+                        .font(.footnote.weight(.semibold))
+                    }
                 }
 
                 if let resets = store.codexUsage.availableResets, resets > 0 {

@@ -58,10 +58,19 @@ saved hosts.
   DevBoost is active and can be opened in an in-app WebView.
 - Codex usage starts the signed-in `codex app-server` on the selected SSH host
   and reads only `account/rateLimits/read`; DevBoost does not copy ChatGPT
-  credentials to the phone. A successful refresh creates or updates a Lock
-  Screen Live Activity with the remaining short-window quota and a continuously
-  updating “Resets in” countdown. Live Activities must be enabled for DevBoost
-  in iOS Settings; iOS does not expose a separate in-app permission prompt.
+  credentials to the phone. The usage screen refreshes every 30 seconds while
+  open, and schedules iOS Background App Refresh every 15 minutes so a
+  suspended app can refresh the quota and its Lock Screen Live Activity without
+  being reopened. iOS may defer background work; a successful refresh creates or
+  updates the activity with the remaining short-window quota and its “Resets in”
+  countdown continues updating continuously. Live Activities must be enabled
+  for DevBoost in iOS Settings; iOS does not expose a separate in-app prompt.
+
+The checked-in build uses a local-only Live Activity because Apple's Personal
+Team signing does not support Push Notifications. For remote APNs updates,
+use a paid Apple Developer team, enable Push Notifications for the bundle ID,
+and add `DEVBOOST_APNS_ENABLED` to the app target's Swift compilation
+conditions; the relay must then use the retained ActivityKit push token.
 
 Background uploads, downloads, and bidirectional folder synchronization are
 intentionally outside this first mobile upload scope.

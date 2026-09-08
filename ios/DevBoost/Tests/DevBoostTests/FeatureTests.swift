@@ -57,6 +57,25 @@ private actor RecordingRemoteCommand: RemoteCommanding {
 }
 
 final class FeatureTests: XCTestCase {
+    func testUsageRefreshPolicySchedulesBackgroundRefreshEvery15Minutes() {
+        let now = Date(timeIntervalSince1970: 1_000)
+        XCTAssertEqual(UsageRefreshPolicy.foregroundInterval, 30)
+        XCTAssertEqual(UsageRefreshPolicy.nextBackgroundRefresh(after: now),
+                       Date(timeIntervalSince1970: 1_900))
+    }
+
+    func testUsageActivityUsesRemotePushEligibleActivityType() throws {
+        let source = try String(contentsOf: URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("Sources/DevBoost/Features/Usage/LiveUsageActivity.swift"), encoding: .utf8)
+        XCTAssertTrue(source.contains("DEVBOOST_APNS_ENABLED"))
+        XCTAssertTrue(source.contains(".token"))
+        XCTAssertTrue(source.contains("pushType:"))
+        XCTAssertTrue(source.contains("activity.pushToken"))
+    }
+
     func testPhotoSelectionPreservesFilenameAndBytesAndIsolatesDuplicateNames() throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false)
