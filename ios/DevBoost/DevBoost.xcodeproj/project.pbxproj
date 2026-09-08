@@ -384,20 +384,16 @@
 				LastUpgradeCheck = 1430;
 				TargetAttributes = {
 					9D0DB5F542C2E61041040782 = {
-						DevelopmentTeam = XCG6729VTS;
 						ProvisioningStyle = Automatic;
 					};
 					EA1DFC0E649AB74BE50B0E6D = {
-						DevelopmentTeam = XCG6729VTS;
 						ProvisioningStyle = Automatic;
 						TestTargetID = F3BDEF66C9D4F1A2B95A1F6A;
 					};
 					ECA10C6FB78E739EA9A522CE = {
-						DevelopmentTeam = XCG6729VTS;
 						ProvisioningStyle = Automatic;
 					};
 					F3BDEF66C9D4F1A2B95A1F6A = {
-						DevelopmentTeam = XCG6729VTS;
 						ProvisioningStyle = Automatic;
 					};
 				};
