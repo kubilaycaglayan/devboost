@@ -10,13 +10,39 @@ final class FirstRunUITests: XCTestCase {
         return app
     }
 
+    private func tapTab(_ name: String, in app: XCUIApplication) {
+        let tab = app.tabBars.buttons[name]
+        if tab.exists {
+            tab.tap()
+            return
+        }
+
+        // Hosts, Transfer, and Docker may be placed behind More on iPhone. Their Home
+        // feature tiles provide stable accessibility targets across runtimes.
+        app.terminate()
+        app.launch()
+        XCTAssertTrue(app.tabBars.buttons["Home"].waitForExistence(timeout: 5))
+        app.tabBars.buttons["Home"].tap()
+        let featureID: String
+        switch name {
+        case "Hosts": featureID = "home-feature-hosts"
+        case "Transfer": featureID = "home-feature-transfer"
+        case "Docker": featureID = "home-feature-docker"
+        default: XCTFail("No Home fallback for \(name)"); return
+        }
+        XCTAssertTrue(app.buttons[featureID].waitForExistence(timeout: 5))
+        app.buttons[featureID].tap()
+    }
+
     func testFirstRunShowsAllMainDestinations() {
         let app = launchFresh()
         XCTAssertTrue(app.tabBars.buttons["Home"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.tabBars.buttons["Hosts"].exists)
-        XCTAssertTrue(app.tabBars.buttons["Docker"].exists)
-        XCTAssertTrue(app.tabBars.buttons["Transfer"].exists)
+        XCTAssertTrue(app.tabBars.buttons["Forwards"].exists)
         XCTAssertTrue(app.tabBars.buttons["Usage"].exists)
+        XCTAssertTrue(app.tabBars.buttons["More"].exists)
+
+        tapTab("Hosts", in: app)
+        tapTab("Transfer", in: app)
     }
 
     func testHomeTilesDoNotTintTheSurroundingMargin() {
@@ -41,22 +67,22 @@ final class FirstRunUITests: XCTestCase {
 
     func testFirstRunEmptyStatesExplainWhatToDoNext() {
         let app = launchFresh()
-        app.tabBars.buttons["Hosts"].tap()
+        tapTab("Hosts", in: app)
         XCTAssertTrue(app.staticTexts["No SSH hosts"].waitForExistence(timeout: 5))
 
-        app.tabBars.buttons["Docker"].tap()
+        tapTab("Docker", in: app)
         XCTAssertTrue(app.staticTexts["No SSH hosts"].waitForExistence(timeout: 5))
 
-        app.tabBars.buttons["Transfer"].tap()
+        tapTab("Transfer", in: app)
         XCTAssertTrue(app.staticTexts["No SSH hosts"].waitForExistence(timeout: 5))
 
-        app.tabBars.buttons["Usage"].tap()
+        tapTab("Usage", in: app)
         XCTAssertTrue(app.staticTexts["No SSH hosts"].waitForExistence(timeout: 5))
     }
 
     func testFirstTimeHostSetupValidatesConnectionFields() {
         let app = launchFresh()
-        app.tabBars.buttons["Hosts"].tap()
+        tapTab("Hosts", in: app)
         app.buttons["Add SSH host"].tap()
 
         let save = app.buttons["Save"]

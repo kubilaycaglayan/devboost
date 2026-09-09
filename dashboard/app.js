@@ -1127,6 +1127,14 @@
       document.getElementById("docker-log-output").style.fontSize = `${profile.fontSize}px`;
       search.value = profile.search;
     }
+    function dockerLogSelectionActive(output) {
+      const selection = window.getSelection && window.getSelection();
+      return Boolean(selection && !selection.isCollapsed && selection.rangeCount
+        && output.contains(selection.anchorNode) && output.contains(selection.focusNode));
+    }
+    function dockerLogAtBottom(output) {
+      return output.scrollHeight - output.clientHeight - output.scrollTop <= 2;
+    }
     function renderDockerLog() {
       const output = document.getElementById("docker-log-output");
       const raw = output.dataset.content || "";
@@ -1136,7 +1144,10 @@
       const matching = query ? lines.filter(line => line.toLowerCase().includes(query.toLowerCase())) : lines;
       const needle = query ? new RegExp(query.replace(/[.*+?^${}()|[\\]\\\\]/g, "\\\\$&"), "ig") : null;
       const rendered = matching.map(line => escapeHtml(line).replace(needle, match => `<mark>${match}</mark>`)).join("\\n");
-      output.innerHTML = rendered || (query ? "(no matching log lines)" : "(no logs yet — waiting for the container)");
+      // Keep unfiltered logs as plain text so appended lines can preserve a
+      // text selection anchored in the existing text node.
+      if (!query) output.textContent = rendered || "(no logs yet — waiting for the container)";
+      else output.innerHTML = rendered || "(no matching log lines)";
       document.getElementById("docker-log-count").innerText = query ? `${matching.length}/${lines.length} lines` : `${lines.length} lines`;
     }
     function changeDockerLogFont(delta) {
@@ -1286,9 +1297,33 @@
         const data = await res.json(); const output = document.getElementById("docker-log-output");
         if (!data.ok) { output.innerText = data.message || "Logs unavailable"; return; }
         const previous = output.dataset.content || ""; const next = data.logs || "";
-        output.dataset.content = previous && next && next.length < previous.length && !next.includes(previous) ? `[container restarted or rebuilt]\n${next}` : next;
-        renderDockerLog();
-        if (!document.getElementById("docker-log-search").value) output.scrollTop = output.scrollHeight;
+        const content = previous && next && next.length < previous.length && !next.includes(previous)
+          ? `[container restarted or rebuilt]\n${next}` : next;
+        const logQuery = document.getElementById("docker-log-search").value;
+        const wasAtBottom = dockerLogAtBottom(output);
+        const selectionActive = dockerLogSelectionActive(output);
+
+        // Append compatible updates in place. This keeps the browser's range
+        // anchored to the original text node while the container is watched.
+        if (!logQuery && previous && content.startsWith(previous) && output.textContent === previous
+            && output.childNodes.length === 1 && output.firstChild.nodeType === Node.TEXT_NODE) {
+          output.dataset.content = content;
+          output.firstChild.appendData(content.slice(previous.length));
+          document.getElementById("docker-log-count").innerText = `${content ? content.split("\\n").length : 0} lines`;
+          if (wasAtBottom) output.scrollTop = output.scrollHeight;
+          return;
+        }
+
+        output.dataset.content = content;
+        // Replacing the log DOM clears an active selection. Keep the latest
+        // payload and apply it on a later refresh after selection ends.
+        if (selectionActive) return;
+
+        if (content !== previous || logQuery) {
+          renderDockerLog();
+          if (wasAtBottom) output.scrollTop = output.scrollHeight;
+          else output.scrollTop = Math.min(output.scrollTop, output.scrollHeight - output.clientHeight);
+        }
       } catch (err) { document.getElementById("docker-log-output").innerText = String(err); }
     }
 

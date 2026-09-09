@@ -4,11 +4,12 @@ struct RootView: View {
     var body: some View {
         TabView {
             NavigationStack { HomeView() }.tabItem { Label("Home", systemImage: "square.grid.2x2.fill") }
-            NavigationStack { DockerView() }.tabItem { Label("Docker", systemImage: "shippingbox.fill") }
+            NavigationStack { PortForwardView() }.tabItem { Label("Forwards", systemImage: "arrow.left.arrow.right") }
             NavigationStack { UsageView() }.tabItem { Label("Usage", systemImage: "chart.bar.fill") }
             NavigationStack { TerminalPickerView() }.tabItem { Label("Terminal", systemImage: "terminal.fill") }
             NavigationStack { TransferView() }.tabItem { Label("Transfer", systemImage: "arrow.up.doc.fill") }
             NavigationStack { HostsView() }.tabItem { Label("Hosts", systemImage: "server.rack") }
+            NavigationStack { DockerView() }.tabItem { Label("Docker", systemImage: "shippingbox.fill") }
         }
         .tint(AppTheme.accent)
         .preferredColorScheme(.dark)
