@@ -187,6 +187,12 @@ process.stdout.write(JSON.stringify(result));'''
         self.assertIn(".docker-log-output", css)
         self.assertIn("overflow: auto", css)
 
+        with urllib.request.urlopen(self.base_url + "/dashboard/app.js") as resp:
+            app_js = resp.read().decode("utf-8")
+        self.assertIn("dockerLogSelecting", app_js)
+        self.assertIn("output.appendChild(document.createTextNode(appendDelta))", app_js)
+        self.assertNotIn("output.firstChild.appendData", app_js)
+
     def test_usage_account_modal_scrolls_when_too_tall(self):
         with urllib.request.urlopen(self.base_url + "/dashboard/styles.css") as resp:
             css = resp.read().decode("utf-8")

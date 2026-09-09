@@ -787,7 +787,9 @@ def serve(port=DEFAULT_DASHBOARD_PORT):
     # The dashboard controls local SSH, sync, Docker, and process-management
     # operations. A fresh per-launch token prevents unrelated local web/API
     # clients from invoking those endpoints without first loading the UI.
-    server.auth_token = secrets.token_urlsafe(32)
+    # The native menu-bar process supplies this token so its URLSession calls
+    # can authenticate against the same API as the browser dashboard.
+    server.auth_token = os.environ.get("DEVBOOST_SESSION_TOKEN") or secrets.token_urlsafe(32)
     print(f"DevBoost Dashboard running at http://localhost:{port}")
     try:
         server.serve_forever()

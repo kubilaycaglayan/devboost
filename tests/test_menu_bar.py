@@ -44,6 +44,11 @@ class TestMenuBarUsage(unittest.TestCase):
         self.assertIn("RunLoop.main.add(statusTimer, forMode: .common)", self.swift)
         self.assertIn('return "Synced \\(elapsed / 60)m ago"', self.swift)
 
+    def test_usage_request_authenticates_with_backend_session(self):
+        self.assertIn("private let dashboardSessionToken = UUID().uuidString", self.swift)
+        self.assertIn('request.setValue("devboost_session=\\(dashboardSessionToken)"', self.swift)
+        self.assertIn('environment["DEVBOOST_SESSION_TOKEN"] = dashboardSessionToken', self.swift)
+
     def test_status_item_shows_compact_usage_title(self):
         self.assertIn("private func menuBarUsageTitle", self.swift)
         self.assertIn('case "codex": return "Cdx"', self.swift)

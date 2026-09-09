@@ -418,13 +418,13 @@
         <div class="docker-log-tools">
           <input id="docker-log-search" class="docker-log-search" type="search" placeholder="Search logs…" oninput="renderDockerLog()" />
           <span id="docker-log-count" class="docker-log-count"></span>
+          <button class="btn btn-sm" onclick="refreshDockerLog()" title="Refresh logs" aria-label="Refresh logs">↻</button>
           <button class="btn btn-sm" onclick="changeDockerLogFont(-1)" title="Decrease font size" aria-label="Decrease font size">A−</button>
           <button class="btn btn-sm" onclick="changeDockerLogFont(1)" title="Increase font size" aria-label="Increase font size">A＋</button>
-          <button class="btn btn-sm" onclick="resetDockerLogView()" title="Reset log window size and font" aria-label="Reset log window size and font">↺</button>
         </div>
         <button class="btn btn-sm" onclick="closeDockerLog()" style="border:none; background:transparent;">✕</button>
       </div>
-      <div class="modal-body" style="padding:0; flex:1; min-height:0;"><pre id="docker-log-output" class="docker-log-output">Connecting...</pre></div>
+      <div class="modal-body" style="padding:0; flex:1; min-height:0;"><pre id="docker-log-output" class="docker-log-output" onpointerdown="beginDockerLogSelection()" onpointerup="endDockerLogSelection()" onpointercancel="endDockerLogSelection()">Connecting...</pre></div>
     </div>
   </div>
 

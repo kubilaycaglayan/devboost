@@ -31,6 +31,7 @@ enum DevBoostMain {
 
 final class DevBoostApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private static let selectedUsageAccountsKey = "devboost-menubar-usage-selection"
+    private let dashboardSessionToken = UUID().uuidString
     private var backend: Process?
     private var statusItem: NSStatusItem?
     private var statusTitleField: StatusTitleField?
@@ -134,7 +135,9 @@ final class DevBoostApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private func refreshUsage(force: Bool = false) {
         let refreshQuery = force ? "?refresh=1" : ""
         let url = URL(string: "http://127.0.0.1:\(dashboardPort())/api/usage\(refreshQuery)")!
-        URLSession.shared.dataTask(with: url) { [weak self] data, _, _ in
+        var request = URLRequest(url: url)
+        request.setValue("devboost_session=\(dashboardSessionToken)", forHTTPHeaderField: "Cookie")
+        URLSession.shared.dataTask(with: request) { [weak self] data, _, _ in
             guard let data = data,
                   let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                   let accounts = root["accounts"] as? [[String: Any]],
@@ -444,7 +447,9 @@ final class DevBoostApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let task = Process()
         task.executableURL = URL(fileURLWithPath: "/usr/bin/python3")
         task.arguments = ["-u", backendScript()] + pythonArguments
-        task.environment = runtimeEnvironment()
+        var environment = runtimeEnvironment()
+        environment["DEVBOOST_SESSION_TOKEN"] = dashboardSessionToken
+        task.environment = environment
         task.standardOutput = FileHandle.standardOutput
         task.standardError = FileHandle.standardError
         task.terminationHandler = { _ in

@@ -35,6 +35,19 @@ mkdir -p "$STATE_DIR/logs"
 copy_state_if_missing .env
 copy_state_if_missing config.json
 
+# Stop the native status-item owner before replacing its app bundle. Killing
+# only its dashboard child later can briefly overlap two Cocoa app instances
+# with the same bundle identifier and leave an orphaned backend with no menu.
+native_pids="$(pgrep -f -x "$APP_PATH/Contents/MacOS/DevBoost --port $PORT" 2>/dev/null || true)"
+if [ -n "$native_pids" ]; then
+  echo "Stopping existing DevBoost app process(es): $native_pids"
+  kill $native_pids 2>/dev/null || true
+  for _ in {1..10}; do
+    pgrep -f -x "$APP_PATH/Contents/MacOS/DevBoost --port $PORT" >/dev/null 2>&1 || break
+    sleep 0.2
+  done
+fi
+
 "$SOURCE_DIR/build-app.sh"
 "$APP_PATH/Contents/MacOS/DevBoost" refresh-agents
 
@@ -89,10 +102,26 @@ if "$FOREGROUND"; then
   exec "$APP_PATH/Contents/MacOS/DevBoost" --port "$PORT"
 fi
 
-nohup "$APP_PATH/Contents/MacOS/DevBoost" --port "$PORT" \
-  >"$APP_LOG" 2>&1 </dev/null &
-APP_PID=$!
+open -n "$APP_PATH" --args --port "$PORT"
+APP_PID=""
+for _ in {1..20}; do
+  APP_PID="$(pgrep -f -x "$APP_PATH/Contents/MacOS/DevBoost --port $PORT" 2>/dev/null | head -1 || true)"
+  [ -n "$APP_PID" ] && break
+  sleep 0.2
+done
+if [ -z "$APP_PID" ]; then
+  echo "DevBoost native app did not start; check Console.app for launch diagnostics" >&2
+  exit 1
+fi
 printf '%s\n' "$APP_PID" > "$APP_PID_FILE"
-disown "$APP_PID" 2>/dev/null || true
+for _ in {1..10}; do
+  ! kill -0 "$APP_PID" 2>/dev/null && break
+  lsof -tiTCP:"$PORT" -sTCP:LISTEN >/dev/null 2>&1 && break
+  sleep 0.2
+done
+if ! kill -0 "$APP_PID" 2>/dev/null; then
+  echo "DevBoost native app exited during startup; see $APP_LOG" >&2
+  exit 1
+fi
 echo "DevBoost relaunched detached (PID $APP_PID, port $PORT)."
 echo "Logs: $APP_LOG"

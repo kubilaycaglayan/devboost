@@ -1107,6 +1107,7 @@
     let dockerLogContainer = "";
     let dockerLogProfileKey = "";
     let dockerLogResizeObserver = null;
+    let dockerLogSelecting = false;
     const DOCKER_LOG_DEFAULTS = {fontSize: 12, width: 1000, height: 720, search: ""};
 
     function dockerLogStorageKey() {
@@ -1135,15 +1136,28 @@
     function dockerLogAtBottom(output) {
       return output.scrollHeight - output.clientHeight - output.scrollTop <= 2;
     }
+    function beginDockerLogSelection() { dockerLogSelecting = true; }
+    function endDockerLogSelection() { dockerLogSelecting = false; }
+    window.addEventListener("pointerup", endDockerLogSelection);
+    window.addEventListener("pointercancel", endDockerLogSelection);
+    function dockerLogAppendDelta(previous, next) {
+      if (!previous || !next || next === previous) return null;
+      if (next.startsWith(previous)) return next.slice(previous.length);
+      const maxOverlap = Math.min(previous.length, next.length);
+      for (let length = maxOverlap; length > 0; length--) {
+        if (previous.endsWith(next.slice(0, length))) return next.slice(length);
+      }
+      return null;
+    }
     function renderDockerLog() {
       const output = document.getElementById("docker-log-output");
       const raw = output.dataset.content || "";
       const query = document.getElementById("docker-log-search").value;
       saveDockerLogProfile({search: query});
-      const lines = raw ? raw.split("\\n") : [];
+      const lines = raw ? raw.split("\n") : [];
       const matching = query ? lines.filter(line => line.toLowerCase().includes(query.toLowerCase())) : lines;
       const needle = query ? new RegExp(query.replace(/[.*+?^${}()|[\\]\\\\]/g, "\\\\$&"), "ig") : null;
-      const rendered = matching.map(line => escapeHtml(line).replace(needle, match => `<mark>${match}</mark>`)).join("\\n");
+      const rendered = matching.map(line => escapeHtml(line).replace(needle, match => `<mark>${match}</mark>`)).join("\n");
       // Keep unfiltered logs as plain text so appended lines can preserve a
       // text selection anchored in the existing text node.
       if (!query) output.textContent = rendered || "(no logs yet — waiting for the container)";
@@ -1301,15 +1315,28 @@
           ? `[container restarted or rebuilt]\n${next}` : next;
         const logQuery = document.getElementById("docker-log-search").value;
         const wasAtBottom = dockerLogAtBottom(output);
-        const selectionActive = dockerLogSelectionActive(output);
+        const selectionActive = dockerLogSelecting || dockerLogSelectionActive(output);
 
         // Append compatible updates in place. This keeps the browser's range
-        // anchored to the original text node while the container is watched.
-        if (!logQuery && previous && content.startsWith(previous) && output.textContent === previous
-            && output.childNodes.length === 1 && output.firstChild.nodeType === Node.TEXT_NODE) {
+        // anchored to the original text node while the container is watched,
+        // including when a high-volume stream has rolled the server tail.
+        const displayed = output.textContent;
+        const appendDelta = dockerLogAppendDelta(displayed, content);
+        if (!logQuery && previous && appendDelta !== null) {
           output.dataset.content = content;
-          output.firstChild.appendData(content.slice(previous.length));
-          document.getElementById("docker-log-count").innerText = `${content ? content.split("\\n").length : 0} lines`;
+          output.appendChild(document.createTextNode(appendDelta));
+          document.getElementById("docker-log-count").innerText = `${output.textContent ? output.textContent.split("\n").length : 0} lines`;
+          if (wasAtBottom) output.scrollTop = output.scrollHeight;
+          return;
+        }
+
+        // If the stream advanced so quickly that there is no common tail,
+        // still keep live logs visible without replacing the selected node.
+        if (!logQuery && previous && content && content !== previous
+            && !displayed.endsWith(content)) {
+          output.dataset.content = content;
+          output.appendChild(document.createTextNode(`\n[log gap]\n${content}`));
+          document.getElementById("docker-log-count").innerText = `${output.textContent ? output.textContent.split("\n").length : 0} lines`;
           if (wasAtBottom) output.scrollTop = output.scrollHeight;
           return;
         }
