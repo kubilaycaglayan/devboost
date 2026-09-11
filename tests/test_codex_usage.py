@@ -163,6 +163,20 @@ print(json.dumps({'id': m['id'], 'error': {'code': -32000, 'message': 'secret-to
         compile(args[2], "remote_codex_helper", "exec")
         self.assertEqual(result["quotas"][0]["remaining"], 75)
 
+    def test_remote_upstream_uses_selected_host_profile_and_normalizes_locally(self):
+        response = subprocess.CompletedProcess([], 0, json.dumps({"result": {
+            "rate_limit": {"primary_window": {"used_percent": 25, "limit_window_seconds": 18000}},
+        }}), "")
+        with patch.object(usage_service, "run_ssh_command", return_value=response) as ssh:
+            result = usage_service.read_codex_upstream(
+                devboost, {"codex_home": "~/profile 'work'"}, {"ssh_host": "work"})
+        self.assertEqual(ssh.call_args.args[0], "work")
+        args = shlex.split(ssh.call_args.args[1])
+        self.assertEqual(args[:2], ["python3", "-c"])
+        self.assertEqual(args[3:5], ["--upstream", "~/profile 'work'"])
+        compile(args[2], "remote_codex_upstream_helper", "exec")
+        self.assertEqual(result["quotas"][0]["remaining"], 75)
+
     def test_remote_fallback_respects_hosts_codex_home(self):
         response = subprocess.CompletedProcess([], 0, 'DEVBOOST_USAGE_FILE:record.jsonl\n', '')
         with patch.object(usage_service, "run_ssh_command", return_value=response) as ssh:

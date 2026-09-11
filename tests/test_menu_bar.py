@@ -72,6 +72,11 @@ class TestMenuBarUsage(unittest.TestCase):
         self.assertIn('value = "B:\\(compactNumber(remaining))', self.swift)
         self.assertIn('value = "B:∞"', self.swift)
 
+    def test_status_item_prefers_local_usage_for_stale_codex_fallback(self):
+        self.assertIn('message.contains("Showing local usage")', self.swift)
+        self.assertIn('snapshot["local_usage"] as? [String: Any]', self.swift)
+        self.assertIn('value = "U:\\(compactNumber(used))', self.swift)
+
     def test_usage_accounts_are_checkable_and_persisted(self):
         self.assertIn("menu.autoenablesItems = false", self.swift)
         self.assertIn("selectedUsageAccountIDs", self.swift)

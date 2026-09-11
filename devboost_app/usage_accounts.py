@@ -52,7 +52,7 @@ def refresh_usage_account(account, server=None):
             payload = _read_provider_api(account)
         elif account.get("provider") == "codex" and not explicit_url and not explicit_command and not account.get("local_path"):
             try:
-                payload = _read_codex_upstream(account)
+                payload = _read_codex_upstream(account, server=server)
             except Exception as https_error:
                 try:
                     if server and not account.get("local_path"):
@@ -93,7 +93,7 @@ def refresh_usage_account(account, server=None):
             payload = _read_usage_command(account, server=server)
         result = {"ok": True, **_normalize_usage_payload(payload)}
         if account.get("provider") == "codex":
-            for key in ("stale", "message", "observed_at", "plan_type", "credits_unlimited", "available_resets"):
+            for key in ("stale", "message", "observed_at", "plan_type", "credits_unlimited", "available_resets", "local_usage"):
                 if key in payload:
                     result[key] = payload[key]
     except Exception as exc:

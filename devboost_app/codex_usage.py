@@ -14,6 +14,38 @@ import shutil
 import signal
 import subprocess
 import time
+import urllib.error
+import urllib.request
+
+
+def read_upstream_usage(codex_home=None, timeout=15):
+    """Read the ChatGPT subscription quota endpoint for this host's profile."""
+    codex_home = os.path.expanduser(str(codex_home or os.environ.get("CODEX_HOME") or "~/.codex"))
+    try:
+        with open(os.path.join(codex_home, "auth.json"), encoding="utf-8") as stream:
+            data = json.load(stream)
+    except (OSError, UnicodeError, ValueError):
+        raise ValueError("Codex auth file could not be read. Sign in with Codex and retry.") from None
+    tokens = data.get("tokens") if isinstance(data, dict) else None
+    tokens = tokens if isinstance(tokens, dict) else data
+    access_token = tokens.get("access_token") if isinstance(tokens, dict) else None
+    account_id = tokens.get("account_id") if isinstance(tokens, dict) else None
+    if not access_token or not account_id:
+        raise ValueError("Codex auth file has no ChatGPT account session. Sign in with Codex and retry.")
+    request = urllib.request.Request(
+        "https://chatgpt.com/backend-api/wham/usage",
+        headers={"Authorization": "Bearer " + str(access_token),
+                 "ChatGPT-Account-Id": str(account_id),
+                 "User-Agent": "codex-cli",
+                 "Accept": "application/json"},
+        method="GET")
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            return json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        raise ValueError(f"Codex upstream quota query failed (HTTP {exc.code}).") from None
+    except (urllib.error.URLError, TimeoutError, OSError, UnicodeError, ValueError):
+        raise ValueError("Codex upstream quota query failed. Check connectivity and ChatGPT sign-in.") from None
 
 
 def read_rate_limits(codex_home=None, timeout=15):
@@ -132,6 +164,10 @@ def read_rate_limits(codex_home=None, timeout=15):
 if __name__ == "__main__":
     import sys
     try:
-        print(json.dumps({"result": read_rate_limits(sys.argv[1] or None, float(sys.argv[2]))}))
+        if sys.argv[1] == "--upstream":
+            result = read_upstream_usage(sys.argv[2] or None, float(sys.argv[3]))
+        else:
+            result = read_rate_limits(sys.argv[1] or None, float(sys.argv[2]))
+        print(json.dumps({"result": result}))
     except Exception as exc:
         print(json.dumps({"error": str(exc)}))

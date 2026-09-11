@@ -293,7 +293,19 @@ final class DevBoostApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
             let label = menuBarProviderLabel(account["provider"] as? String ?? "Provider")
             let quotas = snapshot["quotas"] as? [[String: Any]] ?? []
             var value: String?
+            // A failed Codex upstream query is still useful when local
+            // transcript totals are available. Prefer those totals for the
+            // compact status title instead of showing an old rate-limit
+            // window from the same stale snapshot.
+            if snapshot["stale"] as? Bool == true,
+               let message = snapshot["message"] as? String,
+               message.contains("Showing local usage"),
+               let localUsage = snapshot["local_usage"] as? [String: Any],
+               let used = (localUsage["used"] as? NSNumber)?.doubleValue {
+                value = "U:\(compactNumber(used)) \(localUsage["unit"] as? String ?? "units")"
+            }
             for quota in quotas {
+                if value != nil { break }
                 if let percent = quotaRemainingPercent(quota) {
                     value = "L:\(String(format: "%.0f", min(100, max(0, percent))))%"
                 } else if let remaining = (quota["remaining"] as? NSNumber)?.doubleValue {

@@ -163,6 +163,7 @@ class TestUsageMonitoring(unittest.TestCase):
         self.assertTrue(snapshot["stale"])
         self.assertTrue(snapshot["source"].startswith("[Local]"))
         self.assertIn("Showing local usage", snapshot["message"])
+        self.assertEqual(snapshot["local_usage"]["used"], 14)
 
     def test_opencode_stats_text_is_normalized(self):
         result = devboost._parse_opencode_stats("Total Cost                                        $1.25\nInput                                              3.9M\nOutput                                           217.1K\n")
