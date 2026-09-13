@@ -4,6 +4,20 @@ import Darwin
 private let appState = NSString(string: "~/Library/Application Support/DevBoost").expandingTildeInPath
 private let logState = (appState as NSString).appendingPathComponent("logs")
 
+private func acquireSingleInstanceLock() -> Bool {
+    try? FileManager.default.createDirectory(atPath: appState, withIntermediateDirectories: true)
+    let lockPath = (appState as NSString).appendingPathComponent("devboost-instance.lock")
+    let descriptor = lockPath.withCString { open($0, O_CREAT | O_RDWR, S_IRUSR | S_IWUSR) }
+    guard descriptor >= 0 else { return false }
+    if flock(descriptor, LOCK_EX | LOCK_NB) == 0 {
+        // Keep the descriptor open for the lifetime of this process. The
+        // kernel releases the lock automatically when DevBoost exits.
+        return true
+    }
+    close(descriptor)
+    return false
+}
+
 private final class StatusTitleField: NSTextField {
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
 }
@@ -18,6 +32,7 @@ enum DevBoostMain {
         if args.first == "--tunnel" {
             exit(runWorker(executable: "/usr/bin/ssh", arguments: Array(args.dropFirst())))
         }
+        guard acquireSingleInstanceLock() else { exit(0) }
 
         let app = NSApplication.shared
         app.setActivationPolicy(.accessory)
@@ -203,17 +218,19 @@ final class DevBoostApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
                         if self.snapshotHasData(snapshot) {
                             let quotas = snapshot?["quotas"] as? [[String: Any]] ?? []
                             var resetCount = 0
+                            if provider.lowercased() == "codex" {
+                                // Codex's available reset credits are distinct
+                                // from its primary and secondary quota windows.
+                                resetCount = max(0, (snapshot?["available_resets"] as? NSNumber)?.intValue ?? 0)
+                            }
                             for quota in quotas {
                                 let reset = self.formatResetTime(quota["reset_at"])
                                 self.addIndentedItem(to: menu, title: self.quotaMenuDetail(quota, reset: reset))
                                 if let value = self.quotaMenuValue(quota) {
                                     self.addIndentedItem(to: menu, title: value, indentationLevel: 2)
                                 }
-                                if reset != nil {
-                                    resetCount += 1
-                                }
                             }
-                            if resetCount > 0 {
+                            if provider.lowercased() == "codex", resetCount > 0 {
                                 let noun = resetCount == 1 ? "reset" : "resets"
                                 self.addIndentedItem(to: menu, title: "You have \(resetCount) usage limit \(noun) available.")
                             }

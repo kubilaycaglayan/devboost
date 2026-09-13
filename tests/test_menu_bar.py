@@ -11,6 +11,8 @@ class TestMenuBarUsage(unittest.TestCase):
 
     def test_usage_is_flattened_into_root_menu(self):
         self.assertIn("private var statusMenu: NSMenu?", self.swift)
+        self.assertIn("acquireSingleInstanceLock()", self.swift)
+        self.assertIn("flock(descriptor, LOCK_EX | LOCK_NB)", self.swift)
         self.assertNotIn('NSMenuItem(title: "AI Usage"', self.swift)
         self.assertNotIn("usageItem.submenu", self.swift)
         self.assertIn('menu.addItem(withTitle: "Open Dashboard"', self.swift)
@@ -19,6 +21,9 @@ class TestMenuBarUsage(unittest.TestCase):
     def test_root_menu_contains_quota_balance_and_reset_details(self):
         for text in ("Balance:", "Resets in ", "You have \\(resetCount) usage limit"):
             self.assertIn(text, self.swift)
+        self.assertIn('resetCount = max(0, (snapshot?["available_resets"] as? NSNumber)?.intValue ?? 0)', self.swift)
+        self.assertNotIn('resetCount += 1', self.swift)
+        self.assertIn('if provider.lowercased() == "codex", resetCount > 0', self.swift)
         self.assertIn("addIndentedItem", self.swift)
         self.assertIn('return "\\(String(format: "%.0f", clamped))% left"', self.swift)
         self.assertIn('return name + (reset.map { " · \\($0)" } ?? "")', self.swift)
