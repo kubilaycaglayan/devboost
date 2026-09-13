@@ -28,6 +28,42 @@
     let serverOrderVersion = 0;
     let menubarEnabled = true;
 
+    const THEME_OPTIONS = ["system", "light", "dark"];
+    const THEME_META = {
+      system: {label: "System", icon: "◐"},
+      light: {label: "Light", icon: "☀"},
+      dark: {label: "Dark", icon: "☾"}
+    };
+    function getTheme() {
+      try {
+        const saved = localStorage.getItem("devboost-theme");
+        return THEME_OPTIONS.includes(saved) ? saved : "system";
+      } catch (_) { return "system"; }
+    }
+    function renderTheme() {
+      const theme = getTheme();
+      const meta = THEME_META[theme];
+      document.documentElement.dataset.theme = theme;
+      const button = document.getElementById("theme-toggle");
+      if (!button) return;
+      button.querySelector(".theme-icon").textContent = meta.icon;
+      button.querySelector(".theme-label").textContent = meta.label;
+      button.setAttribute("aria-label", `Theme: ${meta.label}. Click to change`);
+      button.title = `Theme: ${meta.label} (click to change)`;
+    }
+    function cycleTheme() {
+      const current = getTheme();
+      const next = THEME_OPTIONS[(THEME_OPTIONS.indexOf(current) + 1) % THEME_OPTIONS.length];
+      try { localStorage.setItem("devboost-theme", next); } catch (_) {}
+      renderTheme();
+    }
+    renderTheme();
+    if (window.matchMedia) {
+      window.matchMedia("(prefers-color-scheme: dark)").addEventListener?.("change", () => {
+        if (getTheme() === "system") renderTheme();
+      });
+    }
+
     function renderMenubarToggle() {
       const button = document.getElementById("menubar-toggle");
       if (!button) return;

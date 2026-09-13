@@ -40,6 +40,18 @@ class TestDashboardAPI(unittest.TestCase):
             self.assertIn('/dashboard/styles.css', html)
             self.assertIn('/dashboard/app.js', html)
             self.assertIn('id="header-server-name"', html)
+            self.assertIn('id="theme-toggle"', html)
+            self.assertIn('localStorage.getItem("devboost-theme")', html)
+
+    def test_theme_toggle_supports_all_modes_and_persists_selection(self):
+        with urllib.request.urlopen(self.base_url + "/dashboard/app.js") as resp:
+            app_js = resp.read().decode("utf-8")
+        self.assertIn('const THEME_OPTIONS = ["system", "light", "dark"]', app_js)
+        self.assertIn('localStorage.setItem("devboost-theme", next)', app_js)
+        with urllib.request.urlopen(self.base_url + "/dashboard/styles.css") as resp:
+            styles = resp.read().decode("utf-8")
+        self.assertIn(':root[data-theme="light"]', styles)
+        self.assertIn('prefers-color-scheme: light', styles)
 
     @patch("dashboard.http.load_config", return_value={"menubar_enabled": False})
     def test_get_menubar_setting(self, load):
