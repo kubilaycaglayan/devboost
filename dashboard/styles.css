@@ -18,22 +18,27 @@
       --bg: #f6f8fa;
       --card-bg: #ffffff;
       --border: #d0d7de;
-      --text: #24292f;
-      --text-muted: #57606a;
+      --text: #1f2328;
+      --text-muted: #59636e;
       --accent: #0969da;
       --success: #1a7f37;
       --warning: #9a6700;
-      --danger: #cf222e;
+      --danger: #d1242f;
       --btn-bg: #f6f8fa;
       --btn-hover: #eaeef2;
       --text-strong: #1f2328;
       --input-bg: #ffffff;
+      --text-on-accent: #ffffff;
+      --surface-subtle: #f6f8fa;
+      --surface-hover: #eaeef2;
+      --surface-selected: #ddf4ff;
     }
     @media (prefers-color-scheme: light) {
       :root[data-theme="system"] {
-        --bg: #f6f8fa; --card-bg: #ffffff; --border: #d0d7de; --text: #24292f;
-        --text-muted: #57606a; --accent: #0969da; --success: #1a7f37; --warning: #9a6700;
-        --danger: #cf222e; --btn-bg: #f6f8fa; --btn-hover: #eaeef2; --text-strong: #1f2328; --input-bg: #ffffff;
+        --bg: #f6f8fa; --card-bg: #ffffff; --border: #d0d7de; --text: #1f2328;
+        --text-muted: #59636e; --accent: #0969da; --success: #1a7f37; --warning: #9a6700;
+        --danger: #d1242f; --btn-bg: #f6f8fa; --btn-hover: #eaeef2; --text-strong: #1f2328; --input-bg: #ffffff;
+        --text-on-accent: #ffffff; --surface-subtle: #f6f8fa; --surface-hover: #eaeef2; --surface-selected: #ddf4ff;
       }
     }
     * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -675,3 +680,105 @@
     :root[data-theme="light"] .mini-tab:hover,
     :root[data-theme="light"] .workspace-tab:hover,
     :root[data-theme="light"] .tab:hover { color: var(--text-strong); }
+
+    /* Light mode semantic contrast overrides. The base rules intentionally keep
+       the dark palette; these selectors prevent dark-only literals from leaking
+       into the light palette. */
+    :root[data-theme="light"] .feature-tile,
+    :root[data-theme="light"] .feature-tile strong,
+    :root[data-theme="light"] .feature-tile small,
+    :root[data-theme="light"] .feature-tile .tile-summary-count,
+    :root[data-theme="light"] .home-settings-card h2,
+    :root[data-theme="light"] .title-group h1,
+    :root[data-theme="light"] .section-header h2,
+    :root[data-theme="light"] .modal-header h3,
+    :root[data-theme="light"] .stat-card .value,
+    :root[data-theme="light"] .server-row .srv-host,
+    :root[data-theme="light"] .server-management-name { color: var(--text-strong); }
+    :root[data-theme="light"] .feature-tile small,
+    :root[data-theme="light"] .feature-tile .tile-separator,
+    :root[data-theme="light"] .feature-arrow { color: var(--text-muted); }
+    :root[data-theme="light"] .feature-tile .tile-port,
+    :root[data-theme="light"] .feature-tile .tile-sync-local { color: #0550ae; }
+    :root[data-theme="light"] .feature-tile .tile-docker,
+    :root[data-theme="light"] .feature-tile .tile-sync-remote { color: #6639ba; }
+    :root[data-theme="light"] .feature-tile .tile-usage { color: #a4266f; }
+    :root[data-theme="light"] .feature-icon { color: var(--accent); background: rgba(9,105,218,.12); }
+    :root[data-theme="light"] .feature-tile:hover { border-color: var(--accent); }
+    :root[data-theme="light"] .tile-blue { background: #eaf3ff; }
+    :root[data-theme="light"] .tile-purple { background: #f3efff; }
+    :root[data-theme="light"] .tile-green { background: #e9f7ef; }
+    :root[data-theme="light"] .tile-orange { background: #fff4df; }
+    :root[data-theme="light"] .tile-pink { background: #fcecf5; }
+
+    :root[data-theme="light"] .section-header,
+    :root[data-theme="light"] .modal-footer { background: var(--surface-subtle); }
+    :root[data-theme="light"] td { border-bottom-color: var(--border); }
+    :root[data-theme="light"] tr:hover td,
+    :root[data-theme="light"] .workspace-tab:hover,
+    :root[data-theme="light"] .mini-tab.active { background: var(--surface-hover); }
+    :root[data-theme="light"] .workspace-tabs { background: var(--surface-subtle); }
+    :root[data-theme="light"] .workspace-tab.active,
+    :root[data-theme="light"] .tab.active { color: #0550ae; background: var(--surface-selected); }
+    :root[data-theme="light"] .tab:hover,
+    :root[data-theme="light"] .server-drag-handle:hover { border-color: var(--accent); }
+    :root[data-theme="light"] .btn-primary { background: #1f883d; color: var(--text-on-accent); border-color: #1a7f37; }
+    :root[data-theme="light"] .btn-primary:hover { background: #1a7f37; }
+    :root[data-theme="light"] .btn-danger:hover { background: #ffebe9; }
+
+    :root[data-theme="light"] .badge-always { background: #ddf4ff; color: #0550ae; border-color: #54aeff; }
+    :root[data-theme="light"] .badge-session { background: #fff8c5; color: #7d4e00; border-color: #d4a72c; }
+    :root[data-theme="light"] .badge-active { background: #dafbe1; color: #116329; border-color: #4ac26b; }
+    :root[data-theme="light"] .badge-inactive { background: #ffebe9; color: #a40e26; border-color: #ff8182; }
+    :root[data-theme="light"] .usage-meter-header strong,
+    :root[data-theme="light"] .usage-quota-text strong,
+    :root[data-theme="light"] .usage-form-section-title { color: var(--text-strong); }
+    :root[data-theme="light"] .usage-form-section--source .usage-form-section-title { color: #0550ae; }
+    :root[data-theme="light"] .usage-form-section--access .usage-form-section-title { color: #6639ba; }
+    :root[data-theme="light"] .usage-form-section--advanced .usage-form-section-title { color: #7d4e00; }
+    :root[data-theme="light"] .usage-account-modal .form-group > label:not(.form-checkbox),
+    :root[data-theme="light"] .usage-account-modal .form-checkbox,
+    :root[data-theme="light"] .usage-account-modal .form-hint { color: var(--text); }
+    :root[data-theme="light"] .usage-context-note { background: #eaf3ff; color: #0550ae !important; }
+    :root[data-theme="light"] .usage-reset-summary { background: #f6f8fa; color: var(--text); border-color: var(--border); }
+    :root[data-theme="light"] .browser-path:focus,
+    :root[data-theme="light"] .suggest-item:hover,
+    :root[data-theme="light"] .suggest-item.active,
+    :root[data-theme="light"] .browser-item:hover { color: var(--text-strong); }
+    :root[data-theme="light"] #toast { background: var(--card-bg); color: var(--text); box-shadow: 0 4px 15px rgba(31,35,40,.18); }
+
+    @media (prefers-color-scheme: light) {
+      :root[data-theme="system"] .feature-tile,
+      :root[data-theme="system"] .feature-tile strong,
+      :root[data-theme="system"] .feature-tile small,
+      :root[data-theme="system"] .feature-tile .tile-summary-count,
+      :root[data-theme="system"] .title-group h1,
+      :root[data-theme="system"] .section-header h2,
+      :root[data-theme="system"] .modal-header h3,
+      :root[data-theme="system"] .stat-card .value,
+      :root[data-theme="system"] .server-row .srv-host,
+      :root[data-theme="system"] .server-management-name { color: var(--text-strong); }
+      :root[data-theme="system"] .feature-tile small,
+      :root[data-theme="system"] .feature-arrow { color: var(--text-muted); }
+      :root[data-theme="system"] .feature-icon { color: var(--accent); background: rgba(9,105,218,.12); }
+      :root[data-theme="system"] .tile-blue { background: #eaf3ff; }
+      :root[data-theme="system"] .tile-purple { background: #f3efff; }
+      :root[data-theme="system"] .tile-green { background: #e9f7ef; }
+      :root[data-theme="system"] .tile-orange { background: #fff4df; }
+      :root[data-theme="system"] .tile-pink { background: #fcecf5; }
+      :root[data-theme="system"] .section-header,
+      :root[data-theme="system"] .modal-footer,
+      :root[data-theme="system"] .workspace-tabs { background: var(--surface-subtle); }
+      :root[data-theme="system"] tr:hover td,
+      :root[data-theme="system"] .workspace-tab:hover,
+      :root[data-theme="system"] .mini-tab.active { background: var(--surface-hover); }
+      :root[data-theme="system"] .workspace-tab.active,
+      :root[data-theme="system"] .tab.active { color: #0550ae; background: var(--surface-selected); }
+      :root[data-theme="system"] .btn-primary { background: #1f883d; color: var(--text-on-accent); border-color: #1a7f37; }
+      :root[data-theme="system"] .btn-primary:hover { background: #1a7f37; }
+      :root[data-theme="system"] .badge-always { background: #ddf4ff; color: #0550ae; border-color: #54aeff; }
+      :root[data-theme="system"] .badge-session { background: #fff8c5; color: #7d4e00; border-color: #d4a72c; }
+      :root[data-theme="system"] .badge-active { background: #dafbe1; color: #116329; border-color: #4ac26b; }
+      :root[data-theme="system"] .badge-inactive { background: #ffebe9; color: #a40e26; border-color: #ff8182; }
+      :root[data-theme="system"] #toast { background: var(--card-bg); color: var(--text); box-shadow: 0 4px 15px rgba(31,35,40,.18); }
+    }
