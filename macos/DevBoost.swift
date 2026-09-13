@@ -34,11 +34,13 @@ final class DevBoostApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let dashboardSessionToken = UUID().uuidString
     private var backend: Process?
     private var statusItem: NSStatusItem?
+    private var menubarEnabled = true
     private var statusTitleField: StatusTitleField?
     private var statusMenu: NSMenu?
     private var usageStatusMenuItem: NSMenuItem?
     private var usageTimer: Timer?
     private var usageStatusTimer: Timer?
+    private var menubarTimer: Timer?
     private var interruptSource: DispatchSourceSignal?
     private var usageMenuNeedsRebuild = false
     private var usageMenuIsOpen = false
@@ -63,11 +65,16 @@ final class DevBoostApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let statusTimer = Timer(timeInterval: 1, repeats: true) { [weak self] _ in self?.updateUsageMenuStatus() }
         RunLoop.main.add(statusTimer, forMode: .common)
         usageStatusTimer = statusTimer
+        let menubarTimer = Timer(timeInterval: 1, repeats: true) { [weak self] _ in self?.refreshMenubarVisibility() }
+        RunLoop.main.add(menubarTimer, forMode: .common)
+        self.menubarTimer = menubarTimer
+        refreshMenubarVisibility()
     }
 
     func applicationWillTerminate(_ notification: Notification) {
         usageTimer?.invalidate()
         usageStatusTimer?.invalidate()
+        menubarTimer?.invalidate()
         backend?.terminate()
     }
 
@@ -113,6 +120,21 @@ final class DevBoostApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
         item.menu = menu
         statusMenu = menu
         menu.delegate = self
+    }
+
+    private func refreshMenubarVisibility() {
+        let url = URL(string: "http://127.0.0.1:\(dashboardPort())/api/settings/menubar")!
+        var request = URLRequest(url: url)
+        request.setValue("devboost_session=\(dashboardSessionToken)", forHTTPHeaderField: "Cookie")
+        URLSession.shared.dataTask(with: request) { [weak self] data, _, _ in
+            guard let data = data,
+                  let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let enabled = root["menubar_enabled"] as? Bool else { return }
+            DispatchQueue.main.async {
+                self?.menubarEnabled = enabled
+                self?.statusItem?.isVisible = enabled
+            }
+        }.resume()
     }
 
     func menuWillOpen(_ menu: NSMenu) {
@@ -233,6 +255,7 @@ final class DevBoostApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     private func setStatusItemTitle(_ title: String) {
         statusItem?.isVisible = true
+        statusItem?.isVisible = menubarEnabled
         guard let button = statusItem?.button else { return }
         button.isHidden = false
         button.isEnabled = true

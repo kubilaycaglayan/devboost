@@ -89,6 +89,7 @@ def load_config(runtime):
             cfg.setdefault("history", [])
             cfg.setdefault("usage_accounts", [])
             cfg.setdefault("usage_snapshots", {})
+            cfg.setdefault("menubar_enabled", True)
             cfg, changed = runtime.ensure_servers_migrated(cfg)
             cfg, sync_changed = runtime.ensure_syncs_migrated(cfg)
             if changed or sync_changed:
@@ -111,6 +112,7 @@ def load_config(runtime):
                 cfg.setdefault("history", [])
                 cfg.setdefault("usage_accounts", [])
                 cfg.setdefault("usage_snapshots", {})
+                cfg.setdefault("menubar_enabled", True)
                 return cfg
             except Exception:
                 pass
@@ -118,7 +120,7 @@ def load_config(runtime):
         "labels": {}, "rules": {}, "docker_labels": _default_docker_labels(),
         "history": [], "server_labels": {}, "usage_accounts": [],
         "usage_snapshots": {}, "servers": [runtime.default_server_from_env(order=0)],
-        "syncs": [], "folder_history": [],
+        "syncs": [], "folder_history": [], "menubar_enabled": True,
     }
 
 

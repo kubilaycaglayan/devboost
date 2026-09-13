@@ -26,6 +26,43 @@
     let serverDrag = null;
     let serverOrderSaving = false;
     let serverOrderVersion = 0;
+    let menubarEnabled = true;
+
+    function renderMenubarToggle() {
+      const button = document.getElementById("menubar-toggle");
+      if (!button) return;
+      button.disabled = false;
+      button.textContent = menubarEnabled ? "On · Hide menu bar item" : "Off · Show menu bar item";
+      button.setAttribute("aria-pressed", String(menubarEnabled));
+    }
+    async function fetchMenubarSetting() {
+      try {
+        const response = await fetch("/api/settings/menubar");
+        if (!response.ok) throw new Error("Could not load menu bar setting");
+        const data = await response.json();
+        menubarEnabled = data.menubar_enabled !== false;
+        renderMenubarToggle();
+      } catch (error) {
+        const button = document.getElementById("menubar-toggle");
+        if (button) { button.disabled = true; button.textContent = "Unavailable"; }
+      }
+    }
+    async function toggleMenubar() {
+      const button = document.getElementById("menubar-toggle");
+      if (button) button.disabled = true;
+      try {
+        const response = await fetch("/api/settings/menubar", {
+          method: "POST", headers: {"Content-Type": "application/json"},
+          body: JSON.stringify({enabled: !menubarEnabled})
+        });
+        const data = await response.json();
+        if (!response.ok || data.ok === false) throw new Error(data.message || "Could not update menu bar setting");
+        menubarEnabled = data.menubar_enabled !== false;
+        renderMenubarToggle();
+      } catch (error) {
+        if (button) { button.disabled = false; button.textContent = "Could not update"; }
+      }
+    }
 
     function openUsageModal(account = null) {
       editingUsageId = account ? account.id : null;
@@ -2074,6 +2111,7 @@
     window.addEventListener("hashchange", () => navigatePage(window.location.hash.slice(1), false));
     window.addEventListener("popstate", () => navigatePage(window.location.hash.slice(1), false));
     navigatePage(window.location.hash.slice(1) || "home", false);
+    fetchMenubarSetting();
 
     fetchServers().then(() => { fetchStatus(); fetchDocker(); fetchSyncs(); fetchUsage(); });
     setInterval(fetchStatus, 4000);

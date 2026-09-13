@@ -57,6 +57,13 @@
         <a class="feature-tile tile-orange" href="#services" onclick="navigatePage('services'); return false;"><span class="feature-icon">⌁</span><span><strong>Service Discovery</strong><small>Find remote services and local listeners</small></span><span class="feature-arrow">›</span></a>
         <a class="feature-tile tile-pink" href="#usage" onclick="navigatePage('usage'); return false;"><span class="feature-icon">◔</span><span><strong>AI Usage &amp; Balances</strong><small id="home-usage-summary">Loading usage…</small></span><span class="feature-arrow">›</span></a>
       </div>
+      <div class="section-card home-settings-card">
+        <div>
+          <h2>Menu bar</h2>
+          <div class="section-subtitle">Show or hide the DevBoost item in the macOS menu bar.</div>
+        </div>
+        <button class="btn btn-primary" id="menubar-toggle" onclick="toggleMenubar()" disabled>Loading…</button>
+      </div>
     </div>
 
     <div class="page-view" id="page-servers">

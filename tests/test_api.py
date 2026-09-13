@@ -41,6 +41,12 @@ class TestDashboardAPI(unittest.TestCase):
             self.assertIn('/dashboard/app.js', html)
             self.assertIn('id="header-server-name"', html)
 
+    @patch("dashboard.http.load_config", return_value={"menubar_enabled": False})
+    def test_get_menubar_setting(self, load):
+        with urllib.request.urlopen(self.base_url + "/api/settings/menubar") as response:
+            self.assertEqual(json.loads(response.read().decode("utf-8")), {"menubar_enabled": False})
+        load.assert_called_once_with()
+
     def test_server_selector_is_global_and_precedes_all_pages(self):
         with urllib.request.urlopen(self.base_url + "/") as resp:
             html = resp.read().decode("utf-8")
@@ -416,6 +422,16 @@ process.stdout.write(JSON.stringify([
             data = json.loads(resp.read().decode("utf-8"))
             self.assertTrue(data.get("ok"))
             self.assertIn("killed", data)
+
+    @patch("dashboard.http.save_config")
+    @patch("dashboard.http.load_config", return_value={"servers": []})
+    def test_post_menubar_setting_persists_boolean(self, load, save):
+        _, data = self._post_json("/api/settings/menubar", {"enabled": False})
+        self.assertEqual(data, {"ok": True, "menubar_enabled": False})
+        self.assertEqual(save.call_args.args[0]["menubar_enabled"], False)
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            self._post_json("/api/settings/menubar", {"enabled": "false"})
+        self.assertEqual(ctx.exception.code, 400)
 
     def test_not_found(self):
         with self.assertRaises(urllib.error.HTTPError) as ctx:

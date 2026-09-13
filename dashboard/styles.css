@@ -45,6 +45,9 @@
     .feature-tile .tile-usage { color: #ffc6e4; }
     .feature-icon { width: 48px; height: 48px; display: grid; place-items: center; border-radius: 14px; color: #fff; font-size: 25px; font-weight: 500; background: rgba(255,255,255,.13); }
     .feature-arrow { position: absolute; right: 24px; top: 22px; color: rgba(255,255,255,.65); font-size: 27px; text-align: right; }
+    .home-settings-card { margin-top: 16px; display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+    .home-settings-card h2 { color: #fff; font-size: 17px; margin-bottom: 3px; }
+    .home-settings-card .section-subtitle { margin: 0; }
     .tile-blue { background: linear-gradient(135deg, rgba(35,134,214,.32), rgba(35,134,214,.10)); }
     .tile-purple { background: linear-gradient(135deg, rgba(137,87,229,.32), rgba(137,87,229,.10)); }
     .tile-green { background: linear-gradient(135deg, rgba(46,160,67,.30), rgba(46,160,67,.10)); }
@@ -108,6 +111,7 @@
       text-decoration: none;
     }
     .btn:hover { background: var(--btn-hover); color: #fff; border-color: #8b949e; }
+    .btn:disabled { cursor: not-allowed; opacity: .65; }
     .btn-primary { background: #238636; color: #fff; border-color: rgba(240,246,252,0.1); }
     .btn-primary:hover { background: #2ea043; border-color: rgba(240,246,252,0.1); }
     .btn-danger { color: var(--danger); }

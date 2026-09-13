@@ -159,6 +159,8 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 self._send_json({"accounts": [], "snapshots": {}, "message": str(e)}, status=500)
         elif path == "/api/servers":
             self._send_json({"servers": get_servers_status()})
+        elif path == "/api/settings/menubar":
+            self._send_json({"menubar_enabled": bool(load_config().get("menubar_enabled", True))})
         elif path == "/api/ssh-hosts":
             cfg = load_config()
             added_hosts = {s.get("ssh_host") for s in cfg.get("servers", [])}
@@ -334,6 +336,15 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 self._send_json({"ok": False, "message": str(e)}, status=400)
                 return
             self._send_json({"ok": True, "server": server, "message": f"Server '{ssh_host}' added"})
+        elif path == "/api/settings/menubar":
+            enabled = body.get("enabled")
+            if not isinstance(enabled, bool):
+                self._send_json({"ok": False, "message": "enabled must be a boolean"}, status=400)
+                return
+            cfg = load_config()
+            cfg["menubar_enabled"] = enabled
+            save_config(cfg)
+            self._send_json({"ok": True, "menubar_enabled": enabled})
         elif path == "/api/servers/remove":
             sid = body.get("id") or body.get("server_id") or body.get("server")
             if not sid:
