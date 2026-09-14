@@ -290,6 +290,22 @@ class DashboardHandler(BaseHTTPRequestHandler):
             cfg["docker_labels"] = clean
             save_config(cfg)
             self._send_json({"ok": True, "labels": clean})
+        elif path == "/api/docker/action":
+            operation = str(body.get("action") or "").strip().lower()
+            container = str(body.get("container") or body.get("name") or body.get("id") or "").strip()
+            if operation not in ("start", "stop", "restart"):
+                self._send_json({"ok": False, "message": "action must be start, stop, or restart"}, status=400)
+                return
+            if not container:
+                self._send_json({"ok": False, "message": "container is required"}, status=400)
+                return
+            srv = body.get("server_id") or body.get("server")
+            try:
+                result = docker_container_action(srv, container, operation)
+            except Exception as exc:
+                self._send_json({"ok": False, "message": str(exc)}, status=500)
+                return
+            self._send_json(result, status=200 if result.get("ok") else 500)
         elif path == "/api/usage/accounts":
             try:
                 self._send_json({"ok": True, "account": save_usage_account(body)})

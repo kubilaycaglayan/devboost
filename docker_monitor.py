@@ -45,9 +45,25 @@ def _normalise_container(row):
         "image": row.get("Image", ""),
         "command": row.get("Command", ""),
         "status": row.get("Status", ""),
+        "state": row.get("State", "") or _state_from_status(row.get("Status", "")),
         "ports": row.get("Ports", ""),
         "networks": row.get("Networks", ""),
     }
+
+
+def _state_from_status(status):
+    """Infer a Docker state for older daemons that omit the State field."""
+    value = str(status or "").strip().lower()
+    if value.startswith("up"):
+        return "running"
+    if value.startswith("created"):
+        return "created"
+    if value.startswith("exited"):
+        return "exited"
+    for state in ("restarting", "running", "paused", "removing", "dead", "created", "exited"):
+        if value.startswith(state) or f"({state})" in value:
+            return state
+    return "unknown"
 
 
 def _normalise_stats(row):
@@ -69,7 +85,7 @@ def collect_docker_snapshot(host, timeout=30):
         "if ! command -v docker >/dev/null 2>&1; then "
         "echo 'Docker CLI is not installed on the server' >&2; exit 127; "
         "fi; "
-        f"docker ps --format {_PS_FORMAT!r} && "
+        f"docker ps -a --format {_PS_FORMAT!r} && "
         f"printf '\\n{_SECTION_MARKER}\\n' && "
         f"docker stats --no-stream --format {_STATS_FORMAT!r}"
     )
@@ -118,6 +134,28 @@ def collect_docker_snapshot(host, timeout=30):
         "updated_at": now,
         "message": "",
     }
+
+
+def docker_container_action(host, action, container, timeout=30):
+    """Run one safe Docker lifecycle action on a remote container."""
+    if action not in ("start", "stop", "restart"):
+        return {"ok": False, "message": "Unsupported Docker action"}
+    container = str(container or "").strip()
+    if not container or len(container) > 255 or any(char.isspace() for char in container):
+        return {"ok": False, "message": "A valid container name or ID is required"}
+    command = "docker %s %s" % (action, shlex.quote(container))
+    try:
+        result = run_ssh_command(host, command, timeout=timeout, connect_timeout=5)
+    except subprocess.TimeoutExpired:
+        return {"ok": False, "message": f"Docker {action} timed out on {host}"}
+    except Exception as exc:
+        return {"ok": False, "message": f"Docker {action} failed on {host}: {exc}"}
+    if result.returncode != 0:
+        detail = (result.stderr or result.stdout or f"docker {action} failed").strip()
+        return {"ok": False, "message": detail[:500]}
+    past_tense = {"start": "started", "stop": "stopped", "restart": "restarted"}[action]
+    return {"ok": True, "action": action, "container": container,
+            "message": (result.stdout or f"Container {container} {past_tense}").strip()[:500]}
 
 
 def collect_docker_logs(host, container, tail=200, timeout=30):

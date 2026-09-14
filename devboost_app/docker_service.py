@@ -3,7 +3,7 @@
 import re
 import subprocess
 
-from docker_monitor import collect_docker_logs
+from docker_monitor import collect_docker_logs, docker_container_action
 
 
 def get_labels(runtime):
@@ -45,6 +45,14 @@ def get_logs(runtime, server_ref, container, tail=200):
     cfg = runtime.load_config()
     server = runtime.resolve_server(cfg, server_ref)
     result = collect_docker_logs(server.get("ssh_host"), container, tail=tail)
+    result.update({"server_id": server.get("id"), "container": container})
+    return result
+
+
+def action(runtime, server_ref, container, operation):
+    cfg = runtime.load_config()
+    server = runtime.resolve_server(cfg, server_ref)
+    result = docker_container_action(server.get("ssh_host"), operation, container)
     result.update({"server_id": server.get("id"), "container": container})
     return result
 

@@ -1176,6 +1176,7 @@
 
     let dockerRows = [];
     let dockerSorts = [{key: "name", dir: 1}];
+    let dockerFilter = "running";
     let dockerLogTimer = null;
     let dockerLogContainer = "";
     let dockerLogProfileKey = "";
@@ -1271,6 +1272,45 @@
       else dockerSorts.push({key, dir: key === "name" ? 1 : -1});
       renderDockerRows();
     }
+
+    function setDockerFilter(filter) {
+      dockerFilter = ["running", "non-running", "all"].includes(filter) ? filter : "running";
+      try { localStorage.setItem("devboost-docker-filter", dockerFilter); } catch (_) {}
+      renderDockerRows();
+    }
+
+    function dockerState(container) {
+      const state = String(container.state || "").toLowerCase();
+      if (state) return state;
+      const status = String(container.status || "").toLowerCase();
+      if (status.startsWith("up")) return "running";
+      return status.split(/\s|\(/)[0] || "unknown";
+    }
+
+    function dockerStateLabel(state) {
+      return state === "running" ? "Running" : state.charAt(0).toUpperCase() + state.slice(1);
+    }
+
+    function dockerRowVisible(container) {
+      const running = dockerState(container) === "running";
+      return dockerFilter === "all" || (dockerFilter === "running" ? running : !running);
+    }
+
+    async function dockerAction(action, container) {
+      const name = container.name || container.id;
+      if (action === "stop" && !confirm(`Stop container "${name}"?`)) return;
+      if (action === "restart" && !confirm(`Restart container "${name}"?`)) return;
+      try {
+        const res = await fetch("/api/docker/action", {
+          method: "POST", headers: {"Content-Type": "application/json"},
+          body: JSON.stringify({action, container: name, server_id: currentServerId}),
+        });
+        const data = await res.json();
+        if (!res.ok || !data.ok) throw new Error(data.message || `Could not ${action} container`);
+        showToast(data.message || `Container ${action}ed`);
+        fetchDocker();
+      } catch (err) { showToast(String(err), true); }
+    }
     function renderDockerSortIndicators() {
       ["name", "labels", "status", "cpu", "memory", "memory_percent", "network"].forEach(key => {
         const el = document.getElementById("sort-" + key);
@@ -1281,7 +1321,7 @@
     }
     function renderDockerRows() {
       const tbody = document.getElementById("docker-body");
-      const rows = dockerRows.slice().sort((a, b) => {
+      const rows = dockerRows.filter(dockerRowVisible).slice().sort((a, b) => {
         for (const sort of dockerSorts) {
           const av = dockerSortValue(a, sort.key), bv = dockerSortValue(b, sort.key);
           if (av < bv) return -1 * sort.dir;
@@ -1289,15 +1329,29 @@
         }
         return dockerSortValue(a, "name").localeCompare(dockerSortValue(b, "name"));
       });
+      if (!rows.length) {
+        const message = dockerRows.length ? "No containers match this filter." : "Docker is available, but no containers were found.";
+        tbody.innerHTML = `<tr><td colspan="9" style="text-align:center; color:var(--text-muted); padding:30px;">${message}</td></tr>`;
+        renderDockerSortIndicators();
+        return;
+      }
       tbody.innerHTML = rows.map(c => {
         const s = c.stats || {};
+        const state = dockerState(c);
+        const running = state === "running";
         const labels = (c.labels || []).map(l => `<span class="docker-label" style="background:${escapeHtml(l.color || '#8b949e')}" title="matches: ${escapeHtml(l.name || '')}">${escapeHtml(l.name || '')}</span>`).join("") || '<span class="muted">—</span>';
+        const unavailable = ["dead", "removing", "restarting"].includes(state);
+        const actions = unavailable
+          ? '<span class="muted">Unavailable</span>'
+          : running
+          ? `<button class="btn btn-sm docker-action-button" onclick='dockerAction("stop", ${JSON.stringify(c)})' title="Stop container">STOP</button><button class="btn btn-sm docker-action-button" onclick='dockerAction("restart", ${JSON.stringify(c)})' title="Restart container">RESTART</button>`
+          : `<button class="btn btn-sm docker-action-button" onclick='dockerAction("start", ${JSON.stringify(c)})' title="Start container">START</button>`;
         return `<tr>
           <td><button class="btn btn-sm docker-logs-button" onclick='openDockerLog(${JSON.stringify(c.name || c.id)})' title="Watch logs">LOGS</button><strong>${escapeHtml(c.name || c.id)}</strong><div class="sync-sub">${escapeHtml(c.id || "")}</div></td>
-          <td>${labels}</td><td>${escapeHtml(c.status || "")}</td>
+          <td>${labels}</td><td><span class="badge ${running ? "badge-active" : "badge-inactive"}">${escapeHtml(dockerStateLabel(state))}</span><div class="sync-sub">${escapeHtml(c.status || "")}</div></td>
           <td class="mono">${escapeHtml(s.cpu_percent || "-")}</td><td class="mono">${escapeHtml(s.memory_usage || "-")}</td>
           <td class="mono">${escapeHtml(s.memory_percent || "-")}</td><td class="mono">${escapeHtml(s.network_io || "-")}</td>
-          <td class="mono" style="max-width:220px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="${escapeHtml(c.image || "")}">${escapeHtml(c.image || "")}</td>
+          <td class="mono" style="max-width:220px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="${escapeHtml(c.image || "")}">${escapeHtml(c.image || "")}</td><td style="white-space:nowrap;">${actions}</td>
         </tr>`;
       }).join("");
       renderDockerSortIndicators();
@@ -1318,22 +1372,23 @@
         if (!data.available) {
           setHomeSummary("home-docker-summary", "Docker unavailable");
           subtitle.innerText = "unavailable";
-          tbody.innerHTML = `<tr><td colspan="8" style="text-align:center; color:var(--warning); padding:30px;">${escapeHtml(data.message || "Docker is unavailable on this server.")}</td></tr>`;
+          tbody.innerHTML = `<tr><td colspan="9" style="text-align:center; color:var(--warning); padding:30px;">${escapeHtml(data.message || "Docker is unavailable on this server.")}</td></tr>`;
           return;
         }
         const age = data.age_seconds == null ? "just now" : `${data.age_seconds}s ago`;
-        subtitle.innerText = `${data.containers.length} running • updated ${age}`;
+        const runningCount = (data.containers || []).filter(c => dockerState(c) === "running").length;
+        subtitle.innerText = `${runningCount} running · ${data.containers.length} total · updated ${age}`;
         if (!data.containers.length) {
-          tbody.innerHTML = '<tr><td colspan="8" style="text-align:center; color:var(--text-muted); padding:30px;">Docker is available, but no containers are running.</td></tr>';
+          tbody.innerHTML = '<tr><td colspan="9" style="text-align:center; color:var(--text-muted); padding:30px;">Docker is available, but no containers were found.</td></tr>';
           return;
         }
         dockerRows = data.containers || [];
-        renderHomeDockerSummary(dockerRows);
+        renderHomeDockerSummary(dockerRows.filter(c => dockerState(c) === "running"));
         renderDockerRows();
       } catch (err) {
         setHomeSummary("home-docker-summary", "Docker unavailable");
         subtitle.innerText = "error";
-        tbody.innerHTML = `<tr><td colspan="8" style="text-align:center; color:var(--danger); padding:30px;">Docker query failed: ${escapeHtml(String(err))}</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="9" style="text-align:center; color:var(--danger); padding:30px;">Docker query failed: ${escapeHtml(String(err))}</td></tr>`;
       }
     }
 
@@ -2146,6 +2201,13 @@
     }
     window.addEventListener("hashchange", () => navigatePage(window.location.hash.slice(1), false));
     window.addEventListener("popstate", () => navigatePage(window.location.hash.slice(1), false));
+    try {
+      const savedDockerFilter = localStorage.getItem("devboost-docker-filter");
+      if (["running", "non-running", "all"].includes(savedDockerFilter)) {
+        dockerFilter = savedDockerFilter;
+        document.getElementById("docker-filter").value = dockerFilter;
+      }
+    } catch (_) {}
     navigatePage(window.location.hash.slice(1) || "home", false);
     fetchMenubarSetting();
 

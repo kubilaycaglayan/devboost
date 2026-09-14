@@ -7,7 +7,7 @@ import os
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-from docker_monitor import collect_docker_snapshot, parse_docker_output, collect_docker_logs
+from docker_monitor import collect_docker_snapshot, parse_docker_output, collect_docker_logs, docker_container_action
 import devboost
 from docker_monitor import DockerMonitor
 
@@ -60,6 +60,33 @@ class TestDockerMonitor(unittest.TestCase):
         self.assertEqual(result["containers"][0]["name"], "web")
         self.assertEqual(result["containers"][0]["stats"]["cpu_percent"], "1.20%")
         mock_ssh.assert_called_once()
+        self.assertIn("docker ps -a", mock_ssh.call_args.args[1])
+
+    @patch("docker_monitor.run_ssh_command")
+    def test_collect_includes_non_running_state_without_stats(self, mock_ssh):
+        mock_ssh.return_value = subprocess.CompletedProcess(
+            args=[], returncode=0,
+            stdout=(
+                '{"ID":"dead123","Names":"old-web","Image":"nginx:latest","Status":"Exited (0) 2 hours ago","State":"exited"}\n'
+                '__DEVBOOST_DOCKER_STATS__\n'
+            ), stderr="",
+        )
+        result = collect_docker_snapshot("myhost")
+        self.assertEqual(result["containers"][0]["state"], "exited")
+        self.assertEqual(result["containers"][0]["stats"]["cpu_percent"], "")
+
+    @patch("docker_monitor.run_ssh_command")
+    def test_docker_container_action_allows_lifecycle_operations(self, mock_ssh):
+        mock_ssh.return_value = subprocess.CompletedProcess(args=[], returncode=0, stdout="old-web\n", stderr="")
+        result = docker_container_action("myhost", "restart", "old-web")
+        self.assertTrue(result["ok"])
+        self.assertIn("docker restart old-web", mock_ssh.call_args.args[1])
+
+    @patch("docker_monitor.run_ssh_command")
+    def test_docker_container_action_rejects_invalid_operation_and_container(self, mock_ssh):
+        self.assertFalse(docker_container_action("myhost", "rm", "old-web")["ok"])
+        self.assertFalse(docker_container_action("myhost", "start", "bad name")["ok"])
+        mock_ssh.assert_not_called()
 
     @patch("docker_monitor.run_ssh_command")
     def test_collect_reports_missing_docker(self, mock_ssh):

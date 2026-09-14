@@ -654,6 +654,10 @@ def get_docker_logs(server_ref, container, tail=200):
     return docker_service.get_logs(sys.modules[__name__], server_ref, container, tail)
 
 
+def docker_container_action(server_ref, container, operation):
+    return docker_service.action(sys.modules[__name__], server_ref, container, operation)
+
+
 def scan_remote_services(server_ref=None):
     return docker_service.scan_services(sys.modules[__name__], server_ref)
 

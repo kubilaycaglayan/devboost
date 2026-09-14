@@ -145,6 +145,13 @@
       <div class="section-header">
         <h2>Docker Containers <span class="muted" style="font-weight:400; font-size:12px;" id="docker-subtitle"></span></h2>
         <div style="display:flex; gap:8px;">
+          <label class="docker-filter-label" for="docker-filter">Show
+            <select id="docker-filter" class="docker-filter" onchange="setDockerFilter(this.value)">
+              <option value="running">Running</option>
+              <option value="non-running">Stopped / other</option>
+              <option value="all">All</option>
+            </select>
+          </label>
           <button class="btn btn-sm" onclick="openDockerLabelsModal()">🏷 Labels</button>
           <button class="btn btn-sm" onclick="fetchDocker()">↻ Refresh</button>
         </div>
@@ -160,10 +167,11 @@
             <th class="docker-sort" onclick="sortDocker('memory_percent', event)">MEM % <span id="sort-memory_percent"></span></th>
             <th class="docker-sort" onclick="sortDocker('network', event)">NET I/O <span id="sort-network"></span></th>
             <th>IMAGE</th>
+            <th>ACTIONS</th>
           </tr>
         </thead>
         <tbody id="docker-body">
-          <tr><td colspan="8" style="text-align:center; color:var(--text-muted); padding:30px;">Checking Docker on the active server...</td></tr>
+          <tr><td colspan="9" style="text-align:center; color:var(--text-muted); padding:30px;">Checking Docker on the active server...</td></tr>
         </tbody>
       </table>
     </div></div>

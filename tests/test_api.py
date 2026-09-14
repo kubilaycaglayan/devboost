@@ -479,6 +479,18 @@ process.stdout.write(JSON.stringify([
             urllib.request.urlopen(self.base_url + "/api/docker/logs")
         self.assertEqual(ctx.exception.code, 400)
 
+    @patch("dashboard.http.docker_container_action", return_value={"ok": True, "action": "stop", "container": "web"})
+    def test_api_docker_action_delegates_lifecycle_request(self, action):
+        _, data = self._post_json("/api/docker/action", {"server": "box", "container": "web", "action": "stop"})
+        self.assertTrue(data["ok"])
+        action.assert_called_once_with("box", "web", "stop")
+
+    def test_api_docker_action_validates_operation_and_container(self):
+        for body in ({"action": "rm", "container": "web"}, {"action": "start"}):
+            with self.assertRaises(urllib.error.HTTPError) as ctx:
+                self._post_json("/api/docker/action", body)
+            self.assertEqual(ctx.exception.code, 400)
+
     @patch("dashboard.http.save_config")
     @patch("dashboard.http.load_config")
     def test_api_docker_labels_sanitizes_invalid_rows(self, load, save):
