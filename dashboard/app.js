@@ -1250,8 +1250,24 @@
     }
 
     function numericDockerValue(value) {
-      const m = String(value || "").replace(/,/g, "").match(/-?[0-9]+(?:\\.[0-9]+)?/);
+      const m = String(value || "").replace(/,/g, "").match(/-?[0-9]+(?:\.[0-9]+)?/);
       return m ? Number(m[0]) : -Infinity;
+    }
+    function formatDockerCpu(value) {
+      const number = numericDockerValue(value);
+      return Number.isFinite(number) ? `${Math.round(number)}%` : "-";
+    }
+    function formatDockerMemory(value) {
+      const match = String(value || "").match(/(-?[0-9]+(?:\.[0-9]+)?)\s*([KMGT]?i?B)\b/i);
+      if (!match) return "-";
+      const unit = match[2];
+      const decimals = /^G/i.test(unit) ? 1 : 0;
+      return `${Number(match[1]).toFixed(decimals)}${unit}`;
+    }
+    function formatDockerNetwork(value) {
+      const raw = String(value || "");
+      if (!raw) return "-";
+      return raw.replace(/(-?[0-9]+(?:\.[0-9]+)?)(?=\s*[KMGT]?i?B\b)/gi, match => String(Math.round(Number(match))));
     }
     function dockerSortValue(row, key) {
       const s = row.stats || {};
@@ -1331,7 +1347,7 @@
       });
       if (!rows.length) {
         const message = dockerRows.length ? "No containers match this filter." : "Docker is available, but no containers were found.";
-        tbody.innerHTML = `<tr><td colspan="9" style="text-align:center; color:var(--text-muted); padding:30px;">${message}</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="8" style="text-align:center; color:var(--text-muted); padding:30px;">${message}</td></tr>`;
         renderDockerSortIndicators();
         return;
       }
@@ -1347,11 +1363,11 @@
           ? `<button class="btn btn-sm docker-action-button" onclick='dockerAction("stop", ${JSON.stringify(c)})' title="Stop container">STOP</button><button class="btn btn-sm docker-action-button" onclick='dockerAction("restart", ${JSON.stringify(c)})' title="Restart container">RESTART</button>`
           : `<button class="btn btn-sm docker-action-button" onclick='dockerAction("start", ${JSON.stringify(c)})' title="Start container">START</button>`;
         return `<tr>
-          <td><button class="btn btn-sm docker-logs-button" onclick='openDockerLog(${JSON.stringify(c.name || c.id)})' title="Watch logs">LOGS</button><strong>${escapeHtml(c.name || c.id)}</strong><div class="sync-sub">${escapeHtml(c.id || "")}</div></td>
+          <td><div class="docker-image-name" title="${escapeHtml(c.image || "")}">${escapeHtml(c.image || "-")}</div><button class="btn btn-sm docker-logs-button" onclick='openDockerLog(${JSON.stringify(c.name || c.id)})' title="Watch logs">LOGS</button><strong>${escapeHtml(c.name || c.id)}</strong><div class="sync-sub">${escapeHtml(c.id || "")}</div></td>
           <td>${labels}</td><td><span class="badge ${running ? "badge-active" : "badge-inactive"}">${escapeHtml(dockerStateLabel(state))}</span><div class="sync-sub">${escapeHtml(c.status || "")}</div></td>
-          <td class="mono">${escapeHtml(s.cpu_percent || "-")}</td><td class="mono">${escapeHtml(s.memory_usage || "-")}</td>
-          <td class="mono">${escapeHtml(s.memory_percent || "-")}</td><td class="mono">${escapeHtml(s.network_io || "-")}</td>
-          <td class="mono" style="max-width:220px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="${escapeHtml(c.image || "")}">${escapeHtml(c.image || "")}</td><td style="white-space:nowrap;">${actions}</td>
+          <td class="mono">${escapeHtml(formatDockerCpu(s.cpu_percent))}</td><td class="mono">${escapeHtml(formatDockerMemory(s.memory_usage))}</td>
+          <td class="mono">${escapeHtml(s.memory_percent || "-")}</td><td class="mono">${escapeHtml(formatDockerNetwork(s.network_io))}</td>
+          <td style="white-space:nowrap;">${actions}</td>
         </tr>`;
       }).join("");
       renderDockerSortIndicators();
@@ -1372,14 +1388,14 @@
         if (!data.available) {
           setHomeSummary("home-docker-summary", "Docker unavailable");
           subtitle.innerText = "unavailable";
-          tbody.innerHTML = `<tr><td colspan="9" style="text-align:center; color:var(--warning); padding:30px;">${escapeHtml(data.message || "Docker is unavailable on this server.")}</td></tr>`;
+          tbody.innerHTML = `<tr><td colspan="8" style="text-align:center; color:var(--warning); padding:30px;">${escapeHtml(data.message || "Docker is unavailable on this server.")}</td></tr>`;
           return;
         }
         const age = data.age_seconds == null ? "just now" : `${data.age_seconds}s ago`;
         const runningCount = (data.containers || []).filter(c => dockerState(c) === "running").length;
         subtitle.innerText = `${runningCount} running · ${data.containers.length} total · updated ${age}`;
         if (!data.containers.length) {
-          tbody.innerHTML = '<tr><td colspan="9" style="text-align:center; color:var(--text-muted); padding:30px;">Docker is available, but no containers were found.</td></tr>';
+          tbody.innerHTML = '<tr><td colspan="8" style="text-align:center; color:var(--text-muted); padding:30px;">Docker is available, but no containers were found.</td></tr>';
           return;
         }
         dockerRows = data.containers || [];
@@ -1388,7 +1404,7 @@
       } catch (err) {
         setHomeSummary("home-docker-summary", "Docker unavailable");
         subtitle.innerText = "error";
-        tbody.innerHTML = `<tr><td colspan="9" style="text-align:center; color:var(--danger); padding:30px;">Docker query failed: ${escapeHtml(String(err))}</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="8" style="text-align:center; color:var(--danger); padding:30px;">Docker query failed: ${escapeHtml(String(err))}</td></tr>`;
       }
     }
 

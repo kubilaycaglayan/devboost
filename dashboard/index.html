@@ -159,19 +159,18 @@
       <table>
         <thead>
           <tr>
-            <th class="docker-sort" onclick="sortDocker('name', event)">CONTAINER <span id="sort-name"></span></th>
+            <th class="docker-sort" onclick="sortDocker('name', event)">CONTAINER / IMAGE <span id="sort-name"></span></th>
             <th class="docker-sort" onclick="sortDocker('labels', event)">LABELS <span id="sort-labels"></span></th>
             <th class="docker-sort" onclick="sortDocker('status', event)">STATUS <span id="sort-status"></span></th>
             <th class="docker-sort" onclick="sortDocker('cpu', event)">CPU <span id="sort-cpu"></span></th>
             <th class="docker-sort" onclick="sortDocker('memory', event)">MEMORY <span id="sort-memory"></span></th>
             <th class="docker-sort" onclick="sortDocker('memory_percent', event)">MEM % <span id="sort-memory_percent"></span></th>
             <th class="docker-sort" onclick="sortDocker('network', event)">NET I/O <span id="sort-network"></span></th>
-            <th>IMAGE</th>
             <th>ACTIONS</th>
           </tr>
         </thead>
         <tbody id="docker-body">
-          <tr><td colspan="9" style="text-align:center; color:var(--text-muted); padding:30px;">Checking Docker on the active server...</td></tr>
+          <tr><td colspan="8" style="text-align:center; color:var(--text-muted); padding:30px;">Checking Docker on the active server...</td></tr>
         </tbody>
       </table>
     </div></div>

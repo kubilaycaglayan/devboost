@@ -595,6 +595,7 @@
     .docker-filter-label { display: inline-flex; align-items: center; gap: 5px; color: var(--text-muted); font-size: 12px; }
     .docker-filter { padding: 5px 7px; background: var(--input-bg); border: 1px solid var(--border); border-radius: 6px; color: var(--text); font-size: 12px; }
     .docker-action-button { margin: 1px 2px; }
+    .docker-image-name { max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-muted); font: 11px var(--font-mono); margin-bottom: 3px; }
     .docker-label { display: inline-flex; align-items: center; gap: 4px; padding: 2px 6px; margin: 1px 3px 1px 0; border-radius: 9px; font-size: 10px; color: #fff; border: 1px solid rgba(255,255,255,.25); white-space: nowrap; }
     #docker-log-modal { padding: 16px; }
     #docker-log-modal .modal {
