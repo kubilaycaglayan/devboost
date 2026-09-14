@@ -55,6 +55,14 @@ class TestServerLifecycle(unittest.TestCase):
         self.assertNotIn("3030", cfg["server_labels"][sid])
         self.assertNotIn("3030", cfg["labels"])
 
+    def test_update_forward_label_persists_without_restarting_tunnel(self):
+        cfg = devboost.load_config()
+        sid = cfg["servers"][0]["id"]
+        devboost.update_forward_label(3030, "Grafana", server_ref=sid)
+        saved = devboost.load_config()
+        self.assertEqual(saved["server_labels"][sid]["3030"], "Grafana")
+        self.assertEqual(saved["labels"]["3030"], "Grafana")
+
     def test_remove_server_cleans_related_state_and_agents(self):
         first = devboost.load_config()["servers"][0]
         second = devboost.add_server("staging")

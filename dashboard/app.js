@@ -1047,8 +1047,8 @@
               :${f.remote_port}
             </td>
             <td>
-              <strong>${escapeHtml(f.label)}</strong><br/>${conflictBadge}
-              <button class="btn btn-sm" onclick='editForwardLabel(${f.local_port}, ${JSON.stringify(f.label || "")})' title="Edit service label">Edit</button>
+              <div class="forward-label-view" onclick='beginForwardLabelEdit(this, ${f.local_port}, ${JSON.stringify(f.label || "")})' title="Click to edit service label"><strong>${escapeHtml(f.label || "—")}</strong></div>
+              ${conflictBadge}
             </td>
             <td>${modeBadge}</td>
             <td>${activeBadge}</td>
@@ -1095,9 +1095,24 @@
       }
     }
 
-    async function editForwardLabel(localPort, currentLabel) {
-      const label = prompt("Service description / label", currentLabel || "");
-      if (label === null) return;
+    function beginForwardLabelEdit(view, localPort, currentLabel) {
+      if (view.parentElement.querySelector(".forward-label-editor")) return;
+      const editor = document.createElement("div");
+      editor.className = "forward-label-editor";
+      editor.innerHTML = `<input type="text" value="${escapeHtml(currentLabel || "")}" aria-label="Service description / label" /><button class="btn btn-sm btn-primary" onclick="saveForwardLabelEdit(this, ${localPort})">Save</button><button class="btn btn-sm" onclick="fetchStatus()">Cancel</button>`;
+      view.replaceWith(editor);
+      const input = editor.querySelector("input");
+      input.focus();
+      input.select();
+      input.addEventListener("keydown", event => {
+        if (event.key === "Enter") editor.querySelector("button").click();
+        if (event.key === "Escape") fetchStatus();
+      });
+    }
+
+    async function saveForwardLabelEdit(button, localPort) {
+      const editor = button.closest(".forward-label-editor");
+      const label = editor.querySelector("input").value.trim();
       try {
         const res = await fetch("/api/forward/label", {
           method: "POST",
@@ -1106,9 +1121,9 @@
         });
         const data = await res.json();
         if (!res.ok || !data.ok) throw new Error(data.message || "Could not update label");
-        showToast(data.message || "Service label updated");
+        showToast(data.message || "Service label saved");
         fetchStatus();
-      } catch (err) { alert("Error updating service label: " + err); }
+      } catch (err) { showToast("Error saving service label: " + err, true); }
     }
 
     async function toggleAlways(localPort, makeAlways) {
