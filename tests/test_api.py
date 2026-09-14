@@ -475,6 +475,13 @@ process.stdout.write(JSON.stringify([
         self.assertTrue(data["ok"])
         update.assert_called_once_with(3000, "Grafana", server_ref="box")
 
+    def test_forward_label_editor_survives_periodic_status_refresh(self):
+        with urllib.request.urlopen(self.base_url + "/dashboard/app.js") as resp:
+            app_js = resp.read().decode("utf-8")
+        self.assertIn("async function fetchStatus(forceRenderForwards = false)", app_js)
+        self.assertIn('if (!forceRenderForwards && tbody.querySelector(".forward-label-editor")) return;', app_js)
+        self.assertIn("fetchStatus(true)", app_js)
+
     @patch("dashboard.http.remove_forward")
     @patch("dashboard.http.toggle_always")
     def test_api_remove_and_toggle_forward_routes(self, toggle, remove):

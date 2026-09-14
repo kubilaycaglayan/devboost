@@ -950,7 +950,7 @@
       } catch (err) { alert("Failed to add server: " + err); }
     }
 
-    async function fetchStatus() {
+    async function fetchStatus(forceRenderForwards = false) {
       if (serverDrag || serverOrderSaving) return;
       const requestedServerId = currentServerId;
       const orderVersion = serverOrderVersion;
@@ -969,13 +969,13 @@
           renderTabs();
         }
         if (data.server_id) { serverReachability[data.server_id] = !!data.server_reachable; }
-        renderStatus(data);
+        renderStatus(data, forceRenderForwards);
       } catch (err) {
         console.error(err);
       }
     }
 
-    function renderStatus(data) {
+    function renderStatus(data, forceRenderForwards = false) {
       const dot = document.getElementById("server-status-dot");
       const txt = document.getElementById("server-status-text");
       if (data.server_reachable) {
@@ -1020,6 +1020,7 @@
       }
 
       const tbody = document.getElementById("forwards-body");
+      if (!forceRenderForwards && tbody.querySelector(".forward-label-editor")) return;
       if (data.forwards.length === 0) {
         tbody.innerHTML = '<tr><td colspan="6" style="text-align:center; color:var(--text-muted); padding:30px;">No port forwards configured. Click "+ Add Port Forward" above.</td></tr>';
         return;
@@ -1099,14 +1100,14 @@
       if (view.parentElement.querySelector(".forward-label-editor")) return;
       const editor = document.createElement("div");
       editor.className = "forward-label-editor";
-      editor.innerHTML = `<input type="text" value="${escapeHtml(currentLabel || "")}" aria-label="Service description / label" /><button class="btn btn-sm btn-primary" onclick="saveForwardLabelEdit(this, ${localPort})">Save</button><button class="btn btn-sm" onclick="fetchStatus()">Cancel</button>`;
+      editor.innerHTML = `<input type="text" value="${escapeHtml(currentLabel || "")}" aria-label="Service description / label" /><button class="btn btn-sm btn-primary" onclick="saveForwardLabelEdit(this, ${localPort})">Save</button><button class="btn btn-sm" onclick="fetchStatus(true)">Cancel</button>`;
       view.replaceWith(editor);
       const input = editor.querySelector("input");
       input.focus();
       input.select();
       input.addEventListener("keydown", event => {
         if (event.key === "Enter") editor.querySelector("button").click();
-        if (event.key === "Escape") fetchStatus();
+        if (event.key === "Escape") fetchStatus(true);
       });
     }
 
@@ -1122,7 +1123,7 @@
         const data = await res.json();
         if (!res.ok || !data.ok) throw new Error(data.message || "Could not update label");
         showToast(data.message || "Service label saved");
-        fetchStatus();
+        fetchStatus(true);
       } catch (err) { showToast("Error saving service label: " + err, true); }
     }
 
