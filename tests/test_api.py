@@ -466,6 +466,15 @@ process.stdout.write(JSON.stringify([
         self.assertTrue(data["ok"])
         add.assert_called_once_with(3000, 3000, label="", always=True, server_ref="box")
 
+    @patch("dashboard.http.update_forward_label")
+    def test_api_forward_label_update_passes_server(self, update):
+        status, data = self._post_json("/api/forward/label", {
+            "local_port": 3000, "server_id": "box", "label": "Grafana",
+        })
+        self.assertEqual(status, 200)
+        self.assertTrue(data["ok"])
+        update.assert_called_once_with(3000, "Grafana", server_ref="box")
+
     @patch("dashboard.http.remove_forward")
     @patch("dashboard.http.toggle_always")
     def test_api_remove_and_toggle_forward_routes(self, toggle, remove):

@@ -623,6 +623,10 @@ def add_forward(*args, **kwargs):
     return forwarding.invoke("add_forward", sys.modules[__name__], *args, **kwargs)
 
 
+def update_forward_label(*args, **kwargs):
+    return forwarding.invoke("update_forward_label", sys.modules[__name__], *args, **kwargs)
+
+
 def remove_forward(*args, **kwargs):
     return forwarding.invoke("remove_forward", sys.modules[__name__], *args, **kwargs)
 

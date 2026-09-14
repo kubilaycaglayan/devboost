@@ -245,6 +245,19 @@ class DashboardHandler(BaseHTTPRequestHandler):
             srv = body.get("server_id") or body.get("server")
             add_forward(lp, rp, label=label, always=always, server_ref=srv)
             self._send_json({"ok": True, "message": f"Port {lp} forwarded successfully"})
+        elif path == "/api/forward/label":
+            lp = body.get("local_port")
+            label = body.get("label", "")
+            srv = body.get("server_id") or body.get("server")
+            if not isinstance(label, str):
+                self._send_json({"ok": False, "message": "label must be a string"}, status=400)
+                return
+            try:
+                update_forward_label(lp, label, server_ref=srv)
+            except (TypeError, ValueError):
+                self._send_json({"ok": False, "message": "local_port must be a valid port number"}, status=400)
+                return
+            self._send_json({"ok": True, "message": f"Port {lp} label updated"})
         elif path == "/api/remove":
             lp = body.get("local_port")
             srv = body.get("server_id") or body.get("server")

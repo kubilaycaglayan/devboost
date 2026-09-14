@@ -1048,6 +1048,7 @@
             </td>
             <td>
               <strong>${escapeHtml(f.label)}</strong><br/>${conflictBadge}
+              <button class="btn btn-sm" onclick='editForwardLabel(${f.local_port}, ${JSON.stringify(f.label || "")})' title="Edit service label">Edit</button>
             </td>
             <td>${modeBadge}</td>
             <td>${activeBadge}</td>
@@ -1092,6 +1093,22 @@
       } catch (err) {
         alert("Failed to add forward: " + err);
       }
+    }
+
+    async function editForwardLabel(localPort, currentLabel) {
+      const label = prompt("Service description / label", currentLabel || "");
+      if (label === null) return;
+      try {
+        const res = await fetch("/api/forward/label", {
+          method: "POST",
+          headers: {"Content-Type": "application/json"},
+          body: JSON.stringify({server_id: currentServerId, local_port: localPort, label: label.trim()})
+        });
+        const data = await res.json();
+        if (!res.ok || !data.ok) throw new Error(data.message || "Could not update label");
+        showToast(data.message || "Service label updated");
+        fetchStatus();
+      } catch (err) { alert("Error updating service label: " + err); }
     }
 
     async function toggleAlways(localPort, makeAlways) {
@@ -1253,6 +1270,16 @@
       const m = String(value || "").replace(/,/g, "").match(/-?[0-9]+(?:\.[0-9]+)?/);
       return m ? Number(m[0]) : -Infinity;
     }
+    const DOCKER_BYTE_MULTIPLIERS = {
+      B: 1, KB: 1e3, KIB: 1024, MB: 1e6, MIB: 1024 ** 2,
+      GB: 1e9, GIB: 1024 ** 3, TB: 1e12, TIB: 1024 ** 4,
+    };
+    function dockerByteValue(value, sumAll) {
+      const matches = [...String(value || "").matchAll(/(-?[0-9]+(?:\.[0-9]+)?)\s*([KMGT]?i?B)\b/gi)];
+      if (!matches.length) return -Infinity;
+      const values = matches.map(match => Number(match[1]) * DOCKER_BYTE_MULTIPLIERS[match[2].toUpperCase()]);
+      return sumAll ? values.reduce((total, current) => total + current, 0) : values[0];
+    }
     function formatDockerCpu(value) {
       const number = numericDockerValue(value);
       return Number.isFinite(number) ? `${Math.round(number)}%` : "-";
@@ -1275,9 +1302,9 @@
       if (key === "labels") return (row.labels || []).length;
       if (key === "status") return String(row.status || "").toLowerCase();
       if (key === "cpu") return numericDockerValue(s.cpu_percent);
-      if (key === "memory") return numericDockerValue(s.memory_usage);
+      if (key === "memory") return dockerByteValue(s.memory_usage, false);
       if (key === "memory_percent") return numericDockerValue(s.memory_percent);
-      if (key === "network") return numericDockerValue(s.network_io);
+      if (key === "network") return dockerByteValue(s.network_io, true);
       return "";
     }
     function sortDocker(key, event) {

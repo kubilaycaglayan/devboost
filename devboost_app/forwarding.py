@@ -24,7 +24,7 @@ class _RuntimeGlobals(dict):
             raise KeyError(key) from exc
 
 
-_FUNCTIONS = ["get_plist_label","get_plist_path","_infer_server_id_for_plist","is_server_reachable","get_listening_ports","_extract_ssh_destination","get_ssh_forwards","get_launchagents","get_launchagents_for_server","_scan_all_agents_raw","get_all_forwards_status","get_servers_status","create_launchagent","remove_launchagent","remove_launchagents_for_server","kill_port_processes","kill_server_processes","add_forward","remove_forward","toggle_always","clean_orphaned_tunnels"]
+_FUNCTIONS = ["get_plist_label","get_plist_path","_infer_server_id_for_plist","is_server_reachable","get_listening_ports","_extract_ssh_destination","get_ssh_forwards","get_launchagents","get_launchagents_for_server","_scan_all_agents_raw","get_all_forwards_status","get_servers_status","create_launchagent","remove_launchagent","remove_launchagents_for_server","kill_port_processes","kill_server_processes","add_forward","update_forward_label","remove_forward","toggle_always","clean_orphaned_tunnels"]
 
 
 def get_plist_label(port, server_id=None):
@@ -688,6 +688,17 @@ def add_forward(local_port, remote_port=None, label="", always=False, server_ref
             ssh_host
         ]
         subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+def update_forward_label(local_port, label="", server_ref=None):
+    """Update a configured forward's display label without restarting its tunnel."""
+    local_port = int(local_port)
+    if not 1 <= local_port <= 65535:
+        raise ValueError("local_port must be a valid port number")
+    cfg = load_config()
+    server = resolve_server(cfg, server_ref)
+    sid = server.get("id")
+    set_server_label(cfg, sid, local_port, str(label or "").strip())
+    save_config(cfg)
 
 def remove_forward(local_port, server_ref=None):
     cfg = load_config()
