@@ -64,7 +64,7 @@ class TestMenuBarUsage(unittest.TestCase):
         self.assertIn("setStatusItemTitle(self.menuBarUsageTitle", self.swift)
         self.assertNotIn("StatusTitleField", self.swift)
         self.assertIn('button.title = title', self.swift)
-        self.assertIn("statusItem?.isVisible = true", self.swift)
+        self.assertIn("statusItem?.isVisible = menubarEnabled", self.swift)
         self.assertIn("button.alphaValue = 1", self.swift)
         self.assertIn("button.appearsDisabled = false", self.swift)
         self.assertIn("statusItem?.length = NSStatusItem.variableLength", self.swift)

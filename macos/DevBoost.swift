@@ -250,7 +250,6 @@ final class DevBoostApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     private func setStatusItemTitle(_ title: String) {
-        statusItem?.isVisible = true
         statusItem?.isVisible = menubarEnabled
         guard let button = statusItem?.button else { return }
         button.isHidden = false
