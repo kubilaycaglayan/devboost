@@ -18,10 +18,6 @@ private func acquireSingleInstanceLock() -> Bool {
     return false
 }
 
-private final class StatusTitleField: NSTextField {
-    override func hitTest(_ point: NSPoint) -> NSView? { nil }
-}
-
 @main
 enum DevBoostMain {
     static func main() {
@@ -50,7 +46,6 @@ final class DevBoostApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var backend: Process?
     private var statusItem: NSStatusItem?
     private var menubarEnabled = true
-    private var statusTitleField: StatusTitleField?
     private var statusMenu: NSMenu?
     private var usageStatusMenuItem: NSMenuItem?
     private var usageTimer: Timer?
@@ -98,26 +93,10 @@ final class DevBoostApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
         statusItem = item
         item.isVisible = true
         if let button = item.button {
-            button.title = ""
+            button.title = "DevBoost"
             button.alternateTitle = ""
             button.isHidden = false
             button.isEnabled = true
-            let titleField = StatusTitleField(frame: .zero)
-            titleField.isBezeled = false
-            titleField.isEditable = false
-            titleField.isSelectable = false
-            titleField.drawsBackground = false
-            titleField.alignment = .center
-            titleField.font = NSFont.menuBarFont(ofSize: 0)
-            titleField.textColor = .labelColor
-            titleField.alphaValue = 1
-            titleField.translatesAutoresizingMaskIntoConstraints = false
-            button.addSubview(titleField)
-            NSLayoutConstraint.activate([
-                titleField.centerXAnchor.constraint(equalTo: button.centerXAnchor),
-                titleField.centerYAnchor.constraint(equalTo: button.centerYAnchor)
-            ])
-            statusTitleField = titleField
         }
         setStatusItemTitle("DevBoost")
         let menu = NSMenu()
@@ -278,14 +257,9 @@ final class DevBoostApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
         button.isEnabled = true
         button.appearsDisabled = false
         button.alphaValue = 1
-        button.title = ""
+        button.title = title
         button.alternateTitle = ""
-        statusTitleField?.stringValue = title
-        statusTitleField?.textColor = .labelColor
-        statusTitleField?.alphaValue = 1
-        if let width = statusTitleField?.intrinsicContentSize.width {
-            statusItem?.length = ceil(width) + 12
-        }
+        statusItem?.length = NSStatusItem.variableLength
     }
 
     private func setUsageMenuStatus(_ title: String) {

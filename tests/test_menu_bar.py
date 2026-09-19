@@ -62,14 +62,12 @@ class TestMenuBarUsage(unittest.TestCase):
         self.assertIn('summaries.joined(separator: " | ")', self.swift)
         self.assertIn('min(100, max(0, percent))', self.swift)
         self.assertIn("setStatusItemTitle(self.menuBarUsageTitle", self.swift)
-        self.assertIn("private final class StatusTitleField", self.swift)
-        self.assertIn("titleField.textColor = .labelColor", self.swift)
-        self.assertIn("statusTitleField?.textColor = .labelColor", self.swift)
-        self.assertIn('button.title = ""', self.swift)
+        self.assertNotIn("StatusTitleField", self.swift)
+        self.assertIn('button.title = title', self.swift)
         self.assertIn("statusItem?.isVisible = true", self.swift)
         self.assertIn("button.alphaValue = 1", self.swift)
         self.assertIn("button.appearsDisabled = false", self.swift)
-        self.assertIn("statusItem?.length = ceil(width) + 12", self.swift)
+        self.assertIn("statusItem?.length = NSStatusItem.variableLength", self.swift)
 
     def test_status_item_supports_non_percentage_providers(self):
         self.assertIn('case "claude": return "Cl"', self.swift)
