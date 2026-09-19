@@ -716,6 +716,10 @@ def _read_agy_usage(account, server=None):
     return usage_service.read_agy_usage(sys.modules[__name__], account, server=server)
 
 
+def _read_claude_usage(account, server=None):
+    return usage_service.read_claude_usage(sys.modules[__name__], account, server=server)
+
+
 def _usage_account_id(*args, **kwargs):
     return usage_helpers.usage_account_id(*args, **kwargs)
 

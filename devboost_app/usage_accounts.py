@@ -80,10 +80,17 @@ def refresh_usage_account(account, server=None):
         elif _provider_default_command(account.get("provider")):
             payload = _read_usage_command(account, server=server)
         elif account.get("provider") == "claude":
-            if server:
-                payload = _read_remote_transcript_usage(account, server["ssh_host"])
-            else:
-                payload = _read_local_transcript_usage(account)
+            try:
+                payload = _read_claude_usage(account, server=server)
+            except Exception as live_error:
+                # Preserve the existing local token fallback when the
+                # subscription endpoint is unavailable, without inventing a
+                # percentage quota from token counts.
+                payload = (_read_remote_transcript_usage(account, server["ssh_host"]) if server
+                           else _read_local_transcript_usage(account))
+                payload["source"] = payload.get("source", "") + " · live quota unavailable"
+                payload["stale"] = True
+                payload["message"] = f"{live_error} Showing observed token usage."
         elif account.get("provider") == "codex":
             if server:
                 payload = _read_remote_transcript_usage(account, server["ssh_host"])
@@ -94,6 +101,10 @@ def refresh_usage_account(account, server=None):
         result = {"ok": True, **_normalize_usage_payload(payload)}
         if account.get("provider") == "codex":
             for key in ("stale", "message", "observed_at", "plan_type", "credits_unlimited", "available_resets", "local_usage"):
+                if key in payload:
+                    result[key] = payload[key]
+        elif account.get("provider") == "claude":
+            for key in ("stale", "message", "plan_type", "local_usage"):
                 if key in payload:
                     result[key] = payload[key]
     except Exception as exc:
@@ -117,7 +128,7 @@ def get_usage_status(refresh=False, account_id=None, server_ref=None):
     def snapshot_key(account):
         return account.get("id") if not server else f"{server_id}:{account.get('id')}"
     def live_quota_due(account):
-        if account.get("provider") not in ("codex", "agy"):
+        if account.get("provider") not in ("codex", "agy", "claude"):
             return False
         try:
             checked = datetime.datetime.fromisoformat(snapshots.get(snapshot_key(account), {}).get("updated_at", ""))

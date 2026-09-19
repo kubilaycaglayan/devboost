@@ -13,6 +13,7 @@ import urllib.request
 
 from remote_transport import run_ssh_command
 from . import codex_usage
+from . import claude_usage
 from .usage import parse_opencode_stats, provider_default_command, safe_number
 
 
@@ -193,6 +194,30 @@ def read_agy_usage(runtime, account, server=None):
         raise ValueError("Agy live quota query returned invalid JSON.") from None
     from .usage import normalize_usage_payload
     return normalize_usage_payload(payload)
+
+
+def read_claude_usage(runtime, account, server=None):
+    """Query Claude Code's subscription windows on the selected host."""
+    home = account.get("claude_home") or ""
+    timeout = max(1, runtime.USAGE_TIMEOUT - 2)
+    if server:
+        with open(claude_usage.__file__, encoding="utf-8") as stream:
+            script = stream.read()
+        command = shlex.join(["python3", "-c", script, home])
+        response = run_ssh_command(server["ssh_host"], command,
+                                   timeout=runtime.USAGE_TIMEOUT, connect_timeout=5)
+        if response.returncode:
+            raise ValueError("Could not query Claude on the selected SSH host. Check SSH connectivity and Claude Code sign-in.")
+        try:
+            envelope = json.loads(response.stdout)
+        except (TypeError, ValueError):
+            raise ValueError("Remote Claude usage query returned invalid JSON.") from None
+        if not isinstance(envelope, dict) or not isinstance(envelope.get("result"), dict):
+            message = envelope.get("error") if isinstance(envelope, dict) else None
+            raise ValueError(message or "Remote Claude subscription quotas unavailable.")
+        return envelope["result"]
+    return claude_usage.normalize_usage(
+        claude_usage.read_usage(home or None, timeout=timeout))
 
 
 def normalize_codex_api(payload):
