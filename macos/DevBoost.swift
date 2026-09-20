@@ -243,7 +243,7 @@ final class DevBoostApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
                                 let reset = self.formatResetTime(quota["reset_at"])
                                 self.addIndentedItem(to: menu, title: self.quotaMenuDetail(quota, reset: reset))
                                 if let value = self.quotaMenuValue(quota) {
-                                    self.addIndentedItem(to: menu, title: value, indentationLevel: 2)
+                                    self.addQuotaValueItem(to: menu, quota: quota, title: value)
                                 }
                             }
                             if provider.lowercased() == "codex", resetCount > 0 {
@@ -321,6 +321,16 @@ final class DevBoostApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // These entries are informational, but should use the normal menu
         // text color rather than the disabled gray used for section headings.
         item.isEnabled = true
+        menu.addItem(item)
+    }
+
+    private func addQuotaValueItem(to menu: NSMenu, quota: [String: Any], title: String) {
+        guard let remaining = quotaRemainingPercent(quota) else {
+            addIndentedItem(to: menu, title: title, indentationLevel: 2)
+            return
+        }
+        let item = NSMenuItem()
+        item.view = UsageBarView(remainingPercent: remaining, title: title)
         menu.addItem(item)
     }
 
@@ -559,5 +569,70 @@ private func runWorker(executable: String, arguments: [String]) -> Int32 {
     } catch {
         fputs("DevBoost worker could not start: \(error)\n", stderr)
         return 1
+    }
+}
+
+private final class UsageBarView: NSView {
+    private let remainingPercent: Double
+    private let title: String
+
+    init(remainingPercent: Double, title: String) {
+        self.remainingPercent = min(100, max(0, remainingPercent))
+        self.title = title
+        super.init(frame: NSRect(x: 0, y: 0, width: 220, height: 18))
+        wantsLayer = true
+        setAccessibilityRole(.progressIndicator)
+        setAccessibilityValue(title)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    override var intrinsicContentSize: NSSize { NSSize(width: 220, height: 18) }
+
+    override func draw(_ dirtyRect: NSRect) {
+        super.draw(dirtyRect)
+        let barRect = NSRect(x: 16, y: 3, width: bounds.width - 24, height: 12)
+        let radius = barRect.height / 2
+        let path = NSBezierPath(roundedRect: barRect, xRadius: radius, yRadius: radius)
+
+        NSColor(calibratedWhite: 0.16, alpha: 1).setFill()
+        path.fill()
+
+        let fillWidth = barRect.width * remainingPercent / 100
+        if fillWidth > 0 {
+            let fillRect = NSRect(x: barRect.minX, y: barRect.minY, width: fillWidth, height: barRect.height)
+            let fillPath = NSBezierPath(roundedRect: fillRect, xRadius: radius, yRadius: radius)
+            usageColor.setFill()
+            fillPath.fill()
+        }
+
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.alignment = .center
+        let darkText = remainingPercent >= 50
+        let textColor: NSColor = darkText ? NSColor(calibratedRed: 0.06, green: 0.15, blue: 0.10, alpha: 1) : .white
+        var attributes: [NSAttributedString.Key: Any] = [
+            .font: NSFont.monospacedDigitSystemFont(ofSize: 11, weight: .bold),
+            .foregroundColor: textColor,
+            .paragraphStyle: paragraph
+        ]
+        if !darkText { attributes[.shadow] = textShadow }
+        (title as NSString).draw(in: barRect.insetBy(dx: 4, dy: 0), withAttributes: attributes)
+    }
+
+    private var usageColor: NSColor {
+        let used = 100 - remainingPercent
+        if used <= 50 { return NSColor(calibratedRed: 0.431, green: 0.906, blue: 0.627, alpha: 1) }
+        if used <= 75 { return NSColor(calibratedRed: 0.918, green: 0.859, blue: 0.608, alpha: 1) }
+        if used <= 90 { return NSColor(calibratedRed: 0.91, green: 0.71, blue: 0.557, alpha: 1) }
+        return NSColor(calibratedRed: 0.906, green: 0.643, blue: 0.643, alpha: 1)
+    }
+
+    private var textShadow: NSShadow {
+        let shadow = NSShadow()
+        shadow.shadowColor = NSColor.black.withAlphaComponent(0.65)
+        shadow.shadowOffset = NSSize(width: 0, height: -1)
+        shadow.shadowBlurRadius = 2
+        return shadow
     }
 }

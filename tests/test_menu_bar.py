@@ -81,6 +81,15 @@ class TestMenuBarUsage(unittest.TestCase):
         self.assertIn('value = "B:\\(compactNumber(remaining))', self.swift)
         self.assertIn('value = "B:∞"', self.swift)
 
+    def test_percentage_quota_rows_use_compact_colored_bars(self):
+        self.assertIn("private final class UsageBarView: NSView", self.swift)
+        self.assertIn("item.view = UsageBarView(remainingPercent: remaining, title: title)", self.swift)
+        self.assertIn("private var usageColor: NSColor", self.swift)
+        self.assertIn("let used = 100 - remainingPercent", self.swift)
+        self.assertIn("width: 220, height: 18", self.swift)
+        self.assertIn("if !darkText { attributes[.shadow] = textShadow }", self.swift)
+        self.assertNotIn("NSNull()", self.swift)
+
     def test_new_installation_selects_enabled_accounts_for_compact_title(self):
         self.assertIn("private var hasSavedUsageSelection", self.swift)
         self.assertIn("if !self.hasSavedUsageSelection", self.swift)
