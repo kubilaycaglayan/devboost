@@ -44,10 +44,15 @@ final class DevBoostApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private final class MenuToggleButton: NSButton {
         let menuIdentifier: String
 
-        init(identifier: String, title: String, selected: Bool) {
+        init(
+            identifier: String,
+            title: String,
+            selected: Bool,
+            buttonType: NSButton.ButtonType = .switch
+        ) {
             self.menuIdentifier = identifier
             super.init(frame: NSRect(x: 0, y: 0, width: 260, height: 22))
-            setButtonType(.switch)
+            setButtonType(buttonType)
             self.title = title
             state = selected ? .on : .off
             alignment = .left
@@ -422,7 +427,8 @@ final class DevBoostApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
             let button = MenuToggleButton(
                 identifier: source.id,
                 title: "Usage: \(source.name)",
-                selected: selectedUsageSourceID == source.id
+                selected: selectedUsageSourceID == source.id,
+                buttonType: .radio
             )
             button.target = self
             button.action = #selector(DevBoostApp.selectUsageSourceButton(_:))
@@ -444,12 +450,18 @@ final class DevBoostApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
         guard usageSources.contains(where: { $0.id == sourceID }) else { return }
         selectedUsageSourceID = sourceID
         UserDefaults.standard.set(sourceID, forKey: DevBoostApp.selectedUsageSourceKey)
-        for item in statusMenu?.items ?? [] {
-            guard let button = item.view as? MenuToggleButton else { continue }
-            button.state = button.menuIdentifier == sourceID ? .on : .off
-        }
+        updateUsageSourceButtonStates()
         usageMenuNeedsRebuild = usageMenuIsOpen
         refreshUsage(force: true)
+    }
+
+    private func updateUsageSourceButtonStates() {
+        for item in statusMenu?.items ?? [] {
+            let button = (item.view as? MenuToggleButton)
+                ?? item.view?.subviews.compactMap { $0 as? MenuToggleButton }.first
+            guard let button else { continue }
+            button.state = button.menuIdentifier == selectedUsageSourceID ? .on : .off
+        }
     }
 
     private func usageAccountMenuItem(id: String, title: String, selected: Bool) -> NSMenuItem {
