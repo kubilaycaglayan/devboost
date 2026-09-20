@@ -1,6 +1,7 @@
     let currentForwards = [];
     let currentServerHost = "";
     let currentServerId = localStorage.getItem("devboost-active-server") || "";
+    let viewedServerId = currentServerId;
     let cachedHistory = [];
     let allServers = [];
     let sshHostCache = [];
@@ -434,7 +435,7 @@
       if (account) openUsageModal(account);
     }
     function usageTargetId() {
-      return usageTab === "local" ? "local" : (currentServerId || "local");
+      return usageTab === "local" ? "local" : (viewedServerId || "local");
     }
     function updateUsageTitle() {
       const title = document.getElementById("usage-section-title");
@@ -444,7 +445,9 @@
         return;
       }
       const srv = activeServer();
-      title.innerText = `AI Usage & Balances on ${(srv && (srv.name || srv.ssh_host)) || "Remote Server"}`;
+      title.innerText = viewedServerId
+        ? `AI Usage & Balances on ${(srv && (srv.name || srv.ssh_host)) || "Remote Server"}`
+        : "AI Usage & Balances · Connect a Server";
     }
     function switchUsageTab(which) {
       usageTab = which;
@@ -455,13 +458,17 @@
     }
     async function fetchUsage(refresh = false) {
       if (usageRequestInFlight || usageDrag || usageOrderSaving) return;
+      if (usageTab === "remote" && !viewedServerId) {
+        document.getElementById("usage-body").innerHTML = '<tr><td colspan="6" style="text-align:center; color:var(--text-muted); padding:30px;">Connect a server to view remote usage.</td></tr>';
+        return;
+      }
       usageRequestInFlight = true;
       const requestedTargetId = usageTargetId();
       const orderVersion = usageOrderVersion;
       try {
         const params = new URLSearchParams();
         if (refresh) params.set("refresh", "1");
-        if (usageTab === "remote" && currentServerId) params.set("server", currentServerId);
+        if (usageTab === "remote" && viewedServerId) params.set("server", viewedServerId);
         const query = params.toString() ? "?" + params.toString() : "";
         const response = await fetch("/api/usage" + query, {cache: "no-store"});
         const data = await response.json();
@@ -610,11 +617,21 @@
     }
 
     function activeServer() {
-      return (allServers || []).find(s => s.id === currentServerId) || allServers[0] || null;
+      return (allServers || []).find(s => s.id === viewedServerId) || null;
     }
 
     function serverQuery() {
-      return currentServerId ? `?server=${encodeURIComponent(currentServerId)}` : "";
+      return viewedServerId ? `?server=${encodeURIComponent(viewedServerId)}` : "";
+    }
+
+    function isConnectedView() {
+      return Boolean(currentServerId && viewedServerId === currentServerId);
+    }
+
+    function requireConnectedView() {
+      if (isConnectedView()) return true;
+      showToast("Connect this server from Manage servers before changing it.");
+      return false;
     }
 
     // A response is safe to render only while the selection that produced it
@@ -633,19 +650,32 @@
         const data = await res.json();
         if (serverDrag || serverOrderSaving || orderVersion !== serverOrderVersion) return;
         allServers = data.servers || [];
-        // A background refresh must not undo an explicit tab selection. Only
-        // choose a default during startup (or after the selected tab was
-        // deliberately cleared, e.g. when it was removed).
-        if ((!currentServerId || (!serversLoaded && !allServers.some(s => s.id === currentServerId))) && allServers.length) {
+        // The backend owns the remembered connection selection. An explicit
+        // empty value means the user disconnected, so do not auto-select the
+        // first server during a refresh.
+        if (!serversLoaded && Object.prototype.hasOwnProperty.call(data, "active_server_id")) {
+          currentServerId = data.active_server_id || "";
+          viewedServerId = currentServerId;
+        } else if (!serversLoaded && !currentServerId && allServers.length) {
           currentServerId = (allServers[0] || {}).id || "";
-          localStorage.setItem("devboost-active-server", currentServerId);
+          viewedServerId = currentServerId;
         }
-        if (currentServerId) {
-          fetch("/api/settings/active-server", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({server_id: currentServerId})}).catch(() => {});
+        if (currentServerId && !allServers.some(s => s.id === currentServerId)) {
+          currentServerId = "";
+        }
+        if (viewedServerId && !allServers.some(s => s.id === viewedServerId)) {
+          viewedServerId = currentServerId;
+        }
+        if (!viewedServerId && currentServerId) viewedServerId = currentServerId;
+        if (currentServerId) localStorage.setItem("devboost-active-server", currentServerId);
+        else localStorage.removeItem("devboost-active-server");
+        if (!viewedServerId) {
+          renderDisconnectedState();
         }
         serversLoaded = true;
         renderTabs();
         renderServerManagement();
+        updateConnectionControls();
         updateUsageTitle();
       } catch (err) {
         console.error(err);
@@ -662,8 +692,9 @@
       }
       bar.innerHTML = allServers.map(s => {
         const isActive = s.id === currentServerId;
+        const isViewed = s.id === viewedServerId;
         const dotCls = serverReachability[s.id] === true ? "tab-dot online" : (serverReachability[s.id] === false ? "tab-dot" : "tab-dot");
-        return `<div class="tab ${isActive ? 'active' : ''}" data-server-id="${s.id}" draggable="true"
+        return `<div class="tab ${isActive ? 'active' : ''}${isViewed && !isActive ? ' preview' : ''}" data-server-id="${s.id}" draggable="true"
             onclick="selectServer('${s.id}')" ondragstart="onServerTabDragStart(event, '${s.id}')"
             ondragend="onServerTabDragEnd()"
             title="${escapeHtml(s.ssh_host)}${s.ip ? ' (' + escapeHtml(s.ip) + ')' : ''}">
@@ -698,7 +729,9 @@
         const isActive = s.id === currentServerId;
         const reachability = serverReachability[s.id];
         const dotCls = reachability === true ? "tab-dot online" : "tab-dot";
-        const status = reachability === true ? "Online" : (reachability === false ? "Offline" : "Not checked");
+        const status = isActive
+          ? (reachability === true ? "Connected · Online" : (reachability === false ? "Connected · Offline" : "Connected · Not checked"))
+          : "Disconnected";
         return `<article class="server-management-item" data-server-id="${s.id}">
           <div class="server-management-details">
             <div class="server-management-name"><span class="${dotCls}"></span>${escapeHtml(s.name || s.ssh_host)}${isActive ? '<span class="badge badge-active">Active</span>' : ''}</div>
@@ -707,7 +740,9 @@
           </div>
           <div class="server-management-actions">
             <button class="server-drag-handle" draggable="true" ondragstart="onServerCardDragStart(event, '${s.id}')" ondragend="onServerCardDragEnd(event)" title="Drag to reorder" aria-label="Drag to reorder">⠿</button>
-            <button class="btn btn-sm" onclick="selectServer('${s.id}'); navigatePage('forwards')">Use server</button>
+            ${isActive
+              ? '<button class="btn btn-sm btn-danger" onclick="disconnectServer()">Disconnect</button>'
+              : `<button class="btn btn-sm btn-primary" onclick="connectServer('${s.id}')">Connect</button>`}
             <button class="btn btn-sm" onclick="editServer('${s.id}')">Edit</button>
             <button class="btn btn-sm btn-danger" onclick="removeServerTab('${s.id}')">Remove</button>
           </div>
@@ -816,21 +851,109 @@
     }
 
     function selectServer(sid) {
-      if (currentServerId === sid) return;
+      previewServer(sid);
+    }
+
+    function previewServer(sid) {
+      if (!allServers.some(server => server.id === sid)) return;
+      viewedServerId = sid;
+      renderTabs();
+      updateConnectionControls();
+      updateUsageTitle();
+      fetchStatus();
+      fetchDocker();
+      fetchSyncs();
+      if (usageTab === "remote") fetchUsage();
+    }
+
+    function persistServerSelection(serverId) {
+      return fetch("/api/settings/active-server", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({server_id: serverId || null}),
+        keepalive: true
+      }).then(response => {
+        if (!response.ok) throw new Error("Could not remember the active server");
+        return response;
+      }).catch(() => {
+        showToast("The active server could not be remembered.");
+      });
+    }
+
+    function connectServer(sid) {
+      if (!allServers.some(server => server.id === sid)) return;
+      if (currentServerId === sid) {
+        viewedServerId = sid;
+        renderTabs();
+        renderServerManagement();
+        updateConnectionControls();
+        updateUsageTitle();
+        return;
+      }
       currentServerId = sid;
+      viewedServerId = sid;
       localStorage.setItem("devboost-active-server", sid);
-      fetch("/api/settings/active-server", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({server_id: sid})}).catch(() => {});
+      persistServerSelection(sid);
       document.getElementById("remote-services-body").innerHTML = '<tr><td colspan="5" style="text-align:center; color:var(--text-muted); padding:20px;">Click "Scan Ports" to detect running services on the remote server.</td></tr>';
       document.getElementById("stat-remote").innerText = "-";
       document.getElementById("docker-body").innerHTML = '<tr><td colspan="7" style="text-align:center; color:var(--text-muted); padding:30px;">Checking Docker on the active server...</td></tr>';
       document.getElementById("docker-subtitle").innerText = "";
       document.getElementById("syncs-body").innerHTML = '<tr><td colspan="5" style="text-align:center; color:var(--text-muted); padding:30px;">Loading folder syncs...</td></tr>';
       renderTabs();
+      renderServerManagement();
+      updateConnectionControls();
       updateUsageTitle();
       fetchStatus();
       fetchDocker();
       fetchSyncs();
       if (usageTab === "remote") fetchUsage();
+    }
+
+    function disconnectServer() {
+      if (!currentServerId) return;
+      currentServerId = "";
+      viewedServerId = "";
+      localStorage.removeItem("devboost-active-server");
+      persistServerSelection(null);
+      renderDisconnectedState();
+      renderTabs();
+      renderServerManagement();
+      updateConnectionControls();
+      updateUsageTitle();
+    }
+
+    function updateConnectionControls() {
+      const connected = isConnectedView();
+      const addForward = document.querySelector("#header-actions .btn-primary");
+      const cleanOrphans = document.getElementById("clean-orphans-btn");
+      const scanRemote = document.getElementById("scan-remote-btn");
+      if (addForward) addForward.disabled = !connected;
+      if (cleanOrphans) cleanOrphans.disabled = !connected;
+      if (scanRemote) scanRemote.disabled = !connected;
+    }
+
+    function renderDisconnectedState() {
+      const dot = document.getElementById("server-status-dot");
+      const status = document.getElementById("server-status-text");
+      const name = document.getElementById("header-server-name");
+      const host = document.getElementById("header-server-host");
+      if (dot) dot.className = "status-dot offline";
+      if (status) status.innerText = "Disconnected";
+      if (name) name.innerText = "No server connected";
+      if (host) host.innerText = "Connect a server from Manage servers";
+      currentServerHost = "";
+      currentForwards = [];
+      dockerRows = [];
+      currentSyncs = [];
+      document.getElementById("stat-active").innerText = "0";
+      document.getElementById("stat-always").innerText = "0";
+      document.getElementById("stat-syncs").innerText = "0";
+      document.getElementById("stat-remote").innerText = "-";
+      document.getElementById("forwards-body").innerHTML = '<tr><td colspan="6" style="text-align:center; color:var(--text-muted); padding:30px;">Connect a server to manage port forwards.</td></tr>';
+      document.getElementById("docker-body").innerHTML = '<tr><td colspan="8" style="text-align:center; color:var(--text-muted); padding:30px;">Connect a server to view Docker containers.</td></tr>';
+      document.getElementById("syncs-body").innerHTML = '<tr><td colspan="5" style="text-align:center; color:var(--text-muted); padding:30px;">Connect a server to manage folder syncs.</td></tr>';
+      document.getElementById("remote-services-body").innerHTML = '<tr><td colspan="5" style="text-align:center; color:var(--text-muted); padding:20px;">Connect a server to scan remote services.</td></tr>';
+      updateConnectionControls();
     }
 
     async function removeServerTab(sid) {
@@ -843,6 +966,7 @@
         const d = await res.json();
         if (!d.ok) { alert(d.message || "Failed to remove server"); return; }
         if (currentServerId === sid) { currentServerId = ""; localStorage.removeItem("devboost-active-server"); }
+        if (viewedServerId === sid) viewedServerId = currentServerId;
         showToast(d.message || "Server removed");
         await fetchServers();
         fetchStatus();
@@ -956,20 +1080,17 @@
 
     async function fetchStatus(forceRenderForwards = false) {
       if (serverDrag || serverOrderSaving) return;
-      const requestedServerId = currentServerId;
+      if (!viewedServerId) { renderDisconnectedState(); return; }
+      const requestedServerId = viewedServerId;
       const orderVersion = serverOrderVersion;
       try {
         const res = await fetch("/api/status" + serverQuery());
         const data = await res.json();
         // Responses can arrive after the user has selected another tab.
         // Never let an old response repaint state for the newly selected tab.
-        if (!responseBelongsToServer(requestedServerId, currentServerId, data.server_id)) return;
+        if (!responseBelongsToServer(requestedServerId, viewedServerId, data.server_id)) return;
         if (data.servers && !serverDrag && !serverOrderSaving && orderVersion === serverOrderVersion) {
           allServers = data.servers;
-          if (!currentServerId && allServers[0]) {
-            currentServerId = allServers[0].id;
-            localStorage.setItem("devboost-active-server", currentServerId);
-          }
           renderTabs();
         }
         if (data.server_id) { serverReachability[data.server_id] = !!data.server_reachable; }
@@ -984,10 +1105,10 @@
       const txt = document.getElementById("server-status-text");
       if (data.server_reachable) {
         dot.className = "status-dot online";
-        txt.innerText = "Connected";
+        txt.innerText = isConnectedView() ? "Connected" : "Previewing · not connected";
       } else {
         dot.className = "status-dot offline";
-        txt.innerText = "Unreachable / Offline";
+        txt.innerText = isConnectedView() ? "Unreachable / Offline" : "Previewing · offline";
       }
 
       if (data.server_name) {
@@ -1073,6 +1194,7 @@
     }
 
     async function submitAddForward() {
+      if (!requireConnectedView()) return;
       const localPort = parseInt(document.getElementById("modal-local-port").value, 10);
       let remotePort = parseInt(document.getElementById("modal-remote-port").value, 10);
       if (isNaN(remotePort)) remotePort = localPort;
@@ -1116,6 +1238,7 @@
     }
 
     async function saveForwardLabelEdit(button, localPort) {
+      if (!requireConnectedView()) return;
       const editor = button.closest(".forward-label-editor");
       const label = editor.querySelector("input").value.trim();
       try {
@@ -1132,6 +1255,7 @@
     }
 
     async function toggleAlways(localPort, makeAlways) {
+      if (!requireConnectedView()) return;
       showToast(`Updating persistence rule for port ${localPort}...`);
       try {
         await fetch("/api/toggle", {
@@ -1146,6 +1270,7 @@
     }
 
     async function deleteForward(localPort) {
+      if (!requireConnectedView()) return;
       if (!confirm(`Are you sure you want to remove forward for port ${localPort}?`)) return;
       showToast(`Removing forward for port ${localPort}...`);
       try {
@@ -1161,6 +1286,7 @@
     }
 
     async function cleanOrphans() {
+      if (!requireConnectedView()) return;
       showToast("Cleaning up duplicate/hung SSH processes...");
       try {
         const res = await fetch("/api/clean", { method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({ server_id: currentServerId }) });
@@ -1173,13 +1299,14 @@
     }
 
     async function scanRemoteServices() {
-      const requestedServerId = currentServerId;
+      if (!viewedServerId) { renderDisconnectedState(); return; }
+      const requestedServerId = viewedServerId;
       const tbody = document.getElementById("remote-services-body");
       tbody.innerHTML = `<tr><td colspan="5" style="text-align:center; color:var(--text-muted); padding:20px;">Scanning remote ports on ${currentServerHost || 'remote server'}...</td></tr>`;
       try {
         const res = await fetch("/api/scan" + serverQuery());
         const data = await res.json();
-        if (!responseBelongsToServer(requestedServerId, currentServerId)) return;
+        if (!responseBelongsToServer(requestedServerId, viewedServerId)) return;
         document.getElementById("stat-remote").innerText = data.services.length;
         if (data.services.length === 0) {
           tbody.innerHTML = '<tr><td colspan="5" style="text-align:center; color:var(--text-muted); padding:20px;">No listening ports detected or server unreachable.</td></tr>';
@@ -1360,6 +1487,7 @@
     }
 
     async function dockerAction(action, container) {
+      if (!requireConnectedView()) return;
       const name = container.name || container.id;
       if (action === "stop" && !confirm(`Stop container "${name}"?`)) return;
       if (action === "restart" && !confirm(`Restart container "${name}"?`)) return;
@@ -1420,13 +1548,14 @@
       renderDockerSortIndicators();
     }
     async function fetchDocker() {
-      const requestedServerId = currentServerId;
+      if (!viewedServerId) { renderDisconnectedState(); return; }
+      const requestedServerId = viewedServerId;
       const tbody = document.getElementById("docker-body");
       const subtitle = document.getElementById("docker-subtitle");
       try {
         const res = await fetch("/api/docker" + serverQuery());
         const data = await res.json();
-        if (!responseBelongsToServer(requestedServerId, currentServerId)) return;
+        if (!responseBelongsToServer(requestedServerId, viewedServerId)) return;
         if (data.available === null) {
           setHomeSummary("home-docker-summary", "Checking Docker…");
           subtitle.innerText = "checking...";
@@ -1630,11 +1759,12 @@
     }
 
     async function fetchSyncs() {
-      const requestedServerId = currentServerId;
+      if (!viewedServerId) { renderDisconnectedState(); return; }
+      const requestedServerId = viewedServerId;
       try {
         const res = await fetch("/api/syncs" + serverQuery());
         const data = await res.json();
-        if (!responseBelongsToServer(requestedServerId, currentServerId, data.server_id)) return;
+        if (!responseBelongsToServer(requestedServerId, viewedServerId, data.server_id)) return;
         cachedFolderHistory = data.folder_history || [];
         renderSyncs(data);
       } catch (err) {
@@ -1738,6 +1868,7 @@
     }
 
     async function runSyncNow(sid) {
+      if (!requireConnectedView()) return;
       const sync = (currentSyncs || []).find(x => x.id === sid);
       if (sync && sync.mirror && !confirmMirrorSync(sync.direction, sync.local_path, sync.remote_path)) return;
       showToast("Syncing folders...");
@@ -1750,6 +1881,7 @@
     }
 
     async function toggleSyncAlways(sid, makeAlways) {
+      if (!requireConnectedView()) return;
       showToast(makeAlways ? "Enabling Auto sync..." : "Switching to one-time...");
       try {
         await fetch("/api/syncs/toggle", { method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({ id: sid, always: makeAlways }) });
@@ -1759,6 +1891,7 @@
     }
 
     async function deleteSync(sid) {
+      if (!requireConnectedView()) return;
       const s = (currentSyncs || []).find(x => x.id === sid);
       const label = s ? `${s.local_path} <-> ${s.remote_path}` : sid;
       if (!confirm(`Remove folder sync "${label}"? Files are kept on both sides; only the tracking + background agent are removed.`)) return;
@@ -2206,6 +2339,7 @@
     }
 
     async function submitAddSync() {
+      if (!requireConnectedView()) return;
       const localPath = document.getElementById("sync-local-path").value.trim();
       const remotePath = document.getElementById("sync-remote-path").value.trim();
       const direction = document.getElementById("sync-direction").value;
@@ -2255,6 +2389,7 @@
       document.querySelectorAll(".workspace-tab").forEach(tab => tab.classList.toggle("active", tab.dataset.page === valid));
       document.getElementById("clean-orphans-btn").style.display = valid === "forwards" ? "inline-flex" : "none";
       document.querySelector("#header-actions .btn-primary").style.display = valid === "forwards" ? "inline-flex" : "none";
+      updateConnectionControls();
       if (valid === "servers") renderServerManagement();
       // Entering Quotas is an explicit request for current values, rather
       // than waiting for the background minute refresh.

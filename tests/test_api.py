@@ -69,6 +69,16 @@ class TestDashboardAPI(unittest.TestCase):
         )]
         self.assertLess(tabs_position, min(page_positions))
 
+    def test_server_tabs_preview_without_connecting(self):
+        with urllib.request.urlopen(self.base_url + "/dashboard/app.js") as resp:
+            app_js = resp.read().decode("utf-8")
+        self.assertIn("let viewedServerId = currentServerId", app_js)
+        self.assertIn("function previewServer(sid)", app_js)
+        self.assertIn("function selectServer(sid) {\n      previewServer(sid);", app_js)
+        self.assertIn("function isConnectedView()", app_js)
+        self.assertIn("persistServerSelection(sid);", app_js)
+        self.assertIn("keepalive: true", app_js)
+
     def test_workspace_tabs_follow_server_selector_and_track_pages(self):
         with urllib.request.urlopen(self.base_url + "/") as resp:
             html = resp.read().decode("utf-8")
@@ -127,7 +137,7 @@ process.stdout.write(JSON.stringify(result));'''
         with urllib.request.urlopen(self.base_url + "/dashboard/app.js") as resp:
             app_js = resp.read().decode("utf-8")
         self.assertIn('function switchUsageTab(which)', app_js)
-        self.assertIn('usageTab === "remote" && currentServerId', app_js)
+        self.assertIn('usageTab === "remote" && viewedServerId', app_js)
         self.assertIn('if (valid === "usage") fetchUsage(true)', app_js)
 
     def test_usage_bar_assets_are_served_and_rendered(self):
@@ -261,7 +271,7 @@ process.stdout.write(JSON.stringify(result));'''
         app_js = os.path.join(os.path.dirname(__file__), "..", "dashboard", "app.js")
         with open(app_js, encoding="utf-8") as handle:
             source = handle.read()
-        self.assertIn("responseBelongsToServer(requestedServerId, currentServerId", source)
+        self.assertIn("responseBelongsToServer(requestedServerId, viewedServerId", source)
         script = r'''const fs = require("fs");
 const source = fs.readFileSync(process.argv[1], "utf8");
 const match = source.match(/function responseBelongsToServer[\s\S]*?\n    \}/);
@@ -596,6 +606,15 @@ process.stdout.write(JSON.stringify([
         self.assertEqual(data["servers"], [
             {"id": "box", "name": "Box", "ssh_host": "box.example"},
         ])
+
+    @patch("dashboard.http.save_config")
+    @patch("dashboard.http.get_servers", return_value=[{"id": "box", "ssh_host": "box.example"}])
+    @patch("dashboard.http.load_config", return_value={"active_server_id": "box"})
+    def test_api_active_server_can_disconnect(self, load, get_servers, save):
+        _, data = self._post_json("/api/settings/active-server", {"server_id": None})
+        self.assertTrue(data["ok"])
+        self.assertIsNone(data["active_server_id"])
+        save.assert_called_once_with({"active_server_id": ""})
 
     @patch("dashboard.http.get_docker_logs", return_value={"ok": True, "logs": "hello"})
     def test_api_docker_logs_delegates_container_and_tail(self, get_logs):

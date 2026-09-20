@@ -158,7 +158,15 @@ class DashboardHandler(BaseHTTPRequestHandler):
             except Exception as e:
                 self._send_json({"accounts": [], "snapshots": {}, "message": str(e)}, status=500)
         elif path == "/api/servers":
-            self._send_json({"servers": get_servers_status()})
+            cfg = load_config()
+            # Older configs did not persist a selected server. Preserve the
+            # existing first-server behavior once, then keep an explicit empty
+            # value for a deliberate disconnect.
+            if "active_server_id" not in cfg:
+                servers = get_servers(cfg)
+                cfg["active_server_id"] = servers[0].get("id") if servers else ""
+                save_config(cfg)
+            self._send_json({"servers": get_servers_status(), "active_server_id": cfg.get("active_server_id") or ""})
         elif path == "/api/servers/active":
             cfg = load_config()
             servers = []
@@ -166,14 +174,13 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 if is_server_reachable(server=server):
                     servers.append({"id": server.get("id"), "name": server.get("name") or server.get("ssh_host"), "ssh_host": server.get("ssh_host")})
             active = resolve_server(cfg, cfg.get("active_server_id")) if cfg.get("active_server_id") else None
-            active_id = active.get("id") if active and any(item["id"] == active.get("id") for item in servers) else (servers[0]["id"] if servers else None)
+            active_id = active.get("id") if active and any(item["id"] == active.get("id") for item in servers) else None
             self._send_json({"servers": servers, "active_server_id": active_id})
         elif path == "/api/settings/menubar":
             self._send_json({"menubar_enabled": bool(load_config().get("menubar_enabled", True))})
         elif path == "/api/settings/active-server":
             cfg = load_config()
             active = resolve_server(cfg, cfg.get("active_server_id")) if cfg.get("active_server_id") else None
-            active = active or get_default_server(cfg)
             self._send_json({"active_server_id": active.get("id") if active else None})
         elif path == "/api/ssh-hosts":
             cfg = load_config()
@@ -362,7 +369,12 @@ class DashboardHandler(BaseHTTPRequestHandler):
         elif path == "/api/settings/active-server":
             server_id = body.get("server_id") or body.get("server")
             cfg = load_config()
-            server = resolve_server(cfg, server_id)
+            if not server_id:
+                cfg["active_server_id"] = ""
+                save_config(cfg)
+                self._send_json({"ok": True, "active_server_id": None})
+                return
+            server = next((item for item in get_servers(cfg) if item.get("id") == server_id or item.get("ssh_host") == server_id), None)
             if not server:
                 self._send_json({"ok": False, "message": "Server not found"}, status=404)
                 return

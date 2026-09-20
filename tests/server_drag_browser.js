@@ -230,7 +230,8 @@ async function main() {
   const betaTab = await rect(selectorFor("tab", "beta"));
   await mouse("mousePressed", betaTab.x + betaTab.width / 2, betaTab.y + betaTab.height / 2);
   await mouse("mouseReleased", betaTab.x + betaTab.width / 2, betaTab.y + betaTab.height / 2, false);
-  assert.equal(await evaluate("document.querySelector('#tabs-bar .active').dataset.serverId"), "beta", "Normal tab clicks still select servers");
+  assert.equal(await evaluate("document.querySelector('#tabs-bar .active').dataset.serverId"), "alpha", "Tab peeking must not activate another server");
+  assert.equal(await evaluate("document.querySelector('#tabs-bar .preview').dataset.serverId"), "beta", "Clicked tab should be marked as a preview");
   await send("Page.reload", {ignoreCache: true});
   await until("document.querySelectorAll('#tabs-bar [data-server-id]').length === 3", "Reload did not load servers");
   await assertOrder(["gamma", "alpha", "beta"]);

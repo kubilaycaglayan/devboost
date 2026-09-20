@@ -347,6 +347,7 @@
     }
     .tab:hover { border-color: #8b949e; color: #fff; }
     .tab.active { border-color: var(--accent); background: rgba(88,166,255,0.12); color: #fff; }
+    .tab.preview { border-style: dashed; border-color: var(--accent); }
     .tab.dragging { opacity: 0.45; }
     .tab[draggable="true"] { cursor: grab; }
     .tab[draggable="true"]:active { cursor: grabbing; }
