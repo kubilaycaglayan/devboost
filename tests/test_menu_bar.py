@@ -86,6 +86,9 @@ class TestMenuBarUsage(unittest.TestCase):
     def test_percentage_quota_rows_use_compact_colored_bars(self):
         self.assertIn("private final class UsageBarView: NSView", self.swift)
         self.assertIn("item.view = UsageBarView(remainingPercent: remaining, title: title)", self.swift)
+        self.assertIn("menu.minimumWidth = 320", self.swift)
+        self.assertIn("NSSize(width: 320, height: 18)", self.swift)
+        self.assertIn("let horizontalPadding: CGFloat = 12", self.swift)
         self.assertIn("private var usageColor: NSColor", self.swift)
         self.assertIn("let used = 100 - remainingPercent", self.swift)
         self.assertIn("width: 220, height: 18", self.swift)

@@ -139,6 +139,7 @@ final class DevBoostApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // Every row's enabled state is managed explicitly. AppKit's automatic
         // action validation can otherwise gray rows while an open menu refreshes.
         menu.autoenablesItems = false
+        menu.minimumWidth = 320
         menu.addItem(withTitle: "Open Dashboard", action: #selector(openDashboard), keyEquivalent: "o")
         menu.addItem(NSMenuItem.separator())
         addUsageSourceItems(to: menu)
@@ -262,6 +263,7 @@ final class DevBoostApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
                     return
                 }
                 menu.removeAllItems()
+                menu.minimumWidth = 320
                 menu.addItem(withTitle: "Open Dashboard", action: #selector(DevBoostApp.openDashboard), keyEquivalent: "o")
                 menu.addItem(NSMenuItem.separator())
                 self.addUsageSourceItems(to: menu)
@@ -722,11 +724,17 @@ private final class UsageBarView: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
-    override var intrinsicContentSize: NSSize { NSSize(width: 220, height: 18) }
+    override var intrinsicContentSize: NSSize { NSSize(width: 320, height: 18) }
 
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
-        let barRect = NSRect(x: 16, y: 3, width: bounds.width - 24, height: 12)
+        let horizontalPadding: CGFloat = 12
+        let barRect = NSRect(
+            x: horizontalPadding,
+            y: 3,
+            width: bounds.width - (horizontalPadding * 2),
+            height: 12
+        )
         let radius = barRect.height / 2
         let path = NSBezierPath(roundedRect: barRect, xRadius: radius, yRadius: radius)
 
