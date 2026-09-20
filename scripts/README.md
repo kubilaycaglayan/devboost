@@ -13,6 +13,18 @@ app, installs it, launches it, and sends a redacted DevBoost state summary:
 python3 scripts/mobile_test.py
 ```
 
+For the normal data-preserving refresh workflow, run the repository launcher:
+
+```sh
+./run-ios.sh
+```
+
+It builds the app, installs it over the existing `com.personal.devboost` app,
+and launches it without uninstalling the app or sending a notification. After
+the Personal Team profile expires, Xcode can issue a fresh 7-day profile during
+the build. Select a specific paired phone with `DEVBOOST_IOS_DEVICE_NAME` in
+the user-owned `.env`.
+
 The equivalent shell entry point is:
 
 ```sh
