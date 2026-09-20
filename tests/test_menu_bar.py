@@ -113,8 +113,15 @@ class TestMenuBarUsage(unittest.TestCase):
         self.assertIn("menu.autoenablesItems = false", self.swift)
         self.assertIn("selectedUsageAccountIDs", self.swift)
         self.assertIn("toggleUsageAccount", self.swift)
-        self.assertIn("heading.state = self.selectedUsageAccountIDs.contains(aid) ? .on : .off", self.swift)
+        self.assertIn("private final class MenuToggleButton: NSButton", self.swift)
+        self.assertIn("private func usageAccountMenuItem(id: String, title: String, selected: Bool)", self.swift)
+        self.assertIn("toggleUsageAccountButton", self.swift)
         self.assertIn("UserDefaults.standard.set(Array(selectedUsageAccountIDs).sorted()", self.swift)
+
+    def test_interactive_menu_rows_use_embedded_controls_to_stay_open(self):
+        self.assertIn("item.view = button", self.swift)
+        self.assertIn("selectUsageSourceButton", self.swift)
+        self.assertIn("toggleUsageAccountButton", self.swift)
 
 
 if __name__ == "__main__":

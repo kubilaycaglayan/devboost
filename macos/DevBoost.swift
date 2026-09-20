@@ -41,6 +41,28 @@ enum DevBoostMain {
 }
 
 final class DevBoostApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
+    private final class MenuToggleButton: NSButton {
+        let menuIdentifier: String
+
+        init(identifier: String, title: String, selected: Bool) {
+            self.menuIdentifier = identifier
+            super.init(frame: NSRect(x: 0, y: 0, width: 260, height: 22))
+            setButtonType(.switch)
+            self.title = title
+            state = selected ? .on : .off
+            alignment = .left
+            font = NSFont.menuFont(ofSize: 0)
+            isBordered = false
+            sizeToFit()
+            frame.size.width = max(260, frame.size.width + 12)
+            frame.size.height = 22
+        }
+
+        required init?(coder: NSCoder) {
+            fatalError("init(coder:) has not been implemented")
+        }
+    }
+
     private struct UsageSource {
         let id: String
         let name: String
@@ -255,10 +277,11 @@ final class DevBoostApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
                         let provider = account["provider"] as? String ?? "Provider"
                         let name = account["name"] as? String ?? provider
                         let snapshot = snapshots[aid] as? [String: Any]
-                        let heading = NSMenuItem(title: "\(provider) · \(name)", action: #selector(DevBoostApp.toggleUsageAccount(_:)), keyEquivalent: "")
-                        heading.target = self
-                        heading.representedObject = aid
-                        heading.state = self.selectedUsageAccountIDs.contains(aid) ? .on : .off
+                        let heading = self.usageAccountMenuItem(
+                            id: aid,
+                            title: "\(provider) · \(name)",
+                            selected: self.selectedUsageAccountIDs.contains(aid)
+                        )
                         menu.addItem(heading)
                         if self.snapshotHasData(snapshot) {
                             let quotas = snapshot?["quotas"] as? [[String: Any]] ?? []
@@ -305,6 +328,14 @@ final class DevBoostApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     @objc private func toggleUsageAccount(_ sender: NSMenuItem) {
         guard let accountID = sender.representedObject as? String, !accountID.isEmpty else { return }
+        toggleUsageAccount(id: accountID, sender: sender)
+    }
+
+    @objc private func toggleUsageAccountButton(_ sender: MenuToggleButton) {
+        toggleUsageAccount(id: sender.menuIdentifier, sender: sender)
+    }
+
+    private func toggleUsageAccount(id accountID: String, sender: AnyObject) {
         if selectedUsageAccountIDs.contains(accountID) {
             selectedUsageAccountIDs.remove(accountID)
         } else {
@@ -312,7 +343,11 @@ final class DevBoostApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         UserDefaults.standard.set(Array(selectedUsageAccountIDs).sorted(), forKey: DevBoostApp.selectedUsageAccountsKey)
         hasSavedUsageSelection = true
-        sender.state = selectedUsageAccountIDs.contains(accountID) ? .on : .off
+        if let item = sender as? NSMenuItem {
+            item.state = selectedUsageAccountIDs.contains(accountID) ? .on : .off
+        } else if let button = sender as? MenuToggleButton {
+            button.state = selectedUsageAccountIDs.contains(accountID) ? .on : .off
+        }
         refreshUsage()
     }
 
@@ -365,11 +400,15 @@ final class DevBoostApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     private func addUsageSourceItems(to menu: NSMenu) {
         for source in usageSources {
-            let item = NSMenuItem(title: "Usage: \(source.name)", action: #selector(DevBoostApp.selectUsageSource(_:)), keyEquivalent: "")
-            item.target = self
-            item.representedObject = source.id
-            item.state = selectedUsageSourceID == source.id ? .on : .off
-            item.isEnabled = true
+            let item = NSMenuItem()
+            let button = MenuToggleButton(
+                identifier: source.id,
+                title: "Usage: \(source.name)",
+                selected: selectedUsageSourceID == source.id
+            )
+            button.target = self
+            button.action = #selector(DevBoostApp.selectUsageSourceButton(_:))
+            item.view = button
             menu.addItem(item)
         }
     }
@@ -377,10 +416,32 @@ final class DevBoostApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
     @objc private func selectUsageSource(_ sender: NSMenuItem) {
         guard let sourceID = sender.representedObject as? String,
               usageSources.contains(where: { $0.id == sourceID }) else { return }
+        selectUsageSource(id: sourceID)
+    }
+
+    @objc private func selectUsageSourceButton(_ sender: MenuToggleButton) {
+        selectUsageSource(id: sender.menuIdentifier)
+    }
+
+    private func selectUsageSource(id sourceID: String) {
+        guard usageSources.contains(where: { $0.id == sourceID }) else { return }
         selectedUsageSourceID = sourceID
         UserDefaults.standard.set(sourceID, forKey: DevBoostApp.selectedUsageSourceKey)
+        for item in statusMenu?.items ?? [] {
+            guard let button = item.view as? MenuToggleButton else { continue }
+            button.state = button.menuIdentifier == sourceID ? .on : .off
+        }
         usageMenuNeedsRebuild = usageMenuIsOpen
         refreshUsage(force: true)
+    }
+
+    private func usageAccountMenuItem(id: String, title: String, selected: Bool) -> NSMenuItem {
+        let item = NSMenuItem()
+        let button = MenuToggleButton(identifier: id, title: title, selected: selected)
+        button.target = self
+        button.action = #selector(DevBoostApp.toggleUsageAccountButton(_:))
+        item.view = button
+        return item
     }
 
     private func snapshotHasData(_ snapshot: [String: Any]?) -> Bool {
