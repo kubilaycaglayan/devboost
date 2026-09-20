@@ -90,6 +90,23 @@ class TestServerLifecycle(unittest.TestCase):
             devboost.remove_server_entry(devboost.load_config()["servers"][0]["id"])
         self.assertFalse(devboost.remove_server_entry("unknown"))
 
+    def test_multiple_servers_can_be_connected_independently(self):
+        first = devboost.load_config()["servers"][0]
+        second = devboost.add_server("staging.example", "Staging")
+        with patch.object(devboost, "restore_launchagents_for_server"), \
+                patch.object(devboost, "restore_sync_agents_for_server"), \
+                patch.object(devboost, "suspend_launchagents_for_server"), \
+                patch.object(devboost, "suspend_sync_agents_for_server"), \
+                patch.object(devboost, "kill_server_processes"):
+            devboost.set_server_connected(second["id"], True)
+            cfg = devboost.load_config()
+            self.assertEqual(set(cfg["connected_server_ids"]), {first["id"], second["id"]})
+            devboost.set_server_connected(first["id"], False)
+            cfg = devboost.load_config()
+            self.assertEqual(cfg["connected_server_ids"], [second["id"]])
+            self.assertTrue(devboost.is_server_connected(cfg, second["id"]))
+            self.assertFalse(devboost.is_server_connected(cfg, first["id"]))
+
 
 if __name__ == "__main__":
     unittest.main()

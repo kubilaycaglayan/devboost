@@ -87,6 +87,17 @@ class DashboardHandler(BaseHTTPRequestHandler):
             srv = body.get("server_id") or body.get("server")
         return srv
 
+    def _server_is_connected(self, server_ref):
+        cfg = load_config()
+        server = resolve_server(cfg, server_ref)
+        return bool(server and is_server_connected(cfg, server.get("id")))
+
+    def _require_server_connected(self, server_ref):
+        if self._server_is_connected(server_ref):
+            return True
+        self._send_json({"ok": False, "message": "Server is disconnected; connect it before using this action"}, status=409)
+        return False
+
     def do_GET(self):
         parsed = urllib.parse.urlparse(self.path)
         path = parsed.path
@@ -145,6 +156,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
             srv = query.get("server", [None])[0] or query.get("server_id", [None])[0]
             data = get_all_forwards_status(srv)
             data["servers"] = get_servers_status()
+            data["runtime_active"] = self._server_is_connected(srv)
             self._send_json(data)
         elif path == "/api/usage":
             try:
@@ -154,6 +166,8 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 kwargs = {"refresh": refresh, "account_id": aid}
                 if srv:
                     kwargs["server_ref"] = srv
+                    if not self._server_is_connected(srv):
+                        kwargs["cached_only"] = True
                 self._send_json(get_usage_status(**kwargs))
             except Exception as e:
                 self._send_json({"accounts": [], "snapshots": {}, "message": str(e)}, status=500)
@@ -172,19 +186,29 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 changed = True
             if changed:
                 save_config(cfg)
+            connected = set(cfg.get("connected_server_ids") or [])
+            servers = get_servers_status()
+            for server in servers:
+                server["connected"] = server.get("id") in connected
             self._send_json({
-                "servers": get_servers_status(),
+                "servers": servers,
                 "active_server_id": cfg.get("active_server_id") or "",
                 "last_connected_server_id": cfg.get("last_connected_server_id") or "",
+                "connected_server_ids": sorted(connected),
             })
         elif path == "/api/servers/active":
             cfg = load_config()
+            connected_ids = set(get_connected_server_ids(cfg))
             servers = []
             for server in get_servers(cfg):
-                if is_server_reachable(server=server):
+                # This endpoint feeds the menubar's remote-source picker.
+                # Use DevBoost's explicit connection state rather than an SSH
+                # reachability probe: a configured/reachable server is not a
+                # currently connected server.
+                if server.get("id") in connected_ids:
                     servers.append({"id": server.get("id"), "name": server.get("name") or server.get("ssh_host"), "ssh_host": server.get("ssh_host")})
             active = resolve_server(cfg, cfg.get("active_server_id")) if cfg.get("active_server_id") else None
-            active_id = active.get("id") if active and any(item["id"] == active.get("id") for item in servers) else None
+            active_id = active.get("id") if active and active.get("id") in connected_ids else None
             self._send_json({"servers": servers, "active_server_id": active_id})
         elif path == "/api/settings/menubar":
             self._send_json({"menubar_enabled": bool(load_config().get("menubar_enabled", True))})
@@ -206,15 +230,23 @@ class DashboardHandler(BaseHTTPRequestHandler):
             self._send_json({"hosts": hosts})
         elif path == "/api/scan":
             srv = query.get("server", [None])[0] or query.get("server_id", [None])[0]
+            if not self._server_is_connected(srv):
+                self._send_json({"services": [], "runtime_active": False, "message": "Server is disconnected"})
+                return
             self._send_json({"services": scan_remote_services(srv)})
         elif path == "/api/docker":
             srv = query.get("server", [None])[0] or query.get("server_id", [None])[0]
+            if not self._server_is_connected(srv):
+                self._send_json({"server_id": srv or "", "runtime_active": False, "containers": [], "message": "Server is disconnected"})
+                return
             self._send_json(get_docker_status(srv))
         elif path == "/api/docker/logs":
             srv = query.get("server", [None])[0] or query.get("server_id", [None])[0]
             container = query.get("container", [""])[0]
             if not container:
                 self._send_json({"ok": False, "message": "container is required", "logs": ""}, status=400)
+            elif not self._server_is_connected(srv):
+                self._send_json({"ok": False, "message": "Server is disconnected", "logs": ""}, status=409)
             else:
                 self._send_json(get_docker_logs(srv, container, query.get("tail", [200])[0]))
         elif path == "/api/docker/labels":
@@ -230,7 +262,9 @@ class DashboardHandler(BaseHTTPRequestHandler):
         elif path == "/api/syncs":
             srv = query.get("server", [None])[0] or query.get("server_id", [None])[0]
             try:
-                self._send_json(get_syncs_status(srv))
+                result = get_syncs_status(srv)
+                result["runtime_active"] = self._server_is_connected(srv)
+                self._send_json(result)
             except Exception as e:
                 self._send_json({"syncs": [], "folder_history": [], "message": str(e)})
         elif path == "/api/folder-history":
@@ -245,6 +279,9 @@ class DashboardHandler(BaseHTTPRequestHandler):
         elif path == "/api/browse/remote":
             srv = query.get("server", [None])[0] or query.get("server_id", [None])[0]
             p = query.get("path", [""])[0]
+            if not self._server_is_connected(srv):
+                self._send_json({"ok": False, "path": p, "entries": [], "message": "Server is disconnected"}, status=409)
+                return
             try:
                 self._send_json(browse_remote(srv, p))
             except Exception as e:
@@ -274,12 +311,20 @@ class DashboardHandler(BaseHTTPRequestHandler):
             label = body.get("label", "")
             always = body.get("always", False)
             srv = body.get("server_id") or body.get("server")
-            add_forward(lp, rp, label=label, always=always, server_ref=srv)
+            if not self._require_server_connected(srv):
+                return
+            try:
+                add_forward(lp, rp, label=label, always=always, server_ref=srv)
+            except ValueError as exc:
+                self._send_json({"ok": False, "message": str(exc)}, status=409)
+                return
             self._send_json({"ok": True, "message": f"Port {lp} forwarded successfully"})
         elif path == "/api/forward/label":
             lp = body.get("local_port")
             label = body.get("label", "")
             srv = body.get("server_id") or body.get("server")
+            if not self._require_server_connected(srv):
+                return
             if not isinstance(label, str):
                 self._send_json({"ok": False, "message": "label must be a string"}, status=400)
                 return
@@ -292,16 +337,22 @@ class DashboardHandler(BaseHTTPRequestHandler):
         elif path == "/api/remove":
             lp = body.get("local_port")
             srv = body.get("server_id") or body.get("server")
+            if not self._require_server_connected(srv):
+                return
             remove_forward(lp, server_ref=srv)
             self._send_json({"ok": True, "message": f"Port {lp} removed"})
         elif path == "/api/toggle":
             lp = body.get("local_port")
             always = body.get("always", False)
             srv = body.get("server_id") or body.get("server")
+            if not self._require_server_connected(srv):
+                return
             toggle_always(lp, always, server_ref=srv)
             self._send_json({"ok": True, "message": f"Port {lp} persistence updated"})
         elif path == "/api/clean":
             srv = body.get("server_id") or body.get("server")
+            if not self._require_server_connected(srv):
+                return
             killed = clean_orphaned_tunnels(server_ref=srv)
             self._send_json({"ok": True, "killed": killed})
         elif path == "/api/docker/labels":
@@ -344,6 +395,8 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 self._send_json({"ok": False, "message": "container is required"}, status=400)
                 return
             srv = body.get("server_id") or body.get("server")
+            if not self._require_server_connected(srv):
+                return
             try:
                 result = docker_container_action(srv, container, operation)
             except Exception as exc:
@@ -362,6 +415,8 @@ class DashboardHandler(BaseHTTPRequestHandler):
             except ValueError as e:
                 self._send_json({"ok": False, "message": str(e)}, status=400)
         elif path == "/api/usage/refresh":
+            if not self._require_server_connected(self._server_param({}, body)):
+                return
             try:
                 kwargs = {"refresh": True, "account_id": body.get("account_id")}
                 srv = self._server_param({}, body)
@@ -379,19 +434,38 @@ class DashboardHandler(BaseHTTPRequestHandler):
         elif path == "/api/settings/active-server":
             server_id = body.get("server_id") or body.get("server")
             cfg = load_config()
-            if not server_id:
-                cfg["active_server_id"] = ""
+            # Compatibility for older callers/config fixtures that predate
+            # multi-server connection state. Real configs are migrated before
+            # reaching this endpoint.
+            if "connected_server_ids" not in cfg:
+                if not server_id:
+                    cfg["active_server_id"] = ""
+                    save_config(cfg)
+                    self._send_json({"ok": True, "active_server_id": None,
+                                     "last_connected_server_id": cfg.get("last_connected_server_id") or None})
+                    return
+                server = next((item for item in get_servers(cfg)
+                               if item.get("id") == server_id or item.get("ssh_host") == server_id), None)
+                if not server:
+                    self._send_json({"ok": False, "message": "Server not found"}, status=404)
+                    return
+                cfg["active_server_id"] = server["id"]
+                cfg["last_connected_server_id"] = server["id"]
                 save_config(cfg)
-                self._send_json({"ok": True, "active_server_id": None, "last_connected_server_id": cfg.get("last_connected_server_id") or None})
+                self._send_json({"ok": True, "active_server_id": server["id"],
+                                 "last_connected_server_id": server["id"]})
                 return
-            server = next((item for item in get_servers(cfg) if item.get("id") == server_id or item.get("ssh_host") == server_id), None)
-            if not server:
+            if not server_id:
+                self._send_json({"ok": False, "message": "server id is required"}, status=400)
+                return
+            result = set_server_connected(server_id, bool(body.get("connected", True)))
+            if not result:
                 self._send_json({"ok": False, "message": "Server not found"}, status=404)
                 return
-            cfg["active_server_id"] = server["id"]
-            cfg["last_connected_server_id"] = server["id"]
-            save_config(cfg)
-            self._send_json({"ok": True, "active_server_id": server["id"], "last_connected_server_id": server["id"]})
+            cfg = load_config()
+            self._send_json({"ok": True, **result,
+                             "active_server_id": cfg.get("active_server_id") or "",
+                             "last_connected_server_id": cfg.get("last_connected_server_id") or ""})
         elif path == "/api/local-ports/kill":
             pid = body.get("pid")
             if pid is None:
@@ -455,6 +529,8 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 return
             self._send_json({"ok": True, "server": server})
         elif path == "/api/syncs":
+            if not self._require_server_connected(body.get("server_id") or body.get("server")):
+                return
             try:
                 result = add_sync(
                     server_ref=body.get("server_id") or body.get("server"),
@@ -478,6 +554,12 @@ class DashboardHandler(BaseHTTPRequestHandler):
             if not sid:
                 self._send_json({"ok": False, "message": "sync id is required"}, status=400)
                 return
+            sync = get_sync(load_config(), sid)
+            if not sync:
+                self._send_json({"ok": False, "message": "Sync not found"}, status=404)
+                return
+            if not self._require_server_connected(sync.get("server_id")):
+                return
             ok = remove_sync_entry(sid)
             if not ok:
                 self._send_json({"ok": False, "message": "Sync not found"}, status=404)
@@ -488,6 +570,12 @@ class DashboardHandler(BaseHTTPRequestHandler):
             if not sid:
                 self._send_json({"ok": False, "message": "sync id is required"}, status=400)
                 return
+            sync = get_sync(load_config(), sid)
+            if not sync:
+                self._send_json({"ok": False, "message": "Sync not found"}, status=404)
+                return
+            if not self._require_server_connected(sync.get("server_id")):
+                return
             res = run_sync(sid)
             self._send_json({"ok": bool(res.get("ok")), "message": res.get("message", "")},
                             status=200 if res.get("ok") else 500)
@@ -495,6 +583,12 @@ class DashboardHandler(BaseHTTPRequestHandler):
             sid = body.get("id") or body.get("sync_id")
             if not sid:
                 self._send_json({"ok": False, "message": "sync id is required"}, status=400)
+                return
+            sync = get_sync(load_config(), sid)
+            if not sync:
+                self._send_json({"ok": False, "message": "Sync not found"}, status=404)
+                return
+            if not self._require_server_connected(sync.get("server_id")):
                 return
             sync = toggle_sync_always(sid, bool(body.get("always", False)),
                                       interval=body.get("interval"))
@@ -507,6 +601,9 @@ class DashboardHandler(BaseHTTPRequestHandler):
             sid = body.get("id") or body.get("sync_id")
             if not sid:
                 self._send_json({"ok": False, "message": "sync id is required"}, status=400)
+                return
+            sync = get_sync(load_config(), sid)
+            if sync and not self._require_server_connected(sync.get("server_id")):
                 return
             try:
                 sync = update_sync(
@@ -547,6 +644,8 @@ class DashboardHandler(BaseHTTPRequestHandler):
                     return
                 self._send_json(result, status=200 if result.get("ok") else 500)
             elif which == "remote":
+                if not self._require_server_connected(body.get("server_id") or body.get("server")):
+                    return
                 try:
                     result = mkdir_remote(body.get("server_id") or body.get("server"),
                                           body.get("path", ""), body.get("name", ""))

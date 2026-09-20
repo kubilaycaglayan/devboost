@@ -36,7 +36,7 @@ class _RuntimeGlobals(dict):
             raise KeyError(key) from exc
 
 
-_FUNCTIONS = ["ensure_syncs_migrated","get_sync","get_syncs_for_server","get_sync_plist_label","get_sync_plist_path","get_sync_executable_args","_scan_sync_agents_raw","create_sync_agent","restore_auto_sync_agents","restore_packaged_forward_agents","remove_sync_agent","remove_sync_agents_for_server","_ssh_remote_cmd","_ensure_remote_dir","check_rsync_prereqs","run_sync","add_sync","remove_sync_entry","toggle_sync_always","update_sync","get_syncs_status","record_folder_history","get_folder_history","browse_local","browse_remote","_validate_new_folder_name","mkdir_local","mkdir_remote"]
+_FUNCTIONS = ["ensure_syncs_migrated","get_sync","get_syncs_for_server","get_sync_plist_label","get_sync_plist_path","get_sync_executable_args","_scan_sync_agents_raw","create_sync_agent","restore_auto_sync_agents","restore_sync_agents_for_server","suspend_sync_agents_for_server","restore_packaged_forward_agents","remove_sync_agent","remove_sync_agents_for_server","_ssh_remote_cmd","_ensure_remote_dir","check_rsync_prereqs","run_sync","add_sync","remove_sync_entry","toggle_sync_always","update_sync","get_syncs_status","record_folder_history","get_folder_history","browse_local","browse_remote","_validate_new_folder_name","mkdir_local","mkdir_remote"]
 _PATCHABLE_COLLABORATORS = {"_ssh_remote_cmd", "_ensure_remote_dir", "check_rsync_prereqs", "build_rsync_commands", "explain_rsync_output"}
 
 
@@ -204,12 +204,39 @@ def create_sync_agent(sync):
 def restore_auto_sync_agents():
     """Refresh persistent sync agents after the packaged app is updated."""
     cfg = load_config()
+    connected = set(cfg.get("connected_server_ids") or [])
     for sync in cfg.get("syncs", []):
-        if isinstance(sync, dict) and sync.get("always") and sync.get("id"):
+        if isinstance(sync, dict) and sync.get("always") and sync.get("id") and sync.get("server_id") in connected:
             try:
                 create_sync_agent(sync)
             except Exception:
                 pass
+
+def suspend_sync_agents_for_server(server_id):
+    cfg = load_config()
+    for sync in get_syncs_for_server(cfg, server_id):
+        if not sync.get("always"):
+            continue
+        try:
+            subprocess.run(["launchctl", "unload", "-w", get_sync_plist_path(sync.get("id"))],
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except Exception:
+            pass
+
+def restore_sync_agents_for_server(server_id):
+    cfg = load_config()
+    for sync in get_syncs_for_server(cfg, server_id):
+        if not sync.get("always") or not sync.get("id"):
+            continue
+        try:
+            path = get_sync_plist_path(sync.get("id"))
+            if not os.path.exists(path):
+                create_sync_agent(sync)
+            else:
+                subprocess.run(["launchctl", "load", "-w", path],
+                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except Exception:
+            pass
 
 def restore_packaged_forward_agents():
     """Move legacy DevBoost tunnel agents to the packaged app launcher."""
@@ -334,6 +361,10 @@ def run_sync(sync_id, timeout=300):
     ssh_host = server.get("ssh_host")
     local = sync.get("local_path", "")
     remote = sync.get("remote_path", "")
+
+    if not is_server_connected(cfg, server.get("id")):
+        return {"ok": False, "skipped": True,
+                "message": f"Sync skipped: server '{server.get('name') or ssh_host}' is disconnected"}
 
     def _fail(msg):
         sync["last_status"] = "error"
@@ -570,6 +601,7 @@ def get_syncs_status(server_ref=None):
     cfg = load_config()
     server = resolve_server(cfg, server_ref)
     sid = server.get("id")
+    runtime_active = is_server_connected(cfg, sid)
     agents = _scan_sync_agents_raw()
     rows = []
     for s in get_syncs_for_server(cfg, sid):
@@ -584,7 +616,7 @@ def get_syncs_status(server_ref=None):
             "mirror": bool(s.get("mirror", False)),
             "always": bool(s.get("always", False)),
             "agent_installed": agent is not None,
-            "active": bool(s.get("always", False)) and agent is not None,
+            "active": runtime_active and bool(s.get("always", False)) and agent is not None,
             "local_protected": is_tcc_protected_path(s.get("local_path", "")),
             "interval": s.get("interval", SYNC_DEFAULT_INTERVAL),
             "created_at": s.get("created_at"),
@@ -597,6 +629,7 @@ def get_syncs_status(server_ref=None):
         "server_id": sid,
         "server_name": server.get("name") or server.get("ssh_host"),
         "server_host": server.get("ssh_host"),
+        "runtime_active": runtime_active,
         "packaged_app": bool(get_packaged_app_executable()),
         "syncs": rows,
         "folder_history": get_folder_history(limit=10, server_id=sid),

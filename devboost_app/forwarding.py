@@ -24,7 +24,7 @@ class _RuntimeGlobals(dict):
             raise KeyError(key) from exc
 
 
-_FUNCTIONS = ["get_plist_label","get_plist_path","_infer_server_id_for_plist","is_server_reachable","get_listening_ports","_extract_ssh_destination","get_ssh_forwards","get_launchagents","get_launchagents_for_server","_scan_all_agents_raw","get_all_forwards_status","get_servers_status","create_launchagent","remove_launchagent","remove_launchagents_for_server","kill_port_processes","kill_server_processes","add_forward","update_forward_label","remove_forward","toggle_always","clean_orphaned_tunnels"]
+_FUNCTIONS = ["get_plist_label","get_plist_path","_infer_server_id_for_plist","is_server_reachable","get_listening_ports","_extract_ssh_destination","get_ssh_forwards","get_launchagents","get_launchagents_for_server","_scan_all_agents_raw","get_all_forwards_status","get_servers_status","create_launchagent","remove_launchagent","remove_launchagents_for_server","suspend_launchagents_for_server","restore_launchagents_for_server","kill_port_processes","kill_server_processes","add_forward","update_forward_label","remove_forward","toggle_always","clean_orphaned_tunnels"]
 
 
 def get_plist_label(port, server_id=None):
@@ -384,11 +384,21 @@ def get_all_forwards_status(server_ref=None):
     cfg = load_config()
     server = resolve_server(cfg, server_ref)
     sid = server.get("id")
-    ssh_procs = get_ssh_forwards(server=server)
-    agents = get_launchagents_for_server(server)
+    runtime_active = is_server_connected(cfg, sid)
+    ssh_procs = get_ssh_forwards(server=server) if runtime_active else []
+    # A disconnected server is configuration-only. Do not inspect the global
+    # LaunchAgents/process tables, because those can contain runtime state for
+    # another server and must not leak into this server's inactive view.
+    agents = get_launchagents_for_server(server) if runtime_active else {}
 
     all_ports = set()
     all_ports.update(agents.keys())
+    for item in cfg.get("forward_configs", []):
+        if isinstance(item, dict) and item.get("server_id") == sid:
+            try:
+                all_ports.add(int(item.get("local_port")))
+            except (TypeError, ValueError):
+                pass
     for f in ssh_procs:
         all_ports.add(f["local_port"])
     for p_str in get_server_labels(cfg, sid).keys():
@@ -401,12 +411,19 @@ def get_all_forwards_status(server_ref=None):
     for proc in ssh_procs:
         lp = proc["local_port"]
         proc_map.setdefault(lp, []).append(proc)
+    configured = {}
+    for item in cfg.get("forward_configs", []):
+        if isinstance(item, dict) and item.get("server_id") == sid:
+            try:
+                configured[int(item.get("local_port"))] = item
+            except (TypeError, ValueError):
+                pass
 
     # Cross-server local-port conflict detection: same local port bound by another host.
     # Maps port -> owner info so the UI can say *which* connection holds the port.
     conflicting_owners = {}
     try:
-        all_procs = get_ssh_forwards()
+        all_procs = get_ssh_forwards() if runtime_active else []
         own_dests = {d for d in (server.get("ssh_host"), server.get("ip")) if d}
         # Known servers by ssh_host/ip for attribution
         dest_to_server = {}
@@ -445,15 +462,18 @@ def get_all_forwards_status(server_ref=None):
     orphaned_count = 0
 
     for port in sorted(all_ports):
-        is_always = port in agents
+        config = configured.get(port, {})
+        is_always = port in agents or bool(config.get("always"))
         procs = proc_map.get(port, [])
         active_proc = next((p for p in procs if p["is_listening"]), None)
         orphans = [p["pid"] for p in procs if not p["is_listening"]]
         orphaned_count += len(orphans)
 
         remote_port = port
-        if is_always:
+        if port in agents:
             remote_port = agents[port]["remote_port"]
+        elif config.get("remote_port") is not None:
+            remote_port = config.get("remote_port")
         elif procs:
             remote_port = procs[0]["remote_port"]
 
@@ -483,7 +503,8 @@ def get_all_forwards_status(server_ref=None):
         "server_name": server.get("name") or server.get("ssh_host"),
         "server_host": server.get("ssh_host"),
         "server_ip": server.get("ip", ""),
-        "server_reachable": is_server_reachable(server=server),
+        "server_reachable": is_server_reachable(server=server) if runtime_active else False,
+        "runtime_active": runtime_active,
         "forwards": results,
         "orphaned_count": orphaned_count,
         "history": get_port_history(limit=10, exclude_ports=all_ports, server_id=sid),
@@ -508,11 +529,12 @@ def get_servers_status():
     out = []
     for srv in servers:
         try:
-            agents = get_launchagents_for_server(srv)
-            procs = get_ssh_forwards(server=srv)
+            connected = srv.get("id") in set(cfg.get("connected_server_ids") or [])
+            agents = get_launchagents_for_server(srv) if connected else {}
+            procs = get_ssh_forwards(server=srv) if connected else []
             active = sum(1 for p in procs if p.get("is_listening"))
             srv_syncs = sync_server_ids.get(srv.get("id"), [])
-            auto_syncs = sum(1 for s in srv_syncs if s.get("always") and s.get("id") in sync_agents)
+            auto_syncs = sum(1 for s in srv_syncs if connected and s.get("always") and s.get("id") in sync_agents)
             out.append({
                 "id": srv.get("id"),
                 "ssh_host": srv.get("ssh_host"),
@@ -545,6 +567,17 @@ def create_launchagent(local_port, remote_port, server_ref=None):
     server = resolve_server(cfg, server_ref)
     sid = server.get("id")
     ssh_host = server.get("ssh_host")
+    own_hosts = {server.get("ssh_host"), server.get("ip")}
+    try:
+        for proc in get_ssh_forwards():
+            if proc.get("local_port") != int(local_port) or not proc.get("is_listening"):
+                continue
+            if proc.get("ssh_dest") not in own_hosts:
+                raise ValueError(f"Local port {local_port} is already in use by another connected server")
+    except ValueError:
+        raise
+    except Exception:
+        pass
     plist_path = get_plist_path(local_port, sid)
     label = get_plist_label(local_port, sid)
     # Remove any legacy-named agent for the same port+server to avoid duplicates
@@ -626,6 +659,69 @@ def remove_launchagents_for_server(server):
         except OSError:
             pass
 
+def suspend_launchagents_for_server(server):
+    """Unload a server's persistent agents but keep their plist configuration."""
+    cfg = load_config()
+    sid = server.get("id")
+    changed = False
+    for item in cfg.get("forward_configs", []):
+        if isinstance(item, dict) and item.get("server_id") == sid and not item.get("always"):
+            item["resume_on_connect"] = bool(item.get("running"))
+            item["running"] = False
+            changed = True
+    if changed:
+        save_config(cfg)
+    for _port, agent in get_launchagents_for_server(server).items():
+        try:
+            subprocess.run(["launchctl", "unload", "-w", agent["path"]],
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except Exception:
+            pass
+
+def restore_launchagents_for_server(server):
+    """Reload a server's previously configured persistent agents."""
+    occupied = set()
+    try:
+        own = {server.get("ssh_host"), server.get("ip")}
+        for proc in get_ssh_forwards():
+            if proc.get("is_listening") and proc.get("ssh_dest") not in own:
+                occupied.add(proc.get("local_port"))
+    except Exception:
+        occupied = set()
+    for _port, agent in get_launchagents_for_server(server).items():
+        if _port in occupied:
+            continue
+        try:
+            subprocess.run(["launchctl", "load", "-w", agent["path"]],
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except Exception:
+            pass
+    # Recreate session (Once) forwards that were running before disconnect.
+    cfg = load_config()
+    for item in cfg.get("forward_configs", []):
+        if not isinstance(item, dict) or item.get("server_id") != server.get("id"):
+            continue
+        if item.get("always") or not item.get("resume_on_connect"):
+            continue
+        try:
+            if int(item.get("local_port")) in occupied:
+                continue
+            _start_session_forward(server, item.get("local_port"), item.get("remote_port"))
+            item["running"] = True
+            item["resume_on_connect"] = False
+        except Exception:
+            pass
+    save_config(cfg)
+
+def _start_session_forward(server, local_port, remote_port=None):
+    remote_port = remote_port if remote_port is not None else local_port
+    subprocess.run([
+        "/usr/bin/ssh", "-fN", "-o", "ServerAliveInterval=15",
+        "-o", "ServerAliveCountMax=3", "-o", "ExitOnForwardFailure=yes",
+        "-o", "BatchMode=yes", "-L", f"{local_port}:127.0.0.1:{remote_port}",
+        server.get("ssh_host"),
+    ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
 def kill_port_processes(local_port, server_ref=None):
     if server_ref is None:
         ssh_procs = get_ssh_forwards()
@@ -661,6 +757,13 @@ def add_forward(local_port, remote_port=None, label="", always=False, server_ref
     server = resolve_server(cfg, server_ref)
     sid = server.get("id")
     ssh_host = server.get("ssh_host")
+    cfg.setdefault("forward_configs", [])
+    cfg["forward_configs"] = [item for item in cfg["forward_configs"]
+                               if not (isinstance(item, dict) and item.get("server_id") == sid
+                                       and int(item.get("local_port", -1)) == int(local_port))]
+    cfg["forward_configs"].append({"server_id": sid, "local_port": int(local_port),
+                                    "remote_port": int(remote_port), "always": bool(always),
+                                    "running": True, "resume_on_connect": False})
     existing_labels = get_server_labels(cfg, sid)
     if label:
         set_server_label(cfg, sid, local_port, label)
@@ -677,17 +780,7 @@ def add_forward(local_port, remote_port=None, label="", always=False, server_ref
         create_launchagent(local_port, remote_port, server_ref=sid)
     else:
         remove_launchagent(local_port, server_ref=sid)
-        cmd = [
-            "/usr/bin/ssh",
-            "-fN",
-            "-o", "ServerAliveInterval=15",
-            "-o", "ServerAliveCountMax=3",
-            "-o", "ExitOnForwardFailure=yes",
-            "-o", "BatchMode=yes",
-            "-L", f"{local_port}:127.0.0.1:{remote_port}",
-            ssh_host
-        ]
-        subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        _start_session_forward(server, local_port, remote_port)
 
 def update_forward_label(local_port, label="", server_ref=None):
     """Update a configured forward's display label without restarting its tunnel."""
@@ -707,6 +800,9 @@ def remove_forward(local_port, server_ref=None):
     remove_launchagent(local_port, server_ref=sid)
     kill_port_processes(local_port, server_ref=sid)
     cfg = load_config()
+    cfg["forward_configs"] = [item for item in cfg.get("forward_configs", [])
+                               if not (isinstance(item, dict) and item.get("server_id") == sid
+                                       and int(item.get("local_port", -1)) == int(local_port))]
     remove_server_label(cfg, sid, local_port)
     save_config(cfg)
 

@@ -388,6 +388,22 @@ def set_server_pinned(*args, **kwargs):
     return server_management.invoke("set_server_pinned", sys.modules[__name__], *args, **kwargs)
 
 
+def get_connected_server_ids(*args, **kwargs):
+    return server_management.invoke("get_connected_server_ids", sys.modules[__name__], *args, **kwargs)
+
+
+def is_server_connected(*args, **kwargs):
+    return server_management.invoke("is_server_connected", sys.modules[__name__], *args, **kwargs)
+
+
+def set_server_connected(*args, **kwargs):
+    return server_management.invoke("set_server_connected", sys.modules[__name__], *args, **kwargs)
+
+
+def enforce_server_runtime_state(*args, **kwargs):
+    return server_management.invoke("enforce_server_runtime_state", sys.modules[__name__], *args, **kwargs)
+
+
 # -----------------------------
 # Folder sync (two-way mirror)
 # -----------------------------
@@ -445,6 +461,14 @@ def create_sync_agent(*args, **kwargs):
 
 def restore_auto_sync_agents(*args, **kwargs):
     return folder_sync.invoke("restore_auto_sync_agents", sys.modules[__name__], *args, **kwargs)
+
+
+def restore_sync_agents_for_server(*args, **kwargs):
+    return folder_sync.invoke("restore_sync_agents_for_server", sys.modules[__name__], *args, **kwargs)
+
+
+def suspend_sync_agents_for_server(*args, **kwargs):
+    return folder_sync.invoke("suspend_sync_agents_for_server", sys.modules[__name__], *args, **kwargs)
 
 
 def restore_packaged_forward_agents(*args, **kwargs):
@@ -609,6 +633,14 @@ def remove_launchagent(*args, **kwargs):
 
 def remove_launchagents_for_server(*args, **kwargs):
     return forwarding.invoke("remove_launchagents_for_server", sys.modules[__name__], *args, **kwargs)
+
+
+def suspend_launchagents_for_server(*args, **kwargs):
+    return forwarding.invoke("suspend_launchagents_for_server", sys.modules[__name__], *args, **kwargs)
+
+
+def restore_launchagents_for_server(*args, **kwargs):
+    return forwarding.invoke("restore_launchagents_for_server", sys.modules[__name__], *args, **kwargs)
 
 
 def kill_port_processes(*args, **kwargs):
@@ -794,7 +826,7 @@ def serve(port=DEFAULT_DASHBOARD_PORT):
     # each packaged-app start so an update always refreshes their path.
     if get_packaged_app_executable():
         restore_packaged_forward_agents()
-        restore_auto_sync_agents()
+        enforce_server_runtime_state()
     server = ReusableHTTPServer(("127.0.0.1", port), DashboardHandler)
     # The dashboard controls local SSH, sync, Docker, and process-management
     # operations. A fresh per-launch token prevents unrelated local web/API

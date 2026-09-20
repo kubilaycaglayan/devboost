@@ -117,7 +117,7 @@ def refresh_usage_account(account, server=None):
     result["duration_ms"] = int((time.time() - started) * 1000)
     return result
 
-def get_usage_status(refresh=False, account_id=None, server_ref=None):
+def get_usage_status(refresh=False, account_id=None, server_ref=None, cached_only=False):
     cfg = load_config()
     server = resolve_server(cfg, server_ref) if server_ref else None
     server_id = server.get("id") if server else "local"
@@ -135,7 +135,7 @@ def get_usage_status(refresh=False, account_id=None, server_ref=None):
             return time.time() - checked.timestamp() >= 60
         except (ValueError, TypeError):
             return True
-    due = [a for a in accounts if refresh or snapshot_key(a) not in snapshots or live_quota_due(a)]
+    due = [] if cached_only else [a for a in accounts if refresh or snapshot_key(a) not in snapshots or live_quota_due(a)]
     changed = bool(due)
     if due:
         # A broken/slow provider must not serialize all other accounts.

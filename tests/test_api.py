@@ -593,14 +593,16 @@ process.stdout.write(JSON.stringify([
             self.assertEqual(response.status, 200)
         get_usage.assert_called_once_with(refresh=True, account_id=None, server_ref="box")
 
-    def test_api_active_servers_only_returns_reachable_remotes(self):
+    def test_api_active_servers_only_returns_connected_remotes(self):
         servers = [
             {"id": "box", "name": "Box", "ssh_host": "box.example"},
             {"id": "offline", "name": "Offline", "ssh_host": "offline.example"},
         ]
-        with patch("dashboard.http.load_config", return_value={"active_server_id": "box"}), \
+        with patch("dashboard.http.load_config", return_value={
+            "active_server_id": "box", "connected_server_ids": ["box"],
+        }), \
              patch("dashboard.http.get_servers", return_value=servers), \
-             patch("dashboard.http.is_server_reachable", side_effect=lambda server: server["id"] == "box"), \
+             patch("dashboard.http.get_connected_server_ids", return_value=["box"]), \
              patch("dashboard.http.resolve_server", return_value=servers[0]):
             with urllib.request.urlopen(self.base_url + "/api/servers/active") as response:
                 data = json.loads(response.read().decode("utf-8"))

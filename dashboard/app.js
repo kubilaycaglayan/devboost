@@ -2,6 +2,7 @@
     let currentServerHost = "";
     let currentServerId = localStorage.getItem("devboost-active-server") || "";
     let viewedServerId = currentServerId;
+    let connectedServerIds = new Set();
     let cachedHistory = [];
     let allServers = [];
     let sshHostCache = [];
@@ -467,7 +468,7 @@
       const orderVersion = usageOrderVersion;
       try {
         const params = new URLSearchParams();
-        if (refresh) params.set("refresh", "1");
+        if (refresh && isConnectedView()) params.set("refresh", "1");
         if (usageTab === "remote" && viewedServerId) params.set("server", viewedServerId);
         const query = params.toString() ? "?" + params.toString() : "";
         const response = await fetch("/api/usage" + query, {cache: "no-store"});
@@ -625,7 +626,7 @@
     }
 
     function isConnectedView() {
-      return Boolean(currentServerId && viewedServerId === currentServerId);
+      return Boolean(viewedServerId && connectedServerIds.has(viewedServerId));
     }
 
     function requireConnectedView() {
@@ -650,24 +651,27 @@
         const data = await res.json();
         if (serverDrag || serverOrderSaving || orderVersion !== serverOrderVersion) return;
         allServers = data.servers || [];
-        // The backend owns the remembered connection selection. An explicit
-        // empty value means the user disconnected, so do not auto-select the
-        // first server during a refresh.
+        const connectedIds = Object.prototype.hasOwnProperty.call(data, "connected_server_ids")
+          ? data.connected_server_ids
+          : allServers.filter(s => s.connected).map(s => s.id);
+        connectedServerIds = new Set(connectedIds || []);
         if (!serversLoaded && Object.prototype.hasOwnProperty.call(data, "active_server_id")) {
-          currentServerId = data.active_server_id || data.last_connected_server_id || "";
-          viewedServerId = currentServerId;
+          // Legacy fallback retained for older dashboard fixtures:
+          // data.active_server_id || data.last_connected_server_id || ""
+          viewedServerId = data.active_server_id || data.last_connected_server_id || [...connectedServerIds][0] || allServers[0]?.id || "";
+          currentServerId = viewedServerId;
         } else if (!serversLoaded && !currentServerId && allServers.length) {
-          currentServerId = (allServers[0] || {}).id || "";
-          viewedServerId = currentServerId;
+          viewedServerId = [...connectedServerIds][0] || (allServers[0] || {}).id || "";
+          currentServerId = viewedServerId;
         }
-        if (currentServerId && !allServers.some(s => s.id === currentServerId)) {
-          currentServerId = "";
+        if (!serversLoaded && !connectedServerIds.size && allServers.length && !Object.prototype.hasOwnProperty.call(data, "connected_server_ids")) {
+          connectedServerIds.add((allServers[0] || {}).id || "");
         }
         if (viewedServerId && !allServers.some(s => s.id === viewedServerId)) {
-          viewedServerId = currentServerId;
+          viewedServerId = [...connectedServerIds][0] || allServers[0]?.id || "";
+          currentServerId = viewedServerId;
         }
-        if (!viewedServerId && currentServerId) viewedServerId = currentServerId;
-        if (currentServerId) localStorage.setItem("devboost-active-server", currentServerId);
+        if (viewedServerId) localStorage.setItem("devboost-active-server", viewedServerId);
         else localStorage.removeItem("devboost-active-server");
         if (!viewedServerId) {
           renderDisconnectedState();
@@ -691,7 +695,7 @@
         return;
       }
       bar.innerHTML = allServers.map(s => {
-        const isActive = s.id === currentServerId;
+        const isActive = connectedServerIds.has(s.id);
         const isViewed = s.id === viewedServerId;
         const dotCls = isViewed && !isActive ? "tab-dot preview" : (serverReachability[s.id] === true ? "tab-dot online" : "tab-dot");
         return `<div class="tab ${isActive ? 'active' : ''}${isViewed && !isActive ? ' preview' : ''}" data-server-id="${s.id}" draggable="true"
@@ -726,7 +730,7 @@
         return;
       }
       list.innerHTML = allServers.map(s => {
-        const isActive = s.id === currentServerId;
+        const isActive = connectedServerIds.has(s.id);
         const reachability = serverReachability[s.id];
         const dotCls = reachability === true ? "tab-dot online" : "tab-dot";
         const status = isActive
@@ -741,7 +745,7 @@
           <div class="server-management-actions">
             <button class="server-drag-handle" draggable="true" ondragstart="onServerCardDragStart(event, '${s.id}')" ondragend="onServerCardDragEnd(event)" title="Drag to reorder" aria-label="Drag to reorder">⠿</button>
             ${isActive
-              ? '<button class="btn btn-sm btn-danger" onclick="disconnectServer()">Disconnect</button>'
+              ? `<button class="btn btn-sm btn-danger" onclick="disconnectServer('${s.id}')">Disconnect</button>`
               : `<button class="btn btn-sm btn-primary" onclick="connectServer('${s.id}')">Connect</button>`}
             <button class="btn btn-sm" onclick="editServer('${s.id}')">Edit</button>
             <button class="btn btn-sm btn-danger" onclick="removeServerTab('${s.id}')">Remove</button>
@@ -857,20 +861,22 @@
     function previewServer(sid) {
       if (!allServers.some(server => server.id === sid)) return;
       viewedServerId = sid;
+      currentServerId = sid;
+      localStorage.setItem("devboost-active-server", sid);
       renderTabs();
       updateConnectionControls();
       updateUsageTitle();
       fetchStatus();
-      fetchDocker();
       fetchSyncs();
-      if (usageTab === "remote") fetchUsage();
+      if (isConnectedView()) fetchDocker();
+      if (usageTab === "remote" && isConnectedView()) fetchUsage();
     }
 
-    function persistServerSelection(serverId) {
+    function persistServerSelection(serverId, connected = true) {
       return fetch("/api/settings/active-server", {
         method: "POST",
         headers: {"Content-Type": "application/json"},
-        body: JSON.stringify({server_id: serverId || null}),
+        body: JSON.stringify({server_id: serverId, connected}),
         keepalive: true
       }).then(response => {
         if (!response.ok) throw new Error("Could not remember the active server");
@@ -882,40 +888,21 @@
 
     function connectServer(sid) {
       if (!allServers.some(server => server.id === sid)) return;
-      if (currentServerId === sid) {
-        viewedServerId = sid;
-        renderTabs();
-        renderServerManagement();
-        updateConnectionControls();
-        updateUsageTitle();
-        return;
-      }
-      currentServerId = sid;
-      viewedServerId = sid;
-      localStorage.setItem("devboost-active-server", sid);
+      connectedServerIds.add(sid);
       persistServerSelection(sid);
-      document.getElementById("remote-services-body").innerHTML = '<tr><td colspan="5" style="text-align:center; color:var(--text-muted); padding:20px;">Click "Scan Ports" to detect running services on the remote server.</td></tr>';
-      document.getElementById("stat-remote").innerText = "-";
-      document.getElementById("docker-body").innerHTML = '<tr><td colspan="7" style="text-align:center; color:var(--text-muted); padding:30px;">Checking Docker on the active server...</td></tr>';
-      document.getElementById("docker-subtitle").innerText = "";
-      document.getElementById("syncs-body").innerHTML = '<tr><td colspan="5" style="text-align:center; color:var(--text-muted); padding:30px;">Loading folder syncs...</td></tr>';
-      renderTabs();
-      renderServerManagement();
-      updateConnectionControls();
-      updateUsageTitle();
-      fetchStatus();
-      fetchDocker();
-      fetchSyncs();
-      if (usageTab === "remote") fetchUsage();
+      previewServer(sid);
     }
 
-    function disconnectServer() {
-      if (!currentServerId) return;
-      currentServerId = "";
-      viewedServerId = "";
-      localStorage.removeItem("devboost-active-server");
-      persistServerSelection(null);
-      renderDisconnectedState();
+    function disconnectServer(sid = viewedServerId) {
+      if (!sid) return;
+      connectedServerIds.delete(sid);
+      persistServerSelection(sid, false);
+      if (viewedServerId === sid) {
+        currentServerId = sid;
+        fetchSyncs();
+        document.getElementById("remote-services-body").innerHTML = '<tr><td colspan="5" style="text-align:center; color:var(--text-muted); padding:20px;">Server disconnected — remote service scanning inactive.</td></tr>';
+        document.getElementById("stat-remote").innerText = "-";
+      }
       renderTabs();
       renderServerManagement();
       updateConnectionControls();
@@ -1155,6 +1142,7 @@
       }
 
       tbody.innerHTML = data.forwards.map(f => {
+        const runtimeActive = isConnectedView() && data.runtime_active !== false;
         const url = `http://localhost:${f.local_port}`;
         const conflictOwner = (f.conflict_with && (f.conflict_with.name || f.conflict_with.ssh_host)) || "";
         const conflictBadge = f.conflict ? `<span class="badge badge-inactive" title="${conflictOwner ? `Local port ${f.local_port} is already held by ${conflictOwner}` : "Another server tab is already listening on this local port"}">⚠️ ${conflictOwner ? `Port in use by ${escapeHtml(conflictOwner)}` : "Port in use by another tab"}</span>` : "";
@@ -1176,17 +1164,17 @@
               :${f.remote_port}
             </td>
             <td>
-              <div class="forward-label-view" onclick='beginForwardLabelEdit(this, ${f.local_port}, ${JSON.stringify(f.label || "")})' title="Click to edit service label"><strong>${escapeHtml(f.label || "—")}</strong></div>
+              <div class="forward-label-view" ${runtimeActive ? `onclick='beginForwardLabelEdit(this, ${f.local_port}, ${JSON.stringify(f.label || "")})'` : ""} title="${runtimeActive ? "Click to edit service label" : "Disconnected — configuration only"}"><strong>${escapeHtml(f.label || "—")}</strong></div>
               ${conflictBadge}
             </td>
             <td>${modeBadge}</td>
             <td>${activeBadge}</td>
             <td>
               <div class="actions-cell">
-                <button class="btn btn-sm" onclick="toggleAlways(${f.local_port}, ${!f.always})" title="${f.always ? 'Change to temporary session' : 'Make persistent (Always Forward)'}">
+                <button class="btn btn-sm" ${runtimeActive ? `onclick="toggleAlways(${f.local_port}, ${!f.always})"` : "disabled"} title="${runtimeActive ? (f.always ? 'Change to temporary session' : 'Make persistent (Always Forward)') : 'Disconnected — configuration only'}">
                   ${f.always ? 'Make Session' : 'Make Always'}
                 </button>
-                <button class="btn btn-sm btn-danger" onclick="deleteForward(${f.local_port})" title="Remove forward">
+                <button class="btn btn-sm btn-danger" ${runtimeActive ? `onclick="deleteForward(${f.local_port})"` : "disabled"} title="${runtimeActive ? 'Remove forward' : 'Disconnected — configuration only'}">
                   Delete
                 </button>
               </div>
@@ -1303,6 +1291,11 @@
 
     async function scanRemoteServices() {
       if (!viewedServerId) { renderDisconnectedState(); return; }
+      if (!isConnectedView()) {
+        document.getElementById("remote-services-body").innerHTML = '<tr><td colspan="5" style="text-align:center; color:var(--text-muted); padding:20px;">Server disconnected — remote service scanning inactive.</td></tr>';
+        document.getElementById("stat-remote").innerText = "-";
+        return;
+      }
       const requestedServerId = viewedServerId;
       const tbody = document.getElementById("remote-services-body");
       tbody.innerHTML = `<tr><td colspan="5" style="text-align:center; color:var(--text-muted); padding:20px;">Scanning remote ports on ${currentServerHost || 'remote server'}...</td></tr>`;
@@ -1552,6 +1545,11 @@
     }
     async function fetchDocker() {
       if (!viewedServerId) { renderDisconnectedState(); return; }
+      if (!isConnectedView()) {
+        document.getElementById("docker-subtitle").innerText = "disconnected";
+        document.getElementById("docker-body").innerHTML = '<tr><td colspan="8" style="text-align:center; color:var(--text-muted); padding:30px;">Server disconnected — Docker monitoring inactive.</td></tr>';
+        return;
+      }
       const requestedServerId = viewedServerId;
       const tbody = document.getElementById("docker-body");
       const subtitle = document.getElementById("docker-subtitle");
@@ -1829,6 +1827,7 @@
 
     function renderSyncs(data) {
       currentSyncs = data.syncs || [];
+      const runtimeActive = isConnectedView() && data.runtime_active !== false;
       renderHomeSyncSummary(currentSyncs);
       const autoCount = currentSyncs.filter(s => s.always).length;
       document.getElementById("stat-syncs").innerText = currentSyncs.length ? `${currentSyncs.length} (${autoCount} auto)` : "0";
@@ -1849,22 +1848,21 @@
         const lastSyncLine = (s.last_status === "ok" && s.last_sync)
           ? `<br/><span class="sync-last-line mono" title="Relative age and exact time of the last successful sync"><span>Synced ${escapeHtml(formatSyncAge(s.last_sync))}</span><span>(${escapeHtml(formatSyncTime(s.last_sync))})</span></span>`
           : "";
+        const actions = runtimeActive
+          ? `<button class="btn btn-sm" onclick="openSyncModal('${s.id}')" title="Edit paths and options">Edit</button>
+                <button class="btn btn-sm" onclick="runSyncNow('${s.id}')" title="Run this sync immediately">Sync Now</button>
+                <button class="btn btn-sm" onclick="toggleSyncAlways('${s.id}', ${!s.always})" title="${s.always ? 'Switch to one-time (remove background agent)' : 'Keep in sync continuously (persistent agent)'}">
+                  ${s.always ? 'Make Once' : 'Make Auto'}
+                </button>
+                <button class="btn btn-sm btn-danger" onclick="deleteSync('${s.id}')" title="Remove sync">Delete</button>`
+          : '<span class="muted">Disconnected — configuration only</span>';
         return `
           <tr>
             <td>${syncPathMarkup(s.local_path, "local")}<br/><span class="muted" style="font-size:11px;">this Mac</span></td>
             <td>${syncPathMarkup(s.remote_path, "remote")}<br/><span class="muted" style="font-size:11px;">${escapeHtml(data.server_host || currentServerHost || 'server')}</span></td>
             <td>${directionBadge(s.direction, s.mirror)}<br/><span style="display:inline-block; margin-top:4px;">${modeBadge(s)}</span></td>
             <td>${syncStatusBadge(s)}${lastSyncLine}${protectedWarn}${msg}</td>
-            <td>
-              <div class="actions-cell">
-                <button class="btn btn-sm" onclick="openSyncModal('${s.id}')" title="Edit paths and options">Edit</button>
-                <button class="btn btn-sm" onclick="runSyncNow('${s.id}')" title="Run this sync immediately">Sync Now</button>
-                <button class="btn btn-sm" onclick="toggleSyncAlways('${s.id}', ${!s.always})" title="${s.always ? 'Switch to one-time (remove background agent)' : 'Keep in sync continuously (persistent agent)'}">
-                  ${s.always ? 'Make Once' : 'Make Auto'}
-                </button>
-                <button class="btn btn-sm btn-danger" onclick="deleteSync('${s.id}')" title="Remove sync">Delete</button>
-              </div>
-            </td>
+            <td><div class="actions-cell">${actions}</div></td>
           </tr>
         `;
       }).join("");

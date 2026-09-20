@@ -18,7 +18,7 @@ class _RuntimeGlobals(dict):
             raise KeyError(key) from exc
 
 
-_FUNCTIONS = ["slugify_server_id","default_server_from_env","ensure_servers_migrated","get_servers","get_default_server","get_legacy_server","resolve_server","set_server_label","remove_server_label","add_server","remove_server_entry","update_server_entry","reorder_servers","set_server_pinned"]
+_FUNCTIONS = ["slugify_server_id","default_server_from_env","ensure_servers_migrated","get_servers","get_default_server","get_legacy_server","resolve_server","set_server_label","remove_server_label","add_server","remove_server_entry","update_server_entry","reorder_servers","set_server_pinned","get_connected_server_ids","is_server_connected","set_server_connected","enforce_server_runtime_state"]
 
 
 def slugify_server_id(ssh_host, existing_ids=None):
@@ -90,7 +90,104 @@ def ensure_servers_migrated(cfg):
                 h["server_id"] = bootstrap_id
                 changed = True
     cfg.setdefault("server_labels", {})
+    valid_ids = {s.get("id") for s in cfg.get("servers", []) if isinstance(s, dict) and s.get("id")}
+    legacy_active = cfg.get("active_server_id")
+    connected = cfg.get("connected_server_ids")
+    if not isinstance(connected, list):
+        connected = [legacy_active] if legacy_active in valid_ids else ([next(iter(valid_ids))] if valid_ids else [])
+        cfg["connected_server_ids"] = connected
+        changed = True
+    else:
+        normalized = []
+        for sid in connected:
+            if sid in valid_ids and sid not in normalized:
+                normalized.append(sid)
+        if normalized != connected:
+            cfg["connected_server_ids"] = normalized
+            changed = True
+    # Keep the legacy field as a compatibility/view hint for older clients.
+    if cfg.get("active_server_id") not in valid_ids:
+        cfg["active_server_id"] = cfg["connected_server_ids"][0] if cfg["connected_server_ids"] else ""
+        changed = True
     return cfg, changed
+
+def get_connected_server_ids(cfg=None):
+    cfg = cfg if cfg is not None else load_config()
+    if isinstance(cfg.get("connected_server_ids"), list):
+        return list(cfg.get("connected_server_ids") or [])
+    legacy = cfg.get("active_server_id")
+    return [legacy] if legacy else []
+
+def is_server_connected(cfg, server_ref):
+    server = next((item for item in get_servers(cfg)
+                   if item.get("id") == server_ref or item.get("ssh_host") == server_ref), None)
+    return bool(server and server.get("id") in get_connected_server_ids(cfg))
+
+def set_server_connected(server_ref, connected):
+    """Updates one server's connection state and starts/stops its local runtime."""
+    cfg = load_config()
+    server = next((item for item in get_servers(cfg)
+                   if item.get("id") == server_ref or item.get("ssh_host") == server_ref), None)
+    if not server:
+        return None
+    sid = server["id"]
+    ids = [item for item in cfg.get("connected_server_ids", []) if item != sid]
+    if connected:
+        ids.append(sid)
+    cfg["connected_server_ids"] = ids
+    if connected:
+        cfg["active_server_id"] = sid
+    elif cfg.get("active_server_id") == sid:
+        cfg["active_server_id"] = ids[0] if ids else ""
+    cfg["last_connected_server_id"] = sid if connected else (ids[0] if ids else "")
+    save_config(cfg)
+    try:
+        if connected:
+            restore_server_runtime(server)
+        else:
+            suspend_server_runtime(server)
+    except Exception:
+        pass
+    return {"id": sid, "connected": connected, "connected_server_ids": ids}
+
+def enforce_server_runtime_state():
+    """Reconciles loaded LaunchAgents with persisted per-server connection state."""
+    cfg = load_config()
+    connected = set(cfg.get("connected_server_ids") or [])
+    for server in cfg.get("servers", []):
+        if not isinstance(server, dict) or not server.get("id"):
+            continue
+        if server["id"] in connected:
+            restore_server_runtime(server)
+        else:
+            suspend_server_runtime(server)
+    return sorted(connected)
+
+def suspend_server_runtime(server):
+    """Stops one server's runtime while preserving all configuration."""
+    try:
+        suspend_launchagents_for_server(server)
+    except Exception:
+        pass
+    try:
+        kill_server_processes(server)
+    except Exception:
+        pass
+    try:
+        suspend_sync_agents_for_server(server.get("id"))
+    except Exception:
+        pass
+
+def restore_server_runtime(server):
+    """Restores persistent agents for one connected server."""
+    try:
+        restore_launchagents_for_server(server)
+    except Exception:
+        pass
+    try:
+        restore_sync_agents_for_server(server.get("id"))
+    except Exception:
+        pass
 
 def get_servers(cfg=None):
     cfg = cfg if cfg is not None else load_config()
@@ -177,14 +274,17 @@ def remove_server_entry(server_id):
     if len(cfg.get("servers", [])) <= 1:
         raise ValueError("Cannot remove the last server")
     cfg["servers"] = [s for s in cfg["servers"] if s.get("id") != server["id"]]
+    cfg["connected_server_ids"] = [sid for sid in cfg.get("connected_server_ids", []) if sid != server["id"]]
     if cfg.get("active_server_id") == server["id"]:
-        cfg["active_server_id"] = ""
+        cfg["active_server_id"] = cfg["connected_server_ids"][0] if cfg["connected_server_ids"] else ""
     if cfg.get("last_connected_server_id") == server["id"]:
         cfg["last_connected_server_id"] = ""
     cfg.get("server_labels", {}).pop(server["id"], None)
     cfg["history"] = [h for h in cfg.get("history", []) if h.get("server_id") != server["id"]]
     sync_ids = [s.get("id") for s in cfg.get("syncs", []) if isinstance(s, dict) and s.get("server_id") == server["id"]]
     cfg["syncs"] = [s for s in cfg.get("syncs", []) if not (isinstance(s, dict) and s.get("server_id") == server["id"])]
+    cfg["forward_configs"] = [f for f in cfg.get("forward_configs", [])
+                               if not (isinstance(f, dict) and f.get("server_id") == server["id"])]
     cfg["folder_history"] = [h for h in cfg.get("folder_history", []) if h.get("server_id") != server["id"]]
     save_config(cfg)
     # Best-effort cleanup of that server's tunnels (outside config write)

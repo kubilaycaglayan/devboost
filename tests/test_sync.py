@@ -476,6 +476,22 @@ class TestFolderSync(unittest.TestCase):
         saved = devboost.get_syncs_status(sid)["syncs"][0]
         self.assertEqual(saved["last_status"], "error")
 
+    def test_run_sync_skips_disconnected_server_without_remote_work(self):
+        sid = self._server_id()
+        result = devboost.add_sync(server_ref=sid, local_path="/tmp/devboost-sync-disconnected",
+                                   remote_path="~/remote", run_now=False)
+        cfg = devboost.load_config()
+        cfg["connected_server_ids"] = []
+        cfg["active_server_id"] = ""
+        devboost.save_config(cfg)
+        with patch.object(devboost, "_ensure_remote_dir") as remote_dir, \
+                patch.object(devboost, "check_rsync_prereqs") as prereqs:
+            outcome = devboost.run_sync(result["sync"]["id"])
+        self.assertFalse(outcome["ok"])
+        self.assertTrue(outcome["skipped"])
+        remote_dir.assert_not_called()
+        prereqs.assert_not_called()
+
 
 if __name__ == "__main__":
     unittest.main()
