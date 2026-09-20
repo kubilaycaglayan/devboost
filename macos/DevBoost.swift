@@ -41,7 +41,13 @@ enum DevBoostMain {
 }
 
 final class DevBoostApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
+    private struct UsageSource {
+        let id: String
+        let name: String
+    }
+
     private static let selectedUsageAccountsKey = "devboost-menubar-usage-selection"
+    private static let selectedUsageSourceKey = "devboost-menubar-usage-source"
     private let dashboardSessionToken = UUID().uuidString
     private var backend: Process?
     private var statusItem: NSStatusItem?
@@ -61,6 +67,10 @@ final class DevBoostApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var hasSavedUsageSelection: Bool = UserDefaults.standard.object(
         forKey: DevBoostApp.selectedUsageAccountsKey
     ) != nil
+    private var selectedUsageSourceID: String? = UserDefaults.standard.string(
+        forKey: DevBoostApp.selectedUsageSourceKey
+    )
+    private var usageSources: [UsageSource] = [UsageSource(id: "local", name: "This Mac")]
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         signal(SIGINT, SIG_IGN)
@@ -108,6 +118,8 @@ final class DevBoostApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.autoenablesItems = false
         menu.addItem(withTitle: "Open Dashboard", action: #selector(openDashboard), keyEquivalent: "o")
         menu.addItem(NSMenuItem.separator())
+        addUsageSourceItems(to: menu)
+        menu.addItem(NSMenuItem.separator())
         let usageStatus = NSMenuItem(title: "Syncing usage…", action: nil, keyEquivalent: "")
         usageStatus.isEnabled = true
         usageStatusMenuItem = usageStatus
@@ -153,23 +165,38 @@ final class DevBoostApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     private func refreshUsage(force: Bool = false) {
         let baseURL = "http://127.0.0.1:\(dashboardPort())"
-        var activeRequest = URLRequest(url: URL(string: "\(baseURL)/api/settings/active-server")!)
+        var activeRequest = URLRequest(url: URL(string: "\(baseURL)/api/servers/active")!)
         activeRequest.setValue("devboost_session=\(dashboardSessionToken)", forHTTPHeaderField: "Cookie")
         URLSession.shared.dataTask(with: activeRequest) { [weak self] data, _, _ in
             let root = data.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
-            let serverID = root?["active_server_id"] as? String
-            guard let self = self, let serverID = serverID else {
-                // Keep local usage as a fallback if the active-server setting
-                // is unavailable during startup or a migration.
-                self?.requestUsage(url: URL(string: "\(baseURL)/api/usage\(force ? "?refresh=1" : "")")!)
-                return
+            let remotes = (root?["servers"] as? [[String: Any]] ?? []).compactMap { server -> UsageSource? in
+                guard let id = server["id"] as? String else { return nil }
+                return UsageSource(id: id, name: server["name"] as? String ?? id)
             }
-            var components = URLComponents(string: "\(baseURL)/api/usage")!
-            var queryItems = [URLQueryItem(name: "server", value: serverID)]
-            if force { queryItems.append(URLQueryItem(name: "refresh", value: "1")) }
-            components.queryItems = queryItems
-            self.requestUsage(url: components.url!)
+            let webActiveID = root?["active_server_id"] as? String
+            DispatchQueue.main.async {
+                guard let self = self else { return }
+                self.usageSources = [UsageSource(id: "local", name: "This Mac")] + remotes
+                let validSelection = self.selectedUsageSourceID.flatMap { selected in
+                    self.usageSources.contains(where: { $0.id == selected }) ? selected : nil
+                }
+                let sourceID = validSelection ?? webActiveID.flatMap { active in
+                    self.usageSources.contains(where: { $0.id == active }) ? active : nil
+                } ?? "local"
+                self.selectedUsageSourceID = sourceID
+                self.requestUsage(sourceID: sourceID, force: force)
+            }
         }.resume()
+    }
+
+    private func requestUsage(sourceID: String, force: Bool) {
+        let baseURL = "http://127.0.0.1:\(dashboardPort())"
+        var components = URLComponents(string: "\(baseURL)/api/usage")!
+        var queryItems: [URLQueryItem] = []
+        if sourceID != "local" { queryItems.append(URLQueryItem(name: "server", value: sourceID)) }
+        if force { queryItems.append(URLQueryItem(name: "refresh", value: "1")) }
+        components.queryItems = queryItems.isEmpty ? nil : queryItems
+        requestUsage(url: components.url!)
     }
 
     private func requestUsage(url: URL) {
@@ -206,6 +233,8 @@ final class DevBoostApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 }
                 menu.removeAllItems()
                 menu.addItem(withTitle: "Open Dashboard", action: #selector(DevBoostApp.openDashboard), keyEquivalent: "o")
+                menu.addItem(NSMenuItem.separator())
+                self.addUsageSourceItems(to: menu)
                 menu.addItem(NSMenuItem.separator())
                 let usageStatus = NSMenuItem(title: self.usageSyncStatus(), action: nil, keyEquivalent: "")
                 usageStatus.isEnabled = true
@@ -332,6 +361,26 @@ final class DevBoostApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let item = NSMenuItem()
         item.view = UsageBarView(remainingPercent: remaining, title: title)
         menu.addItem(item)
+    }
+
+    private func addUsageSourceItems(to menu: NSMenu) {
+        for source in usageSources {
+            let item = NSMenuItem(title: "Usage: \(source.name)", action: #selector(DevBoostApp.selectUsageSource(_:)), keyEquivalent: "")
+            item.target = self
+            item.representedObject = source.id
+            item.state = selectedUsageSourceID == source.id ? .on : .off
+            item.isEnabled = true
+            menu.addItem(item)
+        }
+    }
+
+    @objc private func selectUsageSource(_ sender: NSMenuItem) {
+        guard let sourceID = sender.representedObject as? String,
+              usageSources.contains(where: { $0.id == sourceID }) else { return }
+        selectedUsageSourceID = sourceID
+        UserDefaults.standard.set(sourceID, forKey: DevBoostApp.selectedUsageSourceKey)
+        usageMenuNeedsRebuild = usageMenuIsOpen
+        refreshUsage(force: true)
     }
 
     private func snapshotHasData(_ snapshot: [String: Any]?) -> Bool {

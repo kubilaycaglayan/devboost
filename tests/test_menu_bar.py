@@ -41,7 +41,7 @@ class TestMenuBarUsage(unittest.TestCase):
         self.assertIn("NSMenuDelegate", self.swift)
         self.assertIn("func menuWillOpen(_ menu: NSMenu)", self.swift)
         self.assertIn("refreshUsage(force: true)", self.swift)
-        self.assertIn('force ? "?refresh=1" : ""', self.swift)
+        self.assertIn('if force { queryItems.append(URLQueryItem(name: "refresh", value: "1")) }', self.swift)
         self.assertIn("func menuDidClose(_ menu: NSMenu)", self.swift)
         self.assertIn("usageMenuIsOpen", self.swift)
         self.assertIn("Syncing usage…", self.swift)
@@ -50,9 +50,9 @@ class TestMenuBarUsage(unittest.TestCase):
         self.assertIn('return "Synced \\(elapsed / 60)m ago"', self.swift)
 
     def test_menubar_usage_targets_the_configured_remote_server(self):
-        self.assertIn('URL(string: "\\(baseURL)/api/settings/active-server")!', self.swift)
-        self.assertIn('let serverID = root?["active_server_id"] as? String', self.swift)
-        self.assertIn('URLQueryItem(name: "server", value: serverID)', self.swift)
+        self.assertIn('URL(string: "\\(baseURL)/api/servers/active")!', self.swift)
+        self.assertIn('let webActiveID = root?["active_server_id"] as? String', self.swift)
+        self.assertIn('URLQueryItem(name: "server", value: sourceID)', self.swift)
         self.assertIn('private func requestUsage(url: URL)', self.swift)
 
     def test_usage_request_authenticates_with_backend_session(self):
@@ -89,6 +89,14 @@ class TestMenuBarUsage(unittest.TestCase):
         self.assertIn("width: 220, height: 18", self.swift)
         self.assertIn("if !darkText { attributes[.shadow] = textShadow }", self.swift)
         self.assertNotIn("NSNull()", self.swift)
+
+    def test_menubar_can_select_this_mac_or_active_remote_sources(self):
+        self.assertIn('private static let selectedUsageSourceKey', self.swift)
+        self.assertIn('UsageSource(id: "local", name: "This Mac")', self.swift)
+        self.assertIn('URL(string: "\\(baseURL)/api/servers/active")!', self.swift)
+        self.assertIn('private func addUsageSourceItems(to menu: NSMenu)', self.swift)
+        self.assertIn('@objc private func selectUsageSource(_ sender: NSMenuItem)', self.swift)
+        self.assertIn('URLQueryItem(name: "server", value: sourceID)', self.swift)
 
     def test_new_installation_selects_enabled_accounts_for_compact_title(self):
         self.assertIn("private var hasSavedUsageSelection", self.swift)

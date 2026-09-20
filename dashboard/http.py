@@ -159,6 +159,15 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 self._send_json({"accounts": [], "snapshots": {}, "message": str(e)}, status=500)
         elif path == "/api/servers":
             self._send_json({"servers": get_servers_status()})
+        elif path == "/api/servers/active":
+            cfg = load_config()
+            servers = []
+            for server in get_servers(cfg):
+                if is_server_reachable(server=server):
+                    servers.append({"id": server.get("id"), "name": server.get("name") or server.get("ssh_host"), "ssh_host": server.get("ssh_host")})
+            active = resolve_server(cfg, cfg.get("active_server_id")) if cfg.get("active_server_id") else None
+            active_id = active.get("id") if active and any(item["id"] == active.get("id") for item in servers) else (servers[0]["id"] if servers else None)
+            self._send_json({"servers": servers, "active_server_id": active_id})
         elif path == "/api/settings/menubar":
             self._send_json({"menubar_enabled": bool(load_config().get("menubar_enabled", True))})
         elif path == "/api/settings/active-server":
