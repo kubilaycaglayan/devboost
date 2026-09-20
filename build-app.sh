@@ -18,9 +18,17 @@ command -v swiftc >/dev/null 2>&1 || {
   exit 1
 }
 
+# Do not let a newer SDK silently encode its own macOS version as the app's
+# minimum. LaunchServices refuses to open an app whose LC_BUILD_VERSION is
+# newer than the host OS (reported as error -10825).
+MACOS_MIN_VERSION="${MACOSX_DEPLOYMENT_TARGET:-13.0}"
+MACOSX_DEPLOYMENT_TARGET="$MACOS_MIN_VERSION"
+export MACOSX_DEPLOYMENT_TARGET
+MACOS_ARCH="$(uname -m)"
+
 mkdir -p "$STAGE_APP/Contents/MacOS" "$STAGE_APP/Contents/Resources/bin" "$USER_HOME/Applications"
 cp "$SOURCE_DIR/macos/Info.plist" "$STAGE_APP/Contents/Info.plist"
-swiftc -parse-as-library -O -framework Cocoa "$SOURCE_DIR/macos/DevBoost.swift" -o "$STAGE_APP/Contents/MacOS/DevBoost"
+swiftc -parse-as-library -O -target "${MACOS_ARCH}-apple-macosx${MACOS_MIN_VERSION}" -framework Cocoa "$SOURCE_DIR/macos/DevBoost.swift" -o "$STAGE_APP/Contents/MacOS/DevBoost"
 cp "$SOURCE_DIR/devboost.py" "$STAGE_APP/Contents/Resources/devboost.py"
 cp "$SOURCE_DIR/remote_transport.py" "$STAGE_APP/Contents/Resources/remote_transport.py"
 cp "$SOURCE_DIR/docker_monitor.py" "$STAGE_APP/Contents/Resources/docker_monitor.py"
