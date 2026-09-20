@@ -81,4 +81,39 @@ final class ModelTests: XCTestCase {
         XCTAssertEqual(snapshot.planType, "pro")
         XCTAssertEqual(snapshot.updatedAt, now)
     }
+
+    func testClaudeUsageParserReadsLocalTokenFallback() throws {
+        let now = Date(timeIntervalSince1970: 1_700_000_000)
+        let payload: [String: Any] = [
+            "devboostSource": "local",
+            "devboostObservedTokens": 1_234,
+            "devboostLiveError": "HTTP Error 429: Too Many Requests"
+        ]
+
+        let snapshot = try ClaudeUsageParser.decode(payload, now: now)
+
+        XCTAssertTrue(snapshot.quotas.isEmpty)
+        XCTAssertEqual(snapshot.observedTokens, 1_234)
+        XCTAssertEqual(snapshot.source, "[Local] Claude remote records")
+        XCTAssertEqual(snapshot.updatedAt, now)
+        XCTAssertEqual(snapshot.message, "HTTP Error 429: Too Many Requests Showing observed token usage.")
+    }
+
+    func testClaudeSnapshotRetainsQuotaDataWhenRefreshFails() {
+        let snapshot = ClaudeUsageSnapshot(
+            quotas: [ClaudeUsageQuota(id: "five_hour", name: "Current session", usedPercent: 25, resetAt: nil)],
+            planType: "pro",
+            source: "[HTTPS] Claude Code subscription",
+            updatedAt: Date(timeIntervalSince1970: 1_700_000_000),
+            message: nil
+        )
+
+        let stale = snapshot.retainingData(with: "Claude is temporarily rate-limited.")
+
+        XCTAssertEqual(stale.quotas, snapshot.quotas)
+        XCTAssertEqual(stale.planType, snapshot.planType)
+        XCTAssertEqual(stale.source, snapshot.source)
+        XCTAssertEqual(stale.updatedAt, snapshot.updatedAt)
+        XCTAssertEqual(stale.message, "Claude is temporarily rate-limited.")
+    }
 }

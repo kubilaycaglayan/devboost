@@ -70,7 +70,7 @@ struct ClaudeUsageService: Sendable {
 
     func refresh(on host: Host) async throws -> ClaudeUsageSnapshot {
         let script = #"""
-import json,os,sys,urllib.request
+import glob,json,os,sys,urllib.request
 try:
  home=os.path.expanduser(os.environ.get('CLAUDE_CONFIG_DIR','~/.claude'))
  with open(os.path.join(home,'.credentials.json'),encoding='utf-8') as f: payload=json.load(f)
@@ -82,7 +82,29 @@ try:
  result['devboostSource']='https'
  print(json.dumps(result))
 except Exception as exc:
- print(json.dumps({'devboostError':str(exc)}))
+ live_error=str(exc)
+ home=os.path.expanduser(os.environ.get('CLAUDE_CONFIG_DIR','~/.claude'))
+ total=0
+ found=False
+ for path in glob.glob(os.path.join(home,'projects','**','*.jsonl'),recursive=True):
+  try:
+   with open(path,encoding='utf-8') as f:
+    for line in f:
+     try: obj=json.loads(line)
+     except Exception: continue
+     payload=obj.get('payload',obj) if isinstance(obj,dict) else {}
+     message=payload.get('message',payload) if isinstance(payload,dict) else {}
+     usage=message.get('usage') if isinstance(message,dict) else None
+     if not isinstance(usage,dict): continue
+     found=True
+     for key in ('input_tokens','output_tokens','cache_read_input_tokens','cache_creation_input_tokens'):
+      value=usage.get(key)
+      if isinstance(value,(int,float)) and value >= 0: total += int(value)
+  except (OSError,UnicodeError): continue
+ if found:
+  print(json.dumps({'devboostSource':'local','devboostObservedTokens':total,'devboostLiveError':live_error}))
+ else:
+  print(json.dumps({'devboostError':live_error}))
 """#
         let encoded = Data(script.utf8).base64EncodedString()
         let output = try await remote.execute("for claude_bin in \"$HOME\"/.local/bin \"$HOME\"/.claude/local; do [ -d \"$claude_bin\" ] && PATH=\"$claude_bin:$PATH\"; done; export PATH=\"$HOME/.local/bin:$HOME/bin:/usr/local/bin:/opt/homebrew/bin:$PATH\"; printf %s \(shellQuote(encoded)) | base64 -d | python3", on: host)
@@ -105,6 +127,18 @@ enum ClaudeUsageParser {
     ]
 
     static func decode(_ object: [String: Any], now: Date = .now) throws -> ClaudeUsageSnapshot {
+        if object["devboostSource"] as? String == "local" {
+            guard let observed = (object["devboostObservedTokens"] as? NSNumber)?.intValue else {
+                throw AppError.connectionFailed("Claude local usage returned invalid token data.")
+            }
+            let liveError = object["devboostLiveError"] as? String
+            return ClaudeUsageSnapshot(
+                observedTokens: observed,
+                source: "[Local] Claude remote records",
+                updatedAt: now,
+                message: [liveError, "Showing observed token usage."].compactMap { $0 }.joined(separator: " ")
+            )
+        }
         var quotas: [ClaudeUsageQuota] = []
         for (key, label) in windows {
             guard let window = object[key] as? [String: Any], let used = number(window["utilization"]), (0...100).contains(used) else { continue }
@@ -264,6 +298,15 @@ struct UsageView: View {
                         ForEach(store.claudeUsage.quotas) { quota in
                             UsageMeter(title: quota.name, used: quota.usedPercent, reset: quota.resetAt)
                         }
+                        if let observedTokens = store.claudeUsage.observedTokens {
+                            HStack {
+                                Text("Observed token usage")
+                                Spacer()
+                                Text(observedTokens.formatted())
+                                    .font(.headline.weight(.semibold).monospaced())
+                                    .foregroundStyle(AppTheme.accent)
+                            }
+                        }
                         if store.claudeUsage.quotas.isEmpty {
                             Text(store.claudeUsage.message ?? "Claude Code usage is not available on this host.")
                                 .font(.footnote).foregroundStyle(AppTheme.muted)
@@ -308,11 +351,15 @@ struct UsageView: View {
         let remote = RemoteCommandService(keychain: store.keychain)
         do {
             store.codexUsage = try await CodexUsageService(remote: remote).refresh(on: host)
-            await LiveUsageActivity.sync(with: store.codexUsage, hostName: host.name)
         } catch { store.codexUsage = CodexUsageSnapshot(message: error.localizedDescription) }
         do {
             store.claudeUsage = try await ClaudeUsageService(remote: remote).refresh(on: host)
-        } catch { store.claudeUsage = ClaudeUsageSnapshot(message: error.localizedDescription) }
+        } catch {
+            // Keep the last successful snapshot visible if both live and local
+            // Claude usage sources are unavailable.
+            store.claudeUsage = store.claudeUsage.retainingData(with: error.localizedDescription)
+        }
+        await LiveUsageActivity.sync(with: store.codexUsage, claude: store.claudeUsage, hostName: host.name)
     }
 }
 

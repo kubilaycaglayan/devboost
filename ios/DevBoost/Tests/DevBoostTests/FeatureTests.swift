@@ -249,6 +249,18 @@ __DEVBOOST_STATS__
         XCTAssertTrue(command.contains("base64 -d"))
     }
 
+    func testClaudeServiceAcceptsLocalTokenFallback() async throws {
+        let response = #"{"devboostSource":"local","devboostObservedTokens":1234,"devboostLiveError":"HTTP Error 429: Too Many Requests"}"#
+        let remote = RecordingRemoteCommand(result: .success(response))
+        let snapshot = try await ClaudeUsageService(remote: remote).refresh(on: Host(hostname: "server.example", username: "ubuntu"))
+
+        XCTAssertEqual(snapshot.observedTokens, 1234)
+        XCTAssertTrue(snapshot.quotas.isEmpty)
+        XCTAssertEqual(snapshot.source, "[Local] Claude remote records")
+        let commands = await remote.commands
+        XCTAssertTrue(commands.first?.contains("projects") == true)
+    }
+
     func testCodexServiceRejectsMalformedRemoteResponse() async {
         let remote = RecordingRemoteCommand(result: .success("not json"))
         do {

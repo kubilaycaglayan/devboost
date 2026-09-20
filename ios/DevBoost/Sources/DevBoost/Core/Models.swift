@@ -85,12 +85,24 @@ struct ClaudeUsageQuota: Codable, Equatable, Identifiable {
 
 struct ClaudeUsageSnapshot: Codable, Equatable {
     var quotas: [ClaudeUsageQuota] = []
+    var observedTokens: Int?
     var planType: String?
     var source: String?
     var updatedAt: Date?
     var message: String?
 
     static let empty = ClaudeUsageSnapshot(message: "Install Claude Code and sign in on an SSH host, then refresh.")
+
+    func retainingData(with message: String) -> ClaudeUsageSnapshot {
+        ClaudeUsageSnapshot(
+            quotas: quotas,
+            observedTokens: observedTokens,
+            planType: planType,
+            source: source,
+            updatedAt: updatedAt,
+            message: message
+        )
+    }
 }
 
 enum ConnectionState: Equatable {
