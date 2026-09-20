@@ -139,7 +139,7 @@ final class DevBoostApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // Every row's enabled state is managed explicitly. AppKit's automatic
         // action validation can otherwise gray rows while an open menu refreshes.
         menu.autoenablesItems = false
-        menu.minimumWidth = 320
+        menu.minimumWidth = 240
         menu.addItem(withTitle: "Open Dashboard", action: #selector(openDashboard), keyEquivalent: "o")
         menu.addItem(NSMenuItem.separator())
         addUsageSourceItems(to: menu)
@@ -263,7 +263,7 @@ final class DevBoostApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
                     return
                 }
                 menu.removeAllItems()
-                menu.minimumWidth = 320
+                menu.minimumWidth = 240
                 menu.addItem(withTitle: "Open Dashboard", action: #selector(DevBoostApp.openDashboard), keyEquivalent: "o")
                 menu.addItem(NSMenuItem.separator())
                 self.addUsageSourceItems(to: menu)
@@ -483,11 +483,12 @@ final class DevBoostApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
             guard !title.isEmpty else { return nil }
             return (title as NSString).size(withAttributes: [.font: font]).width
         }.max() ?? 0
-        let width = max(320, ceil(maxTextWidth + 40))
+        let width = max(240, ceil(maxTextWidth + 16))
         menu.minimumWidth = width
         for item in menu.items {
             (item.view as? UsageBarView)?.setWidth(width)
         }
+        menu.update()
     }
 
     private func snapshotHasData(_ snapshot: [String: Any]?) -> Bool {
@@ -734,12 +735,12 @@ private func runWorker(executable: String, arguments: [String]) -> Int32 {
 private final class UsageBarView: NSView {
     private let remainingPercent: Double
     private let title: String
-    private var barWidth: CGFloat = 500
+    private var barWidth: CGFloat = 240
 
     init(remainingPercent: Double, title: String) {
         self.remainingPercent = min(100, max(0, remainingPercent))
         self.title = title
-        super.init(frame: NSRect(x: 0, y: 0, width: 500, height: 18))
+        super.init(frame: NSRect(x: 0, y: 0, width: 240, height: 18))
         wantsLayer = true
         setAccessibilityRole(.progressIndicator)
         setAccessibilityValue(title)
