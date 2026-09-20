@@ -21,13 +21,25 @@ struct DevBoostLiveActivityWidget: Widget {
                         .font(.headline.monospacedDigit())
                 }
                 DynamicIslandExpandedRegion(.bottom) {
-                    Text("Resets in \(resetDuration(context.state.resetAt))")
-                        .font(.subheadline.monospacedDigit())
+                    HStack(spacing: 12) {
+                        IslandProviderSummary(
+                            name: "Codex",
+                            remainingPercent: context.state.remainingPercent,
+                            resetAt: context.state.resetAt
+                        )
+                        if let remaining = context.state.claudeRemainingPercent {
+                            IslandProviderSummary(
+                                name: "Claude",
+                                remainingPercent: remaining,
+                                resetAt: context.state.claudeResetAt
+                            )
+                        }
+                    }
                 }
             } compactLeading: {
                 Image(systemName: "bolt.fill")
             } compactTrailing: {
-                Text("\(context.state.remainingPercent)%")
+                Text(compactPercentages(for: context.state))
                     .monospacedDigit()
             } minimal: {
                 Image(systemName: "bolt.fill")
@@ -53,7 +65,7 @@ private struct LockScreenUsageView: View {
     let context: ActivityViewContext<DevBoostUsageActivityAttributes>
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 Label(activityTitle, systemImage: "bolt.fill")
                     .font(.headline)
@@ -62,19 +74,20 @@ private struct LockScreenUsageView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
 
-            Text("\(context.state.remainingPercent)%")
-                .font(.system(size: 34, weight: .bold, design: .rounded).monospacedDigit())
-                .frame(maxWidth: .infinity, alignment: .center)
-                .contentTransition(.numericText())
-
-            ProgressView(value: Double(context.state.remainingPercent), total: 100)
-                .tint(context.state.remainingPercent > 25 ? .green : .orange)
-                .frame(maxWidth: .infinity)
-
-            Text("Resets in \(resetDuration(context.state.resetAt))")
-                .frame(maxWidth: .infinity, alignment: .center)
-                .font(.subheadline.monospacedDigit())
-                .foregroundStyle(.secondary)
+            HStack(alignment: .top, spacing: 10) {
+                ProviderUsageView(
+                    name: "Codex",
+                    remainingPercent: context.state.remainingPercent,
+                    resetAt: context.state.resetAt
+                )
+                if let remaining = context.state.claudeRemainingPercent {
+                    ProviderUsageView(
+                        name: "Claude",
+                        remainingPercent: remaining,
+                        resetAt: context.state.claudeResetAt
+                    )
+                }
+            }
         }
         .foregroundStyle(.white)
         .padding(.horizontal, 16)
@@ -85,4 +98,70 @@ private struct LockScreenUsageView: View {
         let hostName = context.attributes.hostName.trimmingCharacters(in: .whitespacesAndNewlines)
         return hostName.isEmpty ? "DevBoost" : "DevBoost · \(hostName)"
     }
+}
+
+private struct ProviderUsageView: View {
+    let name: String
+    let remainingPercent: Int
+    let resetAt: Date?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            Text(name)
+                .font(.caption.weight(.bold))
+                .foregroundStyle(.white)
+                .padding(.horizontal, 7)
+                .padding(.vertical, 3)
+                .background(.white.opacity(0.16), in: Capsule())
+                .overlay { Capsule().stroke(.white.opacity(0.24), lineWidth: 0.5) }
+                .lineLimit(1)
+
+            Text("\(remainingPercent)%")
+                .font(.system(size: 25, weight: .bold, design: .rounded).monospacedDigit())
+                .contentTransition(.numericText())
+
+            ProgressView(value: Double(remainingPercent), total: 100)
+                .tint(remainingPercent > 25 ? .green : .orange)
+
+            if let resetAt {
+                Text("\(resetDuration(resetAt))")
+                    .font(.caption2.monospacedDigit())
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+private struct IslandProviderSummary: View {
+    let name: String
+    let remainingPercent: Int
+    let resetAt: Date?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(name)
+                .font(.caption.weight(.bold))
+                .foregroundStyle(.white)
+                .padding(.horizontal, 5)
+                .padding(.vertical, 2)
+                .background(.white.opacity(0.16), in: Capsule())
+            Text("\(remainingPercent)% left")
+                .font(.caption2.monospacedDigit())
+            if let resetAt {
+                Text(resetDuration(resetAt))
+                    .font(.caption2.monospacedDigit())
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+private func compactPercentages(for state: DevBoostUsageActivityAttributes.ContentState) -> String {
+    if let claude = state.claudeRemainingPercent {
+        return "C\(state.remainingPercent) A\(claude)"
+    }
+    return "\(state.remainingPercent)%"
 }

@@ -1,7 +1,7 @@
 import ActivityKit
 import Foundation
 
-/// Keeps one Lock Screen activity in sync with the latest successful Codex refresh.
+/// Keeps one Lock Screen activity in sync with the latest successful provider refreshes.
 /// Live Activities are enabled by the user in iOS Settings; Apple provides no
 /// in-app permission prompt for them, so a disabled setting is simply respected.
 enum LiveUsageActivity {
@@ -12,15 +12,26 @@ enum LiveUsageActivity {
         return ActivityAuthorizationInfo().areActivitiesEnabled
     }
 
-    static func sync(with usage: CodexUsageSnapshot, hostName: String = "Codex") async {
+    static func sync(
+        with usage: CodexUsageSnapshot,
+        claude: ClaudeUsageSnapshot? = nil,
+        hostName: String = "Codex"
+    ) async {
         guard #available(iOS 16.2, *),
               areActivitiesEnabled,
               let resetAt = usage.primaryResetAt,
               let used = usage.primaryUsedPercent else { return }
 
+        let claudeQuota = claude?.quotas.first(where: { $0.id == "five_hour" }) ?? claude?.quotas.first
+        let claudeRemainingPercent = claudeQuota.map {
+            Int(max(0, min(100, 100 - $0.usedPercent)).rounded())
+        }
+
         let state = DevBoostUsageActivityAttributes.ContentState(
             remainingPercent: Int(max(0, min(100, 100 - used)).rounded()),
-            resetAt: resetAt
+            resetAt: resetAt,
+            claudeRemainingPercent: claudeRemainingPercent,
+            claudeResetAt: claudeQuota?.resetAt
         )
         let content = ActivityContent(state: state, staleDate: resetAt)
 
