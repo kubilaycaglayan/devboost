@@ -78,6 +78,8 @@ class TestDashboardAPI(unittest.TestCase):
         self.assertIn("function isConnectedView()", app_js)
         self.assertIn("persistServerSelection(sid);", app_js)
         self.assertIn("keepalive: true", app_js)
+        self.assertIn("data.active_server_id || data.last_connected_server_id || \"\"", app_js)
+        self.assertIn("status-dot preview", app_js)
 
     def test_workspace_tabs_follow_server_selector_and_track_pages(self):
         with urllib.request.urlopen(self.base_url + "/") as resp:
@@ -615,6 +617,15 @@ process.stdout.write(JSON.stringify([
         self.assertTrue(data["ok"])
         self.assertIsNone(data["active_server_id"])
         save.assert_called_once_with({"active_server_id": ""})
+
+    @patch("dashboard.http.save_config")
+    @patch("dashboard.http.get_servers", return_value=[{"id": "box", "ssh_host": "box.example"}])
+    @patch("dashboard.http.load_config", return_value={"active_server_id": ""})
+    def test_api_connect_remembers_last_connected_server(self, load, get_servers, save):
+        _, data = self._post_json("/api/settings/active-server", {"server_id": "box"})
+        self.assertEqual(data["active_server_id"], "box")
+        self.assertEqual(data["last_connected_server_id"], "box")
+        save.assert_called_once_with({"active_server_id": "box", "last_connected_server_id": "box"})
 
     @patch("dashboard.http.get_docker_logs", return_value={"ok": True, "logs": "hello"})
     def test_api_docker_logs_delegates_container_and_tail(self, get_logs):

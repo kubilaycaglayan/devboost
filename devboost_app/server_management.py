@@ -179,6 +179,8 @@ def remove_server_entry(server_id):
     cfg["servers"] = [s for s in cfg["servers"] if s.get("id") != server["id"]]
     if cfg.get("active_server_id") == server["id"]:
         cfg["active_server_id"] = ""
+    if cfg.get("last_connected_server_id") == server["id"]:
+        cfg["last_connected_server_id"] = ""
     cfg.get("server_labels", {}).pop(server["id"], None)
     cfg["history"] = [h for h in cfg.get("history", []) if h.get("server_id") != server["id"]]
     sync_ids = [s.get("id") for s in cfg.get("syncs", []) if isinstance(s, dict) and s.get("server_id") == server["id"]]

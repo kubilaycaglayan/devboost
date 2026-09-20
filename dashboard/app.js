@@ -654,7 +654,7 @@
         // empty value means the user disconnected, so do not auto-select the
         // first server during a refresh.
         if (!serversLoaded && Object.prototype.hasOwnProperty.call(data, "active_server_id")) {
-          currentServerId = data.active_server_id || "";
+          currentServerId = data.active_server_id || data.last_connected_server_id || "";
           viewedServerId = currentServerId;
         } else if (!serversLoaded && !currentServerId && allServers.length) {
           currentServerId = (allServers[0] || {}).id || "";
@@ -693,7 +693,7 @@
       bar.innerHTML = allServers.map(s => {
         const isActive = s.id === currentServerId;
         const isViewed = s.id === viewedServerId;
-        const dotCls = serverReachability[s.id] === true ? "tab-dot online" : (serverReachability[s.id] === false ? "tab-dot" : "tab-dot");
+        const dotCls = isViewed && !isActive ? "tab-dot preview" : (serverReachability[s.id] === true ? "tab-dot online" : "tab-dot");
         return `<div class="tab ${isActive ? 'active' : ''}${isViewed && !isActive ? ' preview' : ''}" data-server-id="${s.id}" draggable="true"
             onclick="selectServer('${s.id}')" ondragstart="onServerTabDragStart(event, '${s.id}')"
             ondragend="onServerTabDragEnd()"
@@ -1103,12 +1103,15 @@
     function renderStatus(data, forceRenderForwards = false) {
       const dot = document.getElementById("server-status-dot");
       const txt = document.getElementById("server-status-text");
-      if (data.server_reachable) {
+      if (!isConnectedView()) {
+        dot.className = "status-dot preview";
+        txt.innerText = data.server_reachable ? "Previewing · not connected" : "Previewing · offline";
+      } else if (data.server_reachable) {
         dot.className = "status-dot online";
-        txt.innerText = isConnectedView() ? "Connected" : "Previewing · not connected";
+        txt.innerText = "Connected";
       } else {
         dot.className = "status-dot offline";
-        txt.innerText = isConnectedView() ? "Unreachable / Offline" : "Previewing · offline";
+        txt.innerText = "Unreachable / Offline";
       }
 
       if (data.server_name) {

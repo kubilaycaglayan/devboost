@@ -107,6 +107,7 @@
       width: 8px; height: 8px; border-radius: 50%; display: inline-block;
     }
     .status-dot.online { background-color: var(--success); box-shadow: 0 0 8px var(--success); }
+    .status-dot.preview { background-color: var(--warning); box-shadow: 0 0 8px var(--warning); }
     .status-dot.offline { background-color: var(--danger); }
     
     .stats-bar {
@@ -361,6 +362,7 @@
     .tab .tab-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
     .tab .tab-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--text-muted); flex-shrink: 0; }
     .tab .tab-dot.online { background: var(--success); box-shadow: 0 0 6px var(--success); }
+    .tab .tab-dot.preview { background: var(--warning); box-shadow: 0 0 6px var(--warning); }
     .tab button { background: transparent; border: none; color: var(--text-muted); cursor: pointer; font-size: 12px; padding: 0 2px; }
     .tab button:hover { color: #fff; }
     .tab-add {

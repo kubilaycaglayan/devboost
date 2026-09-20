@@ -162,11 +162,21 @@ class DashboardHandler(BaseHTTPRequestHandler):
             # Older configs did not persist a selected server. Preserve the
             # existing first-server behavior once, then keep an explicit empty
             # value for a deliberate disconnect.
+            changed = False
             if "active_server_id" not in cfg:
                 servers = get_servers(cfg)
                 cfg["active_server_id"] = servers[0].get("id") if servers else ""
+                changed = True
+            if "last_connected_server_id" not in cfg:
+                cfg["last_connected_server_id"] = cfg.get("active_server_id") or ""
+                changed = True
+            if changed:
                 save_config(cfg)
-            self._send_json({"servers": get_servers_status(), "active_server_id": cfg.get("active_server_id") or ""})
+            self._send_json({
+                "servers": get_servers_status(),
+                "active_server_id": cfg.get("active_server_id") or "",
+                "last_connected_server_id": cfg.get("last_connected_server_id") or "",
+            })
         elif path == "/api/servers/active":
             cfg = load_config()
             servers = []
@@ -372,15 +382,16 @@ class DashboardHandler(BaseHTTPRequestHandler):
             if not server_id:
                 cfg["active_server_id"] = ""
                 save_config(cfg)
-                self._send_json({"ok": True, "active_server_id": None})
+                self._send_json({"ok": True, "active_server_id": None, "last_connected_server_id": cfg.get("last_connected_server_id") or None})
                 return
             server = next((item for item in get_servers(cfg) if item.get("id") == server_id or item.get("ssh_host") == server_id), None)
             if not server:
                 self._send_json({"ok": False, "message": "Server not found"}, status=404)
                 return
             cfg["active_server_id"] = server["id"]
+            cfg["last_connected_server_id"] = server["id"]
             save_config(cfg)
-            self._send_json({"ok": True, "active_server_id": server["id"]})
+            self._send_json({"ok": True, "active_server_id": server["id"], "last_connected_server_id": server["id"]})
         elif path == "/api/local-ports/kill":
             pid = body.get("pid")
             if pid is None:
