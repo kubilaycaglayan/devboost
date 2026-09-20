@@ -139,7 +139,7 @@ final class DevBoostApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // Every row's enabled state is managed explicitly. AppKit's automatic
         // action validation can otherwise gray rows while an open menu refreshes.
         menu.autoenablesItems = false
-        menu.minimumWidth = 500
+        menu.minimumWidth = 320
         menu.addItem(withTitle: "Open Dashboard", action: #selector(openDashboard), keyEquivalent: "o")
         menu.addItem(NSMenuItem.separator())
         addUsageSourceItems(to: menu)
@@ -263,7 +263,7 @@ final class DevBoostApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
                     return
                 }
                 menu.removeAllItems()
-                menu.minimumWidth = 500
+                menu.minimumWidth = 320
                 menu.addItem(withTitle: "Open Dashboard", action: #selector(DevBoostApp.openDashboard), keyEquivalent: "o")
                 menu.addItem(NSMenuItem.separator())
                 self.addUsageSourceItems(to: menu)
@@ -303,7 +303,10 @@ final class DevBoostApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
                             }
                             for quota in quotas {
                                 let reset = self.formatResetTime(quota["reset_at"])
-                                self.addIndentedItem(to: menu, title: self.quotaMenuDetail(quota, reset: reset))
+                                self.addIndentedItem(
+                                    to: menu,
+                                    title: self.quotaMenuDetail(quota, reset: reset, provider: provider)
+                                )
                                 if let value = self.quotaMenuValue(quota) {
                                     self.addQuotaValueItem(to: menu, quota: quota, title: value)
                                 }
@@ -331,6 +334,7 @@ final class DevBoostApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
                         menu.addItem(NSMenuItem.separator())
                     }
                 }
+                self.resizeQuotaMenu(menu)
                 menu.addItem(withTitle: "Quit DevBoost", action: #selector(DevBoostApp.quit), keyEquivalent: "q")
             }
         }.resume()
@@ -470,6 +474,22 @@ final class DevBoostApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
         return item
     }
 
+    private func resizeQuotaMenu(_ menu: NSMenu) {
+        let font = NSFont.menuFont(ofSize: 0)
+        let maxTextWidth = menu.items.compactMap { item -> CGFloat? in
+            let title = item.title.isEmpty
+                ? (item.view?.subviews.compactMap { ($0 as? NSButton)?.title }.first ?? "")
+                : item.title
+            guard !title.isEmpty else { return nil }
+            return (title as NSString).size(withAttributes: [.font: font]).width
+        }.max() ?? 0
+        let width = max(320, ceil(maxTextWidth + 40))
+        menu.minimumWidth = width
+        for item in menu.items {
+            (item.view as? UsageBarView)?.setWidth(width)
+        }
+    }
+
     private func snapshotHasData(_ snapshot: [String: Any]?) -> Bool {
         guard let snapshot = snapshot else { return false }
         if (snapshot["credits_unlimited"] as? Bool) == true { return true }
@@ -550,8 +570,11 @@ final class DevBoostApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
         return String(format: "%.2f", raw)
     }
 
-    private func quotaMenuDetail(_ quota: [String: Any], reset: String? = nil) -> String {
-        let name = quota["name"] as? String ?? "Usage limit"
+    private func quotaMenuDetail(_ quota: [String: Any], reset: String? = nil, provider: String? = nil) -> String {
+        var name = quota["name"] as? String ?? "Usage limit"
+        if provider?.lowercased() == "agy" {
+            name = name.replacingOccurrences(of: "Weekly Limit Remaining", with: "Weekly")
+        }
         return name + (reset.map { " · \($0)" } ?? "")
     }
 
@@ -711,6 +734,7 @@ private func runWorker(executable: String, arguments: [String]) -> Int32 {
 private final class UsageBarView: NSView {
     private let remainingPercent: Double
     private let title: String
+    private var barWidth: CGFloat = 500
 
     init(remainingPercent: Double, title: String) {
         self.remainingPercent = min(100, max(0, remainingPercent))
@@ -724,7 +748,14 @@ private final class UsageBarView: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
-    override var intrinsicContentSize: NSSize { NSSize(width: 500, height: 18) }
+    override var intrinsicContentSize: NSSize { NSSize(width: barWidth, height: 18) }
+
+    func setWidth(_ width: CGFloat) {
+        barWidth = width
+        frame.size.width = width
+        invalidateIntrinsicContentSize()
+        needsDisplay = true
+    }
 
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)

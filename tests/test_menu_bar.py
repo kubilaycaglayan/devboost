@@ -86,14 +86,15 @@ class TestMenuBarUsage(unittest.TestCase):
     def test_percentage_quota_rows_use_compact_colored_bars(self):
         self.assertIn("private final class UsageBarView: NSView", self.swift)
         self.assertIn("item.view = UsageBarView(remainingPercent: remaining, title: title)", self.swift)
-        self.assertIn("menu.minimumWidth = 500", self.swift)
-        self.assertIn("NSSize(width: 500, height: 18)", self.swift)
-        self.assertIn("width: 500, height: 18", self.swift)
+        self.assertIn("private func resizeQuotaMenu(_ menu: NSMenu)", self.swift)
+        self.assertIn("let width = max(320, ceil(maxTextWidth + 40))", self.swift)
+        self.assertIn("func setWidth(_ width: CGFloat)", self.swift)
         self.assertIn("let horizontalPadding: CGFloat = 12", self.swift)
         self.assertIn("private var usageColor: NSColor", self.swift)
         self.assertIn("let used = 100 - remainingPercent", self.swift)
         self.assertIn("if !darkText { attributes[.shadow] = textShadow }", self.swift)
         self.assertNotIn("NSNull()", self.swift)
+        self.assertIn('name = name.replacingOccurrences(of: "Weekly Limit Remaining", with: "Weekly")', self.swift)
 
     def test_menubar_can_select_this_mac_or_active_remote_sources(self):
         self.assertIn('private static let selectedUsageSourceKey', self.swift)
