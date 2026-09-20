@@ -54,6 +54,7 @@ final class DevBoostApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
             font = NSFont.menuFont(ofSize: 0)
             isBordered = false
             sizeToFit()
+            frame.origin.x = 6
             frame.size.width = max(260, frame.size.width + 12)
             frame.size.height = 22
         }

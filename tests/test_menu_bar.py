@@ -116,6 +116,7 @@ class TestMenuBarUsage(unittest.TestCase):
         self.assertIn("selectedUsageAccountIDs", self.swift)
         self.assertIn("toggleUsageAccount", self.swift)
         self.assertIn("private final class MenuToggleButton: NSButton", self.swift)
+        self.assertIn("frame.origin.x = 6", self.swift)
         self.assertIn("private func usageAccountMenuItem(id: String, title: String, selected: Bool)", self.swift)
         self.assertIn("toggleUsageAccountButton", self.swift)
         self.assertIn("UserDefaults.standard.set(Array(selectedUsageAccountIDs).sorted()", self.swift)
