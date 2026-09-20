@@ -230,6 +230,31 @@ class TestUsageMonitoring(unittest.TestCase):
         self.assertEqual(second["quotas"], first["quotas"])
         self.assertEqual(second["last_valid_query_at"], first["last_valid_query_at"])
 
+    def test_claude_failure_keeps_last_live_windows_over_local_tokens(self):
+        account = devboost.save_usage_account({"provider": "claude", "name": "work"})
+        live = {
+            "source": "[HTTPS] Claude Code subscription",
+            "quotas": [{"name": "Current session (5-hour window)", "remaining": 72, "unit": "%"}],
+            "balances": [],
+            "plan_type": "pro",
+        }
+        local = {
+            "source": "[Local] claude local records · live quota unavailable",
+            "quotas": [{"name": "tokens observed", "used": 1234, "unit": "tokens"}],
+            "balances": [],
+            "local_usage": {"name": "tokens observed", "used": 1234, "unit": "tokens"},
+        }
+        with patch.object(devboost, "_read_claude_usage", return_value=live):
+            first = devboost.get_usage_status()["snapshots"][account["id"]]
+        with patch.object(devboost, "_read_claude_usage", side_effect=ValueError("HTTP 429")), \
+             patch.object(devboost, "_read_local_transcript_usage", return_value=local):
+            second = devboost.get_usage_status(refresh=True)["snapshots"][account["id"]]
+        self.assertTrue(second["stale"])
+        self.assertEqual(second["quotas"], first["quotas"])
+        self.assertEqual(second["source"], first["source"])
+        self.assertEqual(second["plan_type"], "pro")
+        self.assertIn("last successful usage windows", second["message"])
+
     def test_balance_is_derived_from_granted_and_used(self):
         result = devboost._normalize_usage_payload({"total_granted": 10, "total_used": 3})
         self.assertEqual(result["balances"][0]["remaining"], 7)

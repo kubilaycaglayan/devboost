@@ -151,6 +151,13 @@ def get_usage_status(refresh=False, account_id=None, server_ref=None):
                         result["message"] = result.get("message", "Live query failed.") + " Showing last successful Agy values."
                     if previous.get("last_valid_query_at"):
                         result["last_valid_query_at"] = previous["last_valid_query_at"]
+                if account.get("provider") == "claude" and (not result.get("ok") or result.get("stale")):
+                    if str(previous.get("source", "")).startswith("[HTTPS] Claude Code subscription"):
+                        result.update({field: previous[field] for field in ("quotas", "balances", "source", "plan_type") if field in previous})
+                        result["stale"] = True
+                        result["message"] = "Live Claude quota unavailable. Showing last successful usage windows."
+                    if previous.get("last_valid_query_at"):
+                        result["last_valid_query_at"] = previous["last_valid_query_at"]
                 if not result.get("ok") and previous.get("last_valid_query_at"):
                     result["last_valid_query_at"] = previous["last_valid_query_at"]
                 snapshots[key] = result
