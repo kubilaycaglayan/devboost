@@ -54,7 +54,6 @@ final class DevBoostApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
             font = NSFont.menuFont(ofSize: 0)
             isBordered = false
             sizeToFit()
-            frame.origin.x = 6
             frame.size.width = max(260, frame.size.width + 12)
             frame.size.height = 22
         }
@@ -379,7 +378,7 @@ final class DevBoostApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private func updateUsageMenuStatus() {
         guard usageStatusMenuItem != nil else { return }
         if usageIsLoading {
-            let phase = Int(Date().timeIntervalSinceReferenceDate * 2) % 3 + 1
+            let phase = Int(Date().timeIntervalSinceReferenceDate) % 3 + 1
             setUsageMenuStatus("Loading" + String(repeating: ".", count: phase))
         } else {
             setUsageMenuStatus(lastUsageSyncAt.map { _ in usageSyncStatus() } ?? "Syncing usage…")
@@ -414,7 +413,6 @@ final class DevBoostApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     private func addUsageSourceItems(to menu: NSMenu) {
         for source in usageSources {
-            let item = NSMenuItem()
             let button = MenuToggleButton(
                 identifier: source.id,
                 title: "Usage: \(source.name)",
@@ -422,8 +420,7 @@ final class DevBoostApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
             )
             button.target = self
             button.action = #selector(DevBoostApp.selectUsageSourceButton(_:))
-            item.view = button
-            menu.addItem(item)
+            menu.addItem(menuItem(containing: button))
         }
     }
 
@@ -450,11 +447,24 @@ final class DevBoostApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     private func usageAccountMenuItem(id: String, title: String, selected: Bool) -> NSMenuItem {
-        let item = NSMenuItem()
         let button = MenuToggleButton(identifier: id, title: title, selected: selected)
         button.target = self
         button.action = #selector(DevBoostApp.toggleUsageAccountButton(_:))
-        item.view = button
+        return menuItem(containing: button)
+    }
+
+    private func menuItem(containing button: MenuToggleButton) -> NSMenuItem {
+        let leftPadding: CGFloat = 4
+        let container = NSView(frame: NSRect(
+            x: 0,
+            y: 0,
+            width: button.frame.width + leftPadding,
+            height: button.frame.height
+        ))
+        button.frame.origin.x = leftPadding
+        container.addSubview(button)
+        let item = NSMenuItem()
+        item.view = container
         return item
     }
 

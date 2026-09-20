@@ -116,13 +116,15 @@ class TestMenuBarUsage(unittest.TestCase):
         self.assertIn("selectedUsageAccountIDs", self.swift)
         self.assertIn("toggleUsageAccount", self.swift)
         self.assertIn("private final class MenuToggleButton: NSButton", self.swift)
-        self.assertIn("frame.origin.x = 6", self.swift)
+        self.assertIn("private func menuItem(containing button: MenuToggleButton)", self.swift)
+        self.assertIn("let leftPadding: CGFloat = 4", self.swift)
+        self.assertIn("button.frame.origin.x = leftPadding", self.swift)
         self.assertIn("private func usageAccountMenuItem(id: String, title: String, selected: Bool)", self.swift)
         self.assertIn("toggleUsageAccountButton", self.swift)
         self.assertIn("UserDefaults.standard.set(Array(selectedUsageAccountIDs).sorted()", self.swift)
 
     def test_interactive_menu_rows_use_embedded_controls_to_stay_open(self):
-        self.assertIn("item.view = button", self.swift)
+        self.assertIn("item.view = container", self.swift)
         self.assertIn("selectUsageSourceButton", self.swift)
         self.assertIn("toggleUsageAccountButton", self.swift)
 
