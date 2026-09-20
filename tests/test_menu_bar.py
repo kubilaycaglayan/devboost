@@ -120,7 +120,7 @@ class TestMenuBarUsage(unittest.TestCase):
         self.assertIn("toggleUsageAccount", self.swift)
         self.assertIn("private final class MenuToggleButton: NSButton", self.swift)
         self.assertIn("private func menuItem(containing button: MenuToggleButton)", self.swift)
-        self.assertIn("let leftPadding: CGFloat = 4", self.swift)
+        self.assertIn("let leftPadding: CGFloat = 12", self.swift)
         self.assertIn("button.frame.origin.x = leftPadding", self.swift)
         self.assertIn("private func usageAccountMenuItem(id: String, title: String, selected: Bool)", self.swift)
         self.assertIn("toggleUsageAccountButton", self.swift)

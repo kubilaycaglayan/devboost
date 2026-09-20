@@ -456,7 +456,7 @@ final class DevBoostApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     private func menuItem(containing button: MenuToggleButton) -> NSMenuItem {
-        let leftPadding: CGFloat = 4
+        let leftPadding: CGFloat = 12
         let container = NSView(frame: NSRect(
             x: 0,
             y: 0,
