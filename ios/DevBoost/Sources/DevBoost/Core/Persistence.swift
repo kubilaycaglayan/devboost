@@ -8,14 +8,16 @@ private struct PersistedState: Codable {
     var recentDestinations: [UUID: [RemoteDestination]] = [:]
     var transfers: [TransferRecord] = []
     var codexUsage = CodexUsageSnapshot.empty
+    var claudeUsage = ClaudeUsageSnapshot.empty
 
-    init(hosts: [Host] = [], forwards: [PortForward] = [], forwardingSettings: PortForwardingSettings = .init(), recentDestinations: [UUID: [RemoteDestination]] = [:], transfers: [TransferRecord] = [], codexUsage: CodexUsageSnapshot = .empty) {
+    init(hosts: [Host] = [], forwards: [PortForward] = [], forwardingSettings: PortForwardingSettings = .init(), recentDestinations: [UUID: [RemoteDestination]] = [:], transfers: [TransferRecord] = [], codexUsage: CodexUsageSnapshot = .empty, claudeUsage: ClaudeUsageSnapshot = .empty) {
         self.hosts = hosts
         self.forwards = forwards
         self.forwardingSettings = forwardingSettings
         self.recentDestinations = recentDestinations
         self.transfers = transfers
         self.codexUsage = codexUsage
+        self.claudeUsage = claudeUsage
     }
 
     init(from decoder: Decoder) throws {
@@ -26,6 +28,7 @@ private struct PersistedState: Codable {
         recentDestinations = try values.decodeIfPresent([UUID: [RemoteDestination]].self, forKey: .recentDestinations) ?? [:]
         transfers = try values.decodeIfPresent([TransferRecord].self, forKey: .transfers) ?? []
         codexUsage = try values.decodeIfPresent(CodexUsageSnapshot.self, forKey: .codexUsage) ?? .empty
+        claudeUsage = try values.decodeIfPresent(ClaudeUsageSnapshot.self, forKey: .claudeUsage) ?? .empty
     }
 }
 
@@ -37,6 +40,7 @@ final class AppStore: ObservableObject {
     @Published private(set) var recentDestinations: [UUID: [RemoteDestination]] = [:]
     @Published private(set) var transfers: [TransferRecord] = []
     @Published var codexUsage = CodexUsageSnapshot.empty { didSet { save() } }
+    @Published var claudeUsage = ClaudeUsageSnapshot.empty { didSet { save() } }
     @Published private(set) var retainsDataAfterDeletion = false
     let keychain: KeychainStore
     private let fileURL: URL
@@ -67,6 +71,7 @@ final class AppStore: ObservableObject {
         recentDestinations = state.recentDestinations
         transfers = state.transfers
         codexUsage = state.codexUsage
+        claudeUsage = state.claudeUsage
     }
 
     func upsert(_ host: Host) { replace(&hosts, with: host); save() }
@@ -106,7 +111,7 @@ final class AppStore: ObservableObject {
         if let index = values.firstIndex(where: { $0.id == value.id }) { values[index] = value } else { values.append(value) }
     }
     private func save() {
-        let state = PersistedState(hosts: hosts, forwards: forwards, forwardingSettings: forwardingSettings, recentDestinations: recentDestinations, transfers: transfers, codexUsage: codexUsage)
+        let state = PersistedState(hosts: hosts, forwards: forwards, forwardingSettings: forwardingSettings, recentDestinations: recentDestinations, transfers: transfers, codexUsage: codexUsage, claudeUsage: claudeUsage)
         guard let data = try? JSONEncoder().encode(state) else { return }
         try? data.write(to: fileURL, options: [.atomic, .completeFileProtection])
         if retainsDataAfterDeletion { try? retentionStore.set(data, for: Self.retainedStateKey) }

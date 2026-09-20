@@ -65,6 +65,67 @@ finally:
     }
 }
 
+struct ClaudeUsageService: Sendable {
+    let remote: any RemoteCommanding
+
+    func refresh(on host: Host) async throws -> ClaudeUsageSnapshot {
+        let script = #"""
+import json,os,sys,urllib.request
+try:
+ home=os.path.expanduser(os.environ.get('CLAUDE_CONFIG_DIR','~/.claude'))
+ with open(os.path.join(home,'.credentials.json'),encoding='utf-8') as f: payload=json.load(f)
+ oauth=payload.get('claudeAiOauth',{})
+ token=oauth.get('accessToken')
+ if not token: raise Exception('Claude Code is not signed in on the remote host.')
+ req=urllib.request.Request('https://api.anthropic.com/api/oauth/usage',headers={'Accept':'application/json','Authorization':'Bearer '+token,'anthropic-beta':'oauth-2025-04-20','User-Agent':'claude-code/DevBoost'})
+ with urllib.request.urlopen(req,timeout=15) as response: result=json.loads(response.read().decode('utf-8'))
+ result['devboostSource']='https'
+ print(json.dumps(result))
+except Exception as exc:
+ print(json.dumps({'devboostError':str(exc)}))
+"""#
+        let encoded = Data(script.utf8).base64EncodedString()
+        let output = try await remote.execute("for claude_bin in \"$HOME\"/.local/bin \"$HOME\"/.claude/local; do [ -d \"$claude_bin\" ] && PATH=\"$claude_bin:$PATH\"; done; export PATH=\"$HOME/.local/bin:$HOME/bin:/usr/local/bin:/opt/homebrew/bin:$PATH\"; printf %s \(shellQuote(encoded)) | base64 -d | python3", on: host)
+        guard let data = output.data(using: .utf8), let object = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            throw AppError.connectionFailed("Claude Code returned invalid quota data.")
+        }
+        if let message = object["devboostError"] as? String {
+            throw AppError.connectionFailed("Claude usage query failed: \(message)")
+        }
+        return try ClaudeUsageParser.decode(object)
+    }
+}
+
+enum ClaudeUsageParser {
+    private static let windows: [(String, String)] = [
+        ("five_hour", "Current session (5-hour window)"),
+        ("seven_day", "Current week (all models)"),
+        ("seven_day_sonnet", "Current week (Sonnet)"),
+        ("seven_day_opus", "Current week (Opus)")
+    ]
+
+    static func decode(_ object: [String: Any], now: Date = .now) throws -> ClaudeUsageSnapshot {
+        var quotas: [ClaudeUsageQuota] = []
+        for (key, label) in windows {
+            guard let window = object[key] as? [String: Any], let used = number(window["utilization"]), (0...100).contains(used) else { continue }
+            quotas.append(ClaudeUsageQuota(id: key, name: label, usedPercent: used, resetAt: date(window["resets_at"])))
+        }
+        guard !quotas.isEmpty else { throw AppError.connectionFailed("Claude returned no subscription quota data.") }
+        return ClaudeUsageSnapshot(quotas: quotas, planType: object["subscription_type"] as? String, source: "[HTTPS] Claude Code subscription", updatedAt: now, message: nil)
+    }
+
+    private static func number(_ value: Any?) -> Double? {
+        if let value = value as? Double { return value }
+        if let value = value as? NSNumber { return value.doubleValue }
+        return nil
+    }
+
+    private static func date(_ value: Any?) -> Date? {
+        guard let value = value as? String else { return nil }
+        return ISO8601DateFormatter().date(from: value)
+    }
+}
+
 enum CodexUsageParser {
     static func decode(_ object: [String: Any], now: Date = .now) throws -> CodexUsageSnapshot {
         if object["devboostSource"] as? String == "https" {
@@ -194,6 +255,23 @@ struct UsageView: View {
                 }
 
                 AppCard {
+                    VStack(alignment: .leading, spacing: 14) {
+                        HStack {
+                            Text("CLAUDE CODE").font(.caption.weight(.bold)).tracking(1).foregroundStyle(AppTheme.muted)
+                            Spacer()
+                            if let plan = store.claudeUsage.planType { Text(plan.capitalized).font(.caption).foregroundStyle(AppTheme.muted) }
+                        }
+                        ForEach(store.claudeUsage.quotas) { quota in
+                            UsageMeter(title: quota.name, used: quota.usedPercent, reset: quota.resetAt)
+                        }
+                        if store.claudeUsage.quotas.isEmpty {
+                            Text(store.claudeUsage.message ?? "Claude Code usage is not available on this host.")
+                                .font(.footnote).foregroundStyle(AppTheme.muted)
+                        }
+                    }
+                }
+
+                AppCard {
                     VStack(alignment: .leading, spacing: 10) {
                         Text("BALANCES").font(.caption.weight(.bold)).tracking(1).foregroundStyle(AppTheme.muted)
                         HStack {
@@ -227,12 +305,14 @@ struct UsageView: View {
         guard let host, !refreshing else { return }
         refreshing = true
         defer { refreshing = false }
+        let remote = RemoteCommandService(keychain: store.keychain)
         do {
-            store.codexUsage = try await CodexUsageService(remote: RemoteCommandService(keychain: store.keychain)).refresh(on: host)
+            store.codexUsage = try await CodexUsageService(remote: remote).refresh(on: host)
             await LiveUsageActivity.sync(with: store.codexUsage, hostName: host.name)
-        } catch {
-            store.codexUsage = CodexUsageSnapshot(message: error.localizedDescription)
-        }
+        } catch { store.codexUsage = CodexUsageSnapshot(message: error.localizedDescription) }
+        do {
+            store.claudeUsage = try await ClaudeUsageService(remote: remote).refresh(on: host)
+        } catch { store.claudeUsage = ClaudeUsageSnapshot(message: error.localizedDescription) }
     }
 }
 

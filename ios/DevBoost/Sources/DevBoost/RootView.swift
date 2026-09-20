@@ -83,6 +83,10 @@ struct HomeView: View {
                         await LiveUsageActivity.sync(with: store.codexUsage, hostName: host.name)
                     }
                     catch { store.codexUsage = CodexUsageSnapshot(message: error.localizedDescription) }
+                    do {
+                        store.claudeUsage = try await ClaudeUsageService(remote: RemoteCommandService(keychain: store.keychain)).refresh(on: host)
+                    }
+                    catch { store.claudeUsage = ClaudeUsageSnapshot(message: error.localizedDescription) }
                 }
                 try? await Task.sleep(for: .seconds(UsageRefreshPolicy.foregroundInterval))
             }

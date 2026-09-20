@@ -47,5 +47,12 @@ struct DevBoostApp: App {
             // Keep the last known quota visible in the Live Activity. A
             // transient background network failure should not erase it.
         }
+        do {
+            store.claudeUsage = try await ClaudeUsageService(
+                remote: RemoteCommandService(keychain: store.keychain)
+            ).refresh(on: host)
+        } catch {
+            // Claude may not be installed or signed in; retain the last result.
+        }
     }
 }

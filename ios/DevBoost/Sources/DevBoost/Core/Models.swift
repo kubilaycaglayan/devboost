@@ -76,6 +76,23 @@ struct CodexUsageSnapshot: Codable, Equatable {
     static let empty = CodexUsageSnapshot(message: "Connect a Codex account to see live usage.")
 }
 
+struct ClaudeUsageQuota: Codable, Equatable, Identifiable {
+    let id: String
+    let name: String
+    let usedPercent: Double
+    let resetAt: Date?
+}
+
+struct ClaudeUsageSnapshot: Codable, Equatable {
+    var quotas: [ClaudeUsageQuota] = []
+    var planType: String?
+    var source: String?
+    var updatedAt: Date?
+    var message: String?
+
+    static let empty = ClaudeUsageSnapshot(message: "Install Claude Code and sign in on an SSH host, then refresh.")
+}
+
 enum ConnectionState: Equatable {
     case disconnected, connecting, authenticating, connected, reconnecting, failed(String)
 

@@ -65,4 +65,20 @@ final class ModelTests: XCTestCase {
         XCTAssertEqual(snapshot.source, "[HTTPS] OpenAI upstream")
         XCTAssertEqual(snapshot.availableResets, 1)
     }
+
+    func testClaudeUsageParserReadsAvailableWindowsAndISO8601Reset() throws {
+        let now = Date(timeIntervalSince1970: 1_700_000_000)
+        let payload: [String: Any] = [
+            "subscription_type": "pro",
+            "five_hour": ["utilization": 12.5, "resets_at": "2030-01-01T00:00:00Z"],
+            "seven_day": ["utilization": 50],
+            "seven_day_opus": NSNull()
+        ]
+        let snapshot = try ClaudeUsageParser.decode(payload, now: now)
+        XCTAssertEqual(snapshot.quotas.map(\.id), ["five_hour", "seven_day"])
+        XCTAssertEqual(snapshot.quotas[0].usedPercent, 12.5)
+        XCTAssertEqual(snapshot.quotas[0].resetAt, ISO8601DateFormatter().date(from: "2030-01-01T00:00:00Z"))
+        XCTAssertEqual(snapshot.planType, "pro")
+        XCTAssertEqual(snapshot.updatedAt, now)
+    }
 }
