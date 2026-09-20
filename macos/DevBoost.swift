@@ -58,6 +58,9 @@ final class DevBoostApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var selectedUsageAccountIDs: Set<String> = Set(
         UserDefaults.standard.stringArray(forKey: DevBoostApp.selectedUsageAccountsKey) ?? []
     )
+    private var hasSavedUsageSelection: Bool = UserDefaults.standard.object(
+        forKey: DevBoostApp.selectedUsageAccountsKey
+    ) != nil
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         signal(SIGINT, SIG_IGN)
@@ -149,8 +152,27 @@ final class DevBoostApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     private func refreshUsage(force: Bool = false) {
-        let refreshQuery = force ? "?refresh=1" : ""
-        let url = URL(string: "http://127.0.0.1:\(dashboardPort())/api/usage\(refreshQuery)")!
+        let baseURL = "http://127.0.0.1:\(dashboardPort())"
+        var activeRequest = URLRequest(url: URL(string: "\(baseURL)/api/settings/active-server")!)
+        activeRequest.setValue("devboost_session=\(dashboardSessionToken)", forHTTPHeaderField: "Cookie")
+        URLSession.shared.dataTask(with: activeRequest) { [weak self] data, _, _ in
+            let root = data.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
+            let serverID = root?["active_server_id"] as? String
+            guard let self = self, let serverID = serverID else {
+                // Keep local usage as a fallback if the active-server setting
+                // is unavailable during startup or a migration.
+                self?.requestUsage(url: URL(string: "\(baseURL)/api/usage\(force ? "?refresh=1" : "")")!)
+                return
+            }
+            var components = URLComponents(string: "\(baseURL)/api/usage")!
+            var queryItems = [URLQueryItem(name: "server", value: serverID)]
+            if force { queryItems.append(URLQueryItem(name: "refresh", value: "1")) }
+            components.queryItems = queryItems
+            self.requestUsage(url: components.url!)
+        }.resume()
+    }
+
+    private func requestUsage(url: URL) {
         var request = URLRequest(url: url)
         request.setValue("devboost_session=\(dashboardSessionToken)", forHTTPHeaderField: "Cookie")
         URLSession.shared.dataTask(with: request) { [weak self] data, _, _ in
@@ -160,6 +182,21 @@ final class DevBoostApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
                   let snapshots = root["snapshots"] as? [String: Any] else { return }
             DispatchQueue.main.async {
                 guard let self = self, let menu = self.statusMenu else { return }
+                // A new installation has no selection preference yet. Show
+                // every enabled account in the compact menubar title so a
+                // newly configured Claude account is not silently omitted.
+                // Once the user toggles an account, the saved selection is
+                // authoritative and explicit deselections are preserved.
+                if !self.hasSavedUsageSelection {
+                    let initialSelection = Set(accounts.compactMap { account in
+                        ((account["enabled"] as? Bool) ?? true) ? account["id"] as? String : nil
+                    })
+                    if !initialSelection.isEmpty {
+                        self.selectedUsageAccountIDs = initialSelection
+                        self.hasSavedUsageSelection = true
+                        UserDefaults.standard.set(Array(initialSelection).sorted(), forKey: DevBoostApp.selectedUsageAccountsKey)
+                    }
+                }
                 self.lastUsageSyncAt = Date()
                 self.setUsageMenuStatus(self.usageSyncStatus())
                 self.setStatusItemTitle(self.menuBarUsageTitle(accounts: accounts, snapshots: snapshots))
@@ -245,6 +282,7 @@ final class DevBoostApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
             selectedUsageAccountIDs.insert(accountID)
         }
         UserDefaults.standard.set(Array(selectedUsageAccountIDs).sorted(), forKey: DevBoostApp.selectedUsageAccountsKey)
+        hasSavedUsageSelection = true
         sender.state = selectedUsageAccountIDs.contains(accountID) ? .on : .off
         refreshUsage()
     }

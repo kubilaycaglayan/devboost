@@ -640,6 +640,9 @@
           currentServerId = (allServers[0] || {}).id || "";
           localStorage.setItem("devboost-active-server", currentServerId);
         }
+        if (currentServerId) {
+          fetch("/api/settings/active-server", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({server_id: currentServerId})}).catch(() => {});
+        }
         serversLoaded = true;
         renderTabs();
         renderServerManagement();
@@ -816,6 +819,7 @@
       if (currentServerId === sid) return;
       currentServerId = sid;
       localStorage.setItem("devboost-active-server", sid);
+      fetch("/api/settings/active-server", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({server_id: sid})}).catch(() => {});
       document.getElementById("remote-services-body").innerHTML = '<tr><td colspan="5" style="text-align:center; color:var(--text-muted); padding:20px;">Click "Scan Ports" to detect running services on the remote server.</td></tr>';
       document.getElementById("stat-remote").innerText = "-";
       document.getElementById("docker-body").innerHTML = '<tr><td colspan="7" style="text-align:center; color:var(--text-muted); padding:30px;">Checking Docker on the active server...</td></tr>';

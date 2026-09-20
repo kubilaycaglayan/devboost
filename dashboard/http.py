@@ -161,6 +161,11 @@ class DashboardHandler(BaseHTTPRequestHandler):
             self._send_json({"servers": get_servers_status()})
         elif path == "/api/settings/menubar":
             self._send_json({"menubar_enabled": bool(load_config().get("menubar_enabled", True))})
+        elif path == "/api/settings/active-server":
+            cfg = load_config()
+            active = resolve_server(cfg, cfg.get("active_server_id")) if cfg.get("active_server_id") else None
+            active = active or get_default_server(cfg)
+            self._send_json({"active_server_id": active.get("id") if active else None})
         elif path == "/api/ssh-hosts":
             cfg = load_config()
             added_hosts = {s.get("ssh_host") for s in cfg.get("servers", [])}
@@ -345,6 +350,16 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 self._send_json({"ok": False, "message": "Usage account not found"}, status=404)
             else:
                 self._send_json({"ok": True})
+        elif path == "/api/settings/active-server":
+            server_id = body.get("server_id") or body.get("server")
+            cfg = load_config()
+            server = resolve_server(cfg, server_id)
+            if not server:
+                self._send_json({"ok": False, "message": "Server not found"}, status=404)
+                return
+            cfg["active_server_id"] = server["id"]
+            save_config(cfg)
+            self._send_json({"ok": True, "active_server_id": server["id"]})
         elif path == "/api/local-ports/kill":
             pid = body.get("pid")
             if pid is None:

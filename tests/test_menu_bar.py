@@ -49,6 +49,12 @@ class TestMenuBarUsage(unittest.TestCase):
         self.assertIn("RunLoop.main.add(statusTimer, forMode: .common)", self.swift)
         self.assertIn('return "Synced \\(elapsed / 60)m ago"', self.swift)
 
+    def test_menubar_usage_targets_the_configured_remote_server(self):
+        self.assertIn('URL(string: "\\(baseURL)/api/settings/active-server")!', self.swift)
+        self.assertIn('let serverID = root?["active_server_id"] as? String', self.swift)
+        self.assertIn('URLQueryItem(name: "server", value: serverID)', self.swift)
+        self.assertIn('private func requestUsage(url: URL)', self.swift)
+
     def test_usage_request_authenticates_with_backend_session(self):
         self.assertIn("private let dashboardSessionToken = UUID().uuidString", self.swift)
         self.assertIn('request.setValue("devboost_session=\\(dashboardSessionToken)"', self.swift)
@@ -74,6 +80,12 @@ class TestMenuBarUsage(unittest.TestCase):
         self.assertIn('value = "U:\\(compactNumber(used))', self.swift)
         self.assertIn('value = "B:\\(compactNumber(remaining))', self.swift)
         self.assertIn('value = "B:∞"', self.swift)
+
+    def test_new_installation_selects_enabled_accounts_for_compact_title(self):
+        self.assertIn("private var hasSavedUsageSelection", self.swift)
+        self.assertIn("if !self.hasSavedUsageSelection", self.swift)
+        self.assertIn("initialSelection = Set(accounts.compactMap", self.swift)
+        self.assertIn("UserDefaults.standard.set(Array(initialSelection).sorted()", self.swift)
 
     def test_status_item_prefers_local_usage_for_stale_codex_fallback(self):
         self.assertIn('message.contains("Showing local usage")', self.swift)
