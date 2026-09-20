@@ -82,6 +82,7 @@ final class DevBoostApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var interruptSource: DispatchSourceSignal?
     private var usageMenuNeedsRebuild = false
     private var usageMenuIsOpen = false
+    private var usageIsLoading = false
     private var lastUsageSyncAt: Date?
     private var selectedUsageAccountIDs: Set<String> = Set(
         UserDefaults.standard.stringArray(forKey: DevBoostApp.selectedUsageAccountsKey) ?? []
@@ -186,6 +187,8 @@ final class DevBoostApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     private func refreshUsage(force: Bool = false) {
+        usageIsLoading = true
+        updateUsageMenuStatus()
         let baseURL = "http://127.0.0.1:\(dashboardPort())"
         var activeRequest = URLRequest(url: URL(string: "\(baseURL)/api/servers/active")!)
         activeRequest.setValue("devboost_session=\(dashboardSessionToken)", forHTTPHeaderField: "Cookie")
@@ -225,12 +228,17 @@ final class DevBoostApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
         var request = URLRequest(url: url)
         request.setValue("devboost_session=\(dashboardSessionToken)", forHTTPHeaderField: "Cookie")
         URLSession.shared.dataTask(with: request) { [weak self] data, _, _ in
-            guard let data = data,
-                  let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                  let accounts = root["accounts"] as? [[String: Any]],
-                  let snapshots = root["snapshots"] as? [String: Any] else { return }
+            guard let self = self else { return }
+            let root = data.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
             DispatchQueue.main.async {
-                guard let self = self, let menu = self.statusMenu else { return }
+                self.usageIsLoading = false
+                guard let root = root,
+                      let accounts = root["accounts"] as? [[String: Any]],
+                      let snapshots = root["snapshots"] as? [String: Any],
+                      let menu = self.statusMenu else {
+                    self.updateUsageMenuStatus()
+                    return
+                }
                 // A new installation has no selection preference yet. Show
                 // every enabled account in the compact menubar title so a
                 // newly configured Claude account is not silently omitted.
@@ -369,7 +377,12 @@ final class DevBoostApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     private func updateUsageMenuStatus() {
         guard usageStatusMenuItem != nil else { return }
-        setUsageMenuStatus(lastUsageSyncAt.map { _ in usageSyncStatus() } ?? "Syncing usage…")
+        if usageIsLoading {
+            let phase = Int(Date().timeIntervalSinceReferenceDate * 2) % 3 + 1
+            setUsageMenuStatus("Loading" + String(repeating: ".", count: phase))
+        } else {
+            setUsageMenuStatus(lastUsageSyncAt.map { _ in usageSyncStatus() } ?? "Syncing usage…")
+        }
     }
 
     private func usageSyncStatus() -> String {

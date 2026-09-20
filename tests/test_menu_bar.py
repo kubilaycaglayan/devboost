@@ -46,6 +46,8 @@ class TestMenuBarUsage(unittest.TestCase):
         self.assertIn("usageMenuIsOpen", self.swift)
         self.assertIn("Syncing usage…", self.swift)
         self.assertIn("usageSyncStatus()", self.swift)
+        self.assertIn("private var usageIsLoading = false", self.swift)
+        self.assertIn('setUsageMenuStatus("Loading" + String(repeating: ".", count: phase))', self.swift)
         self.assertIn("RunLoop.main.add(statusTimer, forMode: .common)", self.swift)
         self.assertIn('return "Synced \\(elapsed / 60)m ago"', self.swift)
 
