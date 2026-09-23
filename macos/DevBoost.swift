@@ -772,11 +772,12 @@ private final class UsageBarView: NSView {
 
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
-        let horizontalPadding: CGFloat = 12
+        let leftPadding: CGFloat = 24
+        let rightPadding: CGFloat = 12
         let barRect = NSRect(
-            x: horizontalPadding,
+            x: leftPadding,
             y: 0,
-            width: bounds.width - (horizontalPadding * 2),
+            width: bounds.width - leftPadding - rightPadding,
             height: 18
         )
         let radius = barRect.height / 2
@@ -803,7 +804,14 @@ private final class UsageBarView: NSView {
             .paragraphStyle: paragraph
         ]
         if !darkText { attributes[.shadow] = textShadow }
-        (title as NSString).draw(in: barRect.insetBy(dx: 4, dy: 0), withAttributes: attributes)
+        let textSize = (title as NSString).size(withAttributes: attributes)
+        let textRect = NSRect(
+            x: barRect.minX + 4,
+            y: barRect.minY + (barRect.height - textSize.height) / 2,
+            width: barRect.width - 8,
+            height: textSize.height
+        )
+        (title as NSString).draw(in: textRect, withAttributes: attributes)
     }
 
     private var usageColor: NSColor {
