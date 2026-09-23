@@ -752,7 +752,7 @@ private final class UsageBarView: NSView {
     init(remainingPercent: Double, title: String) {
         self.remainingPercent = min(100, max(0, remainingPercent))
         self.title = title
-        super.init(frame: NSRect(x: 0, y: 0, width: 240, height: 18))
+        super.init(frame: NSRect(x: 0, y: 0, width: 240, height: 19))
         wantsLayer = true
         setAccessibilityRole(.progressIndicator)
         setAccessibilityValue(title)
@@ -761,7 +761,7 @@ private final class UsageBarView: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
-    override var intrinsicContentSize: NSSize { NSSize(width: barWidth, height: 18) }
+    override var intrinsicContentSize: NSSize { NSSize(width: barWidth, height: 19) }
 
     func setWidth(_ width: CGFloat) {
         barWidth = width
@@ -775,9 +775,9 @@ private final class UsageBarView: NSView {
         let horizontalPadding: CGFloat = 12
         let barRect = NSRect(
             x: horizontalPadding,
-            y: 3,
+            y: 0,
             width: bounds.width - (horizontalPadding * 2),
-            height: 12
+            height: 18
         )
         let radius = barRect.height / 2
         let path = NSBezierPath(roundedRect: barRect, xRadius: radius, yRadius: radius)
