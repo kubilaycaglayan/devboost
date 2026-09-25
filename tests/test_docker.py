@@ -34,7 +34,7 @@ class TestDockerMonitor(unittest.TestCase):
 
     def test_parse_docker_output(self):
         stdout = (
-            '{"ID":"abc123","Names":"web","Image":"nginx:latest","Status":"Up 2 minutes"}\n'
+            '{"ID":"abc123","Names":"web","Image":"nginx:latest","Size":"12.3MB (virtual 142MB)","Status":"Up 2 minutes"}\n'
             '__DEVBOOST_DOCKER_STATS__\n'
             '{"Container":"abc123","Name":"web","CPUPerc":"1.20%","MemUsage":"10MiB / 1GiB","MemPerc":"1.00%","NetIO":"1kB / 2kB"}\n'
         )
@@ -48,7 +48,7 @@ class TestDockerMonitor(unittest.TestCase):
             args=[],
             returncode=0,
             stdout=(
-                '{"ID":"abc123","Names":"web","Image":"nginx:latest","Status":"Up 2 minutes"}\n'
+                '{"ID":"abc123","Names":"web","Image":"nginx:latest","Size":"12.3MB (virtual 142MB)","Status":"Up 2 minutes"}\n'
                 '__DEVBOOST_DOCKER_STATS__\n'
                 '{"Container":"abc123","Name":"web","CPUPerc":"1.20%","MemUsage":"10MiB / 1GiB","MemPerc":"1.00%","NetIO":"1kB / 2kB","BlockIO":"0B / 0B","PIDs":"4"}\n'
             ),
@@ -58,9 +58,10 @@ class TestDockerMonitor(unittest.TestCase):
         self.assertTrue(result["ok"])
         self.assertTrue(result["available"])
         self.assertEqual(result["containers"][0]["name"], "web")
+        self.assertEqual(result["containers"][0]["disk_size"], "12.3MB (virtual 142MB)")
         self.assertEqual(result["containers"][0]["stats"]["cpu_percent"], "1.20%")
         mock_ssh.assert_called_once()
-        self.assertIn("docker ps -a", mock_ssh.call_args.args[1])
+        self.assertIn("docker ps -a --size", mock_ssh.call_args.args[1])
 
     @patch("docker_monitor.run_ssh_command")
     def test_collect_includes_non_running_state_without_stats(self, mock_ssh):

@@ -43,6 +43,7 @@ def _normalise_container(row):
         "id": row.get("ID", ""),
         "name": row.get("Names") or row.get("Name") or row.get("ID", ""),
         "image": row.get("Image", ""),
+        "disk_size": row.get("Size", ""),
         "command": row.get("Command", ""),
         "status": row.get("Status", ""),
         "state": row.get("State", "") or _state_from_status(row.get("Status", "")),
@@ -85,7 +86,7 @@ def collect_docker_snapshot(host, timeout=30):
         "if ! command -v docker >/dev/null 2>&1; then "
         "echo 'Docker CLI is not installed on the server' >&2; exit 127; "
         "fi; "
-        f"docker ps -a --format {_PS_FORMAT!r} && "
+        f"docker ps -a --size --format {_PS_FORMAT!r} && "
         f"printf '\\n{_SECTION_MARKER}\\n' && "
         f"docker stats --no-stream --format {_STATS_FORMAT!r}"
     )

@@ -49,13 +49,16 @@ class TestDashboardAPI(unittest.TestCase):
         self.assertIn('id="docker-label-chips"', html)
         self.assertIn('id="docker-total-cpu"', html)
         self.assertIn('id="docker-total-memory"', html)
+        self.assertIn('id="docker-total-disk"', html)
         self.assertIn('id="docker-total-network"', html)
+        self.assertIn("DISK SIZE", html)
         self.assertIn("showAllDockerLabels()", html)
         self.assertIn("hideAllDockerLabels()", html)
         self.assertNotIn("restoreDockerLabelVisibility()", html)
         with urllib.request.urlopen(self.base_url + "/dashboard/app.js") as resp:
             app_js = resp.read().decode("utf-8")
         self.assertIn("function toggleDockerLabel(key)", app_js)
+        self.assertIn("sortDocker('disk_size', event)", html)
         self.assertIn("dockerVisibleLabels === null", app_js)
 
     def test_theme_toggle_supports_all_modes_and_persists_selection(self):

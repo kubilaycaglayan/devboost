@@ -937,7 +937,7 @@
       document.getElementById("stat-syncs").innerText = "0";
       document.getElementById("stat-remote").innerText = "-";
       document.getElementById("forwards-body").innerHTML = '<tr><td colspan="6" style="text-align:center; color:var(--text-muted); padding:30px;">Connect a server to manage port forwards.</td></tr>';
-      document.getElementById("docker-body").innerHTML = '<tr><td colspan="8" style="text-align:center; color:var(--text-muted); padding:30px;">Connect a server to view Docker containers.</td></tr>';
+      document.getElementById("docker-body").innerHTML = '<tr><td colspan="9" style="text-align:center; color:var(--text-muted); padding:30px;">Connect a server to view Docker containers.</td></tr>';
       document.getElementById("syncs-body").innerHTML = '<tr><td colspan="5" style="text-align:center; color:var(--text-muted); padding:30px;">Connect a server to manage folder syncs.</td></tr>';
       document.getElementById("remote-services-body").innerHTML = '<tr><td colspan="5" style="text-align:center; color:var(--text-muted); padding:20px;">Connect a server to scan remote services.</td></tr>';
       updateConnectionControls();
@@ -1450,6 +1450,7 @@
       if (key === "memory") return dockerByteValue(s.memory_usage, false);
       if (key === "memory_percent") return numericDockerValue(s.memory_percent);
       if (key === "network") return dockerByteValue(s.network_io, true);
+      if (key === "disk_size") return dockerByteValue(row.disk_size, true);
       return "";
     }
     function sortDocker(key, event) {
@@ -1555,12 +1556,15 @@
     function renderDockerAggregates(rows) {
       const cpu = rows.map(row => numericDockerValue((row.stats || {}).cpu_percent)).filter(Number.isFinite);
       const memory = rows.map(row => dockerByteValue((row.stats || {}).memory_usage, false)).filter(Number.isFinite);
+      const disk = rows.map(row => dockerByteValue(row.disk_size, true)).filter(Number.isFinite);
       const network = rows.map(row => dockerByteValue((row.stats || {}).network_io, true)).filter(Number.isFinite);
       const cpuTotal = cpu.reduce((total, value) => total + value, 0);
       const memoryTotal = memory.reduce((total, value) => total + value, 0);
+      const diskTotal = disk.reduce((total, value) => total + value, 0);
       const networkTotal = network.reduce((total, value) => total + value, 0);
       document.getElementById("docker-total-cpu").innerText = cpu.length ? `${cpuTotal.toFixed(cpuTotal >= 100 ? 0 : 1)}%` : "—";
       document.getElementById("docker-total-memory").innerText = memory.length ? formatDockerAggregateMemory(memoryTotal) : "—";
+      document.getElementById("docker-total-disk").innerText = disk.length ? formatDockerAggregateMemory(diskTotal) : "—";
       document.getElementById("docker-total-network").innerText = network.length ? formatDockerAggregateMemory(networkTotal) : "—";
     }
 
@@ -1581,7 +1585,7 @@
       } catch (err) { showToast(String(err), true); }
     }
     function renderDockerSortIndicators() {
-      ["name", "labels", "status", "cpu", "memory", "memory_percent", "network"].forEach(key => {
+      ["name", "labels", "status", "cpu", "memory", "memory_percent", "network", "disk_size"].forEach(key => {
         const el = document.getElementById("sort-" + key);
         if (!el) return;
         const i = dockerSorts.findIndex(s => s.key === key);
@@ -1603,7 +1607,7 @@
       });
       if (!rows.length) {
         const message = dockerRows.length ? "No containers match this filter." : "Docker is available, but no containers were found.";
-        tbody.innerHTML = `<tr><td colspan="8" style="text-align:center; color:var(--text-muted); padding:30px;">${message}</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="9" style="text-align:center; color:var(--text-muted); padding:30px;">${message}</td></tr>`;
         renderDockerSortIndicators();
         return;
       }
@@ -1622,7 +1626,7 @@
           <td><div class="docker-image-name" title="${escapeHtml(c.image || "")}">${escapeHtml(c.image || "-")}</div><button class="btn btn-sm docker-logs-button" onclick='openDockerLog(${JSON.stringify(c.name || c.id)})' title="Watch logs">LOGS</button><strong>${escapeHtml(c.name || c.id)}</strong><div class="sync-sub">${escapeHtml(c.id || "")}</div></td>
           <td>${labels}</td><td><span class="badge ${running ? "badge-active" : "badge-inactive"}">${escapeHtml(dockerStateLabel(state))}</span><div class="sync-sub">${escapeHtml(c.status || "")}</div></td>
           <td class="mono">${escapeHtml(formatDockerCpu(s.cpu_percent))}</td><td class="mono">${escapeHtml(formatDockerMemory(s.memory_usage))}</td>
-          <td class="mono">${escapeHtml(s.memory_percent || "-")}</td><td class="mono">${escapeHtml(formatDockerNetwork(s.network_io))}</td>
+          <td class="mono">${escapeHtml(s.memory_percent || "-")}</td><td class="mono">${escapeHtml(formatDockerNetwork(s.network_io))}</td><td class="mono" title="Container writable layer plus image virtual size">${escapeHtml(c.disk_size || "-")}</td>
           <td style="white-space:nowrap;">${actions}</td>
         </tr>`;
       }).join("");
@@ -1632,7 +1636,7 @@
       if (!viewedServerId) { renderDisconnectedState(); return; }
       if (!isConnectedView()) {
         document.getElementById("docker-subtitle").innerText = "disconnected";
-        document.getElementById("docker-body").innerHTML = '<tr><td colspan="8" style="text-align:center; color:var(--text-muted); padding:30px;">Server disconnected — Docker monitoring inactive.</td></tr>';
+        document.getElementById("docker-body").innerHTML = '<tr><td colspan="9" style="text-align:center; color:var(--text-muted); padding:30px;">Server disconnected — Docker monitoring inactive.</td></tr>';
         return;
       }
       const requestedServerId = viewedServerId;
@@ -1650,14 +1654,14 @@
         if (!data.available) {
           setHomeSummary("home-docker-summary", "Docker unavailable");
           subtitle.innerText = "unavailable";
-          tbody.innerHTML = `<tr><td colspan="8" style="text-align:center; color:var(--warning); padding:30px;">${escapeHtml(data.message || "Docker is unavailable on this server.")}</td></tr>`;
+          tbody.innerHTML = `<tr><td colspan="9" style="text-align:center; color:var(--warning); padding:30px;">${escapeHtml(data.message || "Docker is unavailable on this server.")}</td></tr>`;
           return;
         }
         const age = data.age_seconds == null ? "just now" : `${data.age_seconds}s ago`;
         const runningCount = (data.containers || []).filter(c => dockerState(c) === "running").length;
         subtitle.innerText = `${runningCount} running · ${data.containers.length} total · updated ${age}`;
         if (!data.containers.length) {
-          tbody.innerHTML = '<tr><td colspan="8" style="text-align:center; color:var(--text-muted); padding:30px;">Docker is available, but no containers were found.</td></tr>';
+          tbody.innerHTML = '<tr><td colspan="9" style="text-align:center; color:var(--text-muted); padding:30px;">Docker is available, but no containers were found.</td></tr>';
           return;
         }
         dockerRows = data.containers || [];
@@ -1666,7 +1670,7 @@
       } catch (err) {
         setHomeSummary("home-docker-summary", "Docker unavailable");
         subtitle.innerText = "error";
-        tbody.innerHTML = `<tr><td colspan="8" style="text-align:center; color:var(--danger); padding:30px;">Docker query failed: ${escapeHtml(String(err))}</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="9" style="text-align:center; color:var(--danger); padding:30px;">Docker query failed: ${escapeHtml(String(err))}</td></tr>`;
       }
     }
 
