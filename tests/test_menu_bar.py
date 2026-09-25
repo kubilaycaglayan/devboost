@@ -90,7 +90,7 @@ class TestMenuBarUsage(unittest.TestCase):
         self.assertIn("let width = max(240, ceil(maxTextWidth + 16))", self.swift)
         self.assertIn("menu.update()", self.swift)
         self.assertIn("func setWidth(_ width: CGFloat)", self.swift)
-        self.assertIn("let horizontalPadding: CGFloat = 12", self.swift)
+        self.assertIn("let leftPadding: CGFloat = 24", self.swift)
         self.assertIn("private var usageColor: NSColor", self.swift)
         self.assertIn("let used = 100 - remainingPercent", self.swift)
         self.assertIn("if !darkText { attributes[.shadow] = textShadow }", self.swift)

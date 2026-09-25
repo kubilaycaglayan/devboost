@@ -648,7 +648,12 @@ final class DevBoostApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
             date = Date(timeIntervalSince1970: seconds < 1_000_000_000_000 ? seconds : seconds / 1000)
         } else if let string = value as? String {
             let parser = ISO8601DateFormatter()
-            date = parser.date(from: string)
+            if let parsed = parser.date(from: string) {
+                date = parsed
+            } else {
+                parser.formatOptions.insert(.withFractionalSeconds)
+                date = parser.date(from: string)
+            }
         } else {
             date = nil
         }
