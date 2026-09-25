@@ -51,6 +51,7 @@ class TestDashboardAPI(unittest.TestCase):
         self.assertIn('id="docker-total-memory"', html)
         self.assertIn('id="docker-total-disk"', html)
         self.assertIn('id="docker-total-system-disk"', html)
+        self.assertIn('class="docker-system-disk-total"', html)
         self.assertIn('id="docker-total-network"', html)
         self.assertIn("DISK SIZE", html)
         self.assertIn("showAllDockerLabels()", html)
@@ -64,6 +65,7 @@ class TestDashboardAPI(unittest.TestCase):
         with urllib.request.urlopen(self.base_url + "/dashboard/styles.css") as resp:
             css = resp.read().decode("utf-8")
         self.assertIn(".docker-label-toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; padding: 12px 18px 14px;", css)
+        self.assertIn('.docker-system-disk-total::before { content: "|";', css)
 
     def test_theme_toggle_supports_all_modes_and_persists_selection(self):
         with urllib.request.urlopen(self.base_url + "/dashboard/app.js") as resp:
