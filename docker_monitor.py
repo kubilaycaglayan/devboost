@@ -11,6 +11,7 @@ from remote_transport import run_ssh_command
 
 
 _SECTION_MARKER = "__DEVBOOST_DOCKER_STATS__"
+_DF_SECTION_MARKER = "__DEVBOOST_DOCKER_DF__"
 _PS_FORMAT = "{{json .}}"
 _STATS_FORMAT = "{{json .}}"
 
@@ -34,8 +35,9 @@ def parse_docker_output(stdout):
     """Parse the stable JSON-lines sections emitted by collect_docker_snapshot."""
     before, marker, after = (stdout or "").partition(_SECTION_MARKER)
     if not marker:
-        return [], []
-    return _json_lines(before), _json_lines(after)
+        return [], [], []
+    stats_text, df_marker, df_text = after.partition(_DF_SECTION_MARKER)
+    return _json_lines(before), _json_lines(stats_text), _json_lines(df_text) if df_marker else []
 
 
 def _normalise_container(row):
@@ -88,7 +90,9 @@ def collect_docker_snapshot(host, timeout=30):
         "fi; "
         f"docker ps -a --size --format {_PS_FORMAT!r} && "
         f"printf '\\n{_SECTION_MARKER}\\n' && "
-        f"docker stats --no-stream --format {_STATS_FORMAT!r}"
+        f"docker stats --no-stream --format {_STATS_FORMAT!r} && "
+        f"printf '\\n{_DF_SECTION_MARKER}\\n' && "
+        f"(docker system df --format {_STATS_FORMAT!r} || true)"
     )
     now = time.time()
     try:
@@ -111,7 +115,7 @@ def collect_docker_snapshot(host, timeout=30):
             "updated_at": now, "message": detail[:500],
         }
 
-    containers_raw, stats_raw = parse_docker_output(result.stdout)
+    containers_raw, stats_raw, disk_raw = parse_docker_output(result.stdout)
     containers = [_normalise_container(row) for row in containers_raw]
     stats_by_key = {}
     for row in stats_raw:
@@ -132,6 +136,7 @@ def collect_docker_snapshot(host, timeout=30):
         "available": True,
         "containers": containers,
         "stats": [_normalise_stats(row) for row in stats_raw],
+        "docker_disk": disk_raw,
         "updated_at": now,
         "message": "",
     }

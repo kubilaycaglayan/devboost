@@ -50,6 +50,7 @@ class TestDashboardAPI(unittest.TestCase):
         self.assertIn('id="docker-total-cpu"', html)
         self.assertIn('id="docker-total-memory"', html)
         self.assertIn('id="docker-total-disk"', html)
+        self.assertIn('id="docker-total-system-disk"', html)
         self.assertIn('id="docker-total-network"', html)
         self.assertIn("DISK SIZE", html)
         self.assertIn("showAllDockerLabels()", html)

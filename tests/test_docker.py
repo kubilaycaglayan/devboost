@@ -37,10 +37,13 @@ class TestDockerMonitor(unittest.TestCase):
             '{"ID":"abc123","Names":"web","Image":"nginx:latest","Size":"12.3MB (virtual 142MB)","Status":"Up 2 minutes"}\n'
             '__DEVBOOST_DOCKER_STATS__\n'
             '{"Container":"abc123","Name":"web","CPUPerc":"1.20%","MemUsage":"10MiB / 1GiB","MemPerc":"1.00%","NetIO":"1kB / 2kB"}\n'
+            '__DEVBOOST_DOCKER_DF__\n'
+            '{"Type":"Images","TotalCount":"2","Active":"1","Size":"142MB","Reclaimable":"20MB (14%)"}\n'
         )
-        containers, stats = parse_docker_output(stdout)
+        containers, stats, disk = parse_docker_output(stdout)
         self.assertEqual(containers[0]["Names"], "web")
         self.assertEqual(stats[0]["CPUPerc"], "1.20%")
+        self.assertEqual(disk[0]["Size"], "142MB")
 
     @patch("docker_monitor.run_ssh_command")
     def test_collect_merges_container_and_stats(self, mock_ssh):
@@ -51,6 +54,8 @@ class TestDockerMonitor(unittest.TestCase):
                 '{"ID":"abc123","Names":"web","Image":"nginx:latest","Size":"12.3MB (virtual 142MB)","Status":"Up 2 minutes"}\n'
                 '__DEVBOOST_DOCKER_STATS__\n'
                 '{"Container":"abc123","Name":"web","CPUPerc":"1.20%","MemUsage":"10MiB / 1GiB","MemPerc":"1.00%","NetIO":"1kB / 2kB","BlockIO":"0B / 0B","PIDs":"4"}\n'
+                '__DEVBOOST_DOCKER_DF__\n'
+                '{"Type":"Images","TotalCount":"2","Active":"1","Size":"142MB","Reclaimable":"20MB (14%)"}\n'
             ),
             stderr="",
         )
@@ -59,6 +64,7 @@ class TestDockerMonitor(unittest.TestCase):
         self.assertTrue(result["available"])
         self.assertEqual(result["containers"][0]["name"], "web")
         self.assertEqual(result["containers"][0]["disk_size"], "12.3MB (virtual 142MB)")
+        self.assertEqual(result["docker_disk"][0]["Type"], "Images")
         self.assertEqual(result["containers"][0]["stats"]["cpu_percent"], "1.20%")
         mock_ssh.assert_called_once()
         self.assertIn("docker ps -a --size", mock_ssh.call_args.args[1])

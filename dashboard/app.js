@@ -931,6 +931,7 @@
       currentServerHost = "";
       currentForwards = [];
       dockerRows = [];
+      dockerSystemDisk = [];
       currentSyncs = [];
       document.getElementById("stat-active").innerText = "0";
       document.getElementById("stat-always").innerText = "0";
@@ -1335,6 +1336,7 @@
     }
 
     let dockerRows = [];
+    let dockerSystemDisk = [];
     let dockerSorts = [{key: "name", dir: 1}];
     let dockerFilter = "running";
     let dockerVisibleLabels = null;
@@ -1562,9 +1564,19 @@
       const memoryTotal = memory.reduce((total, value) => total + value, 0);
       const diskTotal = disk.reduce((total, value) => total + value, 0);
       const networkTotal = network.reduce((total, value) => total + value, 0);
+      const systemDiskRows = dockerSystemDisk || [];
+      const systemDisk = systemDiskRows.map(row => dockerByteValue(row.Size, false)).filter(Number.isFinite);
+      const reclaimableDisk = systemDiskRows.map(row => dockerByteValue(row.Reclaimable, false)).filter(Number.isFinite);
+      const systemDiskTotal = systemDisk.reduce((total, value) => total + value, 0);
+      const reclaimableTotal = reclaimableDisk.reduce((total, value) => total + value, 0);
       document.getElementById("docker-total-cpu").innerText = cpu.length ? `${cpuTotal.toFixed(cpuTotal >= 100 ? 0 : 1)}%` : "—";
       document.getElementById("docker-total-memory").innerText = memory.length ? formatDockerAggregateMemory(memoryTotal) : "—";
       document.getElementById("docker-total-disk").innerText = disk.length ? formatDockerAggregateMemory(diskTotal) : "—";
+      const systemDiskElement = document.getElementById("docker-total-system-disk");
+      systemDiskElement.innerText = systemDisk.length ? formatDockerAggregateMemory(systemDiskTotal) : "—";
+      systemDiskElement.title = reclaimableDisk.length
+        ? `Images, containers, local volumes, and build cache. Reclaimable: ${formatDockerAggregateMemory(reclaimableTotal)}`
+        : "Images, containers, local volumes, and build cache";
       document.getElementById("docker-total-network").innerText = network.length ? formatDockerAggregateMemory(networkTotal) : "—";
     }
 
@@ -1654,13 +1666,17 @@
         if (!data.available) {
           setHomeSummary("home-docker-summary", "Docker unavailable");
           subtitle.innerText = "unavailable";
+          dockerSystemDisk = [];
+          renderDockerAggregates([]);
           tbody.innerHTML = `<tr><td colspan="9" style="text-align:center; color:var(--warning); padding:30px;">${escapeHtml(data.message || "Docker is unavailable on this server.")}</td></tr>`;
           return;
         }
         const age = data.age_seconds == null ? "just now" : `${data.age_seconds}s ago`;
         const runningCount = (data.containers || []).filter(c => dockerState(c) === "running").length;
         subtitle.innerText = `${runningCount} running · ${data.containers.length} total · updated ${age}`;
+        dockerSystemDisk = data.docker_disk || [];
         if (!data.containers.length) {
+          renderDockerAggregates([]);
           tbody.innerHTML = '<tr><td colspan="9" style="text-align:center; color:var(--text-muted); padding:30px;">Docker is available, but no containers were found.</td></tr>';
           return;
         }
