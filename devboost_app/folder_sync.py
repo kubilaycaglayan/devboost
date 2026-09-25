@@ -6,6 +6,8 @@ entry point's patchable collaborators during migration.
 """
 
 import glob
+import errno
+import fcntl
 import os
 import plistlib
 import posixpath
@@ -22,6 +24,7 @@ SYNC_DEFAULT_DIRECTION = "two-way"
 SYNC_DEFAULT_INTERVAL = 15
 SYNC_MIN_INTERVAL = 5
 SYNC_MAX_INTERVAL = 3600
+SYNC_WATCH_DEBOUNCE_SECONDS = 2
 
 
 class _RuntimeGlobals(dict):
@@ -36,7 +39,7 @@ class _RuntimeGlobals(dict):
             raise KeyError(key) from exc
 
 
-_FUNCTIONS = ["ensure_syncs_migrated","get_sync","get_syncs_for_server","get_sync_plist_label","get_sync_plist_path","get_sync_executable_args","_scan_sync_agents_raw","create_sync_agent","restore_auto_sync_agents","restore_sync_agents_for_server","suspend_sync_agents_for_server","restore_packaged_forward_agents","remove_sync_agent","remove_sync_agents_for_server","_ssh_remote_cmd","_ensure_remote_dir","check_rsync_prereqs","run_sync","add_sync","remove_sync_entry","toggle_sync_always","update_sync","get_syncs_status","record_folder_history","get_folder_history","browse_local","browse_remote","_validate_new_folder_name","mkdir_local","mkdir_remote"]
+_FUNCTIONS = ["ensure_syncs_migrated","get_sync","get_syncs_for_server","get_sync_plist_label","get_sync_plist_path","get_sync_executable_args","_scan_sync_agents_raw","create_sync_agent","restore_auto_sync_agents","restore_sync_agents_for_server","suspend_sync_agents_for_server","restore_packaged_forward_agents","remove_sync_agent","remove_sync_agents_for_server","_ssh_remote_cmd","_ensure_remote_dir","check_rsync_prereqs","run_sync","_run_sync_unlocked","add_sync","remove_sync_entry","toggle_sync_always","update_sync","get_syncs_status","record_folder_history","get_folder_history","browse_local","browse_remote","_validate_new_folder_name","mkdir_local","mkdir_remote"]
 _PATCHABLE_COLLABORATORS = {"_ssh_remote_cmd", "_ensure_remote_dir", "check_rsync_prereqs", "build_rsync_commands", "explain_rsync_output"}
 
 
@@ -340,7 +343,33 @@ def check_rsync_prereqs(ssh_host):
                 f"(install with `sudo apt install rsync`)")
     return None
 
-def run_sync(sync_id, timeout=300):
+def run_sync(sync_id, timeout=300, trigger="manual"):
+    """Runs a sync while excluding every other process running this sync."""
+    lock_dir = os.path.join(CONFIG_DIR, "sync-locks")
+    try:
+        os.makedirs(lock_dir, exist_ok=True)
+        safe_id = re.sub(r"[^A-Za-z0-9_.-]+", "_", str(sync_id)) or "sync"
+        lock_file = open(os.path.join(lock_dir, f"{safe_id}.lock"), "a+", encoding="utf-8")
+        try:
+            fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError as exc:
+            lock_file.close()
+            if exc.errno in (errno.EACCES, errno.EAGAIN):
+                return {"ok": True, "skipped": True, "busy": True,
+                        "message": "Sync already in progress; skipped duplicate trigger"}
+            return {"ok": False, "message": f"Cannot acquire sync lock: {exc}"}
+    except Exception as exc:
+        return {"ok": False, "message": f"Cannot create sync lock: {exc}"}
+    try:
+        return _run_sync_unlocked(sync_id, timeout=timeout, trigger=trigger)
+    finally:
+        try:
+            fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+        finally:
+            lock_file.close()
+
+
+def _run_sync_unlocked(sync_id, timeout=300, trigger="manual"):
     """Runs one sync pass now (used by Sync Now, Once creation, and LaunchAgent).
 
     Returns {"ok": bool, "message": str}. Updates last_sync/last_status and
@@ -353,6 +382,17 @@ def run_sync(sync_id, timeout=300):
     sync = get_sync(cfg, sync_id)
     if not sync:
         return {"ok": False, "message": f"Sync '{sync_id}' not found"}
+    # rsync itself can modify the watched local directory. Ignore the
+    # immediate WatchPaths echo from that write; StartInterval remains the
+    # source of truth for later remote changes.
+    if trigger == "agent" and sync.get("last_sync"):
+        try:
+            age = time.time() - float(sync["last_sync"])
+            if 0 <= age < SYNC_WATCH_DEBOUNCE_SECONDS:
+                return {"ok": True, "skipped": True, "busy": False,
+                        "message": "Sync skipped: local watcher echoed the previous run"}
+        except (TypeError, ValueError):
+            pass
     server = get_server(cfg, sync.get("server_id"))
     if not server:
         # Server tab removed but sync row survived: resolve to default so the

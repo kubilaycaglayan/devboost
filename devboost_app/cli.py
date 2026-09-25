@@ -371,7 +371,7 @@ def main():
         if len(args) < 2 or not args[1].strip():
             print("Error: sync-run requires a sync id.")
             sys.exit(1)
-        res = run_sync(args[1].strip())
+        res = run_sync(args[1].strip(), trigger="agent")
         print(res.get("message", ""))
         sys.exit(0 if res.get("ok") else 1)
     elif cmd == "refresh-agents":

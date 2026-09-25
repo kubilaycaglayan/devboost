@@ -1,4 +1,5 @@
 import os
+import fcntl
 import plistlib
 import tempfile
 import unittest
@@ -491,6 +492,30 @@ class TestFolderSync(unittest.TestCase):
         self.assertTrue(outcome["skipped"])
         remote_dir.assert_not_called()
         prereqs.assert_not_called()
+
+    def test_run_sync_skips_when_another_process_holds_sync_lock(self):
+        lock_dir = os.path.join(self.temp_dir.name, "sync-locks")
+        os.makedirs(lock_dir, exist_ok=True)
+        lock_path = os.path.join(lock_dir, "same-sync.lock")
+        with open(lock_path, "a+") as lock_file:
+            fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
+            result = devboost.run_sync("same-sync")
+        self.assertTrue(result["ok"])
+        self.assertTrue(result["skipped"])
+        self.assertTrue(result["busy"])
+
+    def test_agent_trigger_debounces_watcher_echo_using_last_sync(self):
+        sid = self._server_id()
+        result = devboost.add_sync(server_ref=sid, local_path="/tmp/devboost-sync-watch",
+                                   remote_path="~/remote", run_now=False)
+        cfg = devboost.load_config()
+        sync = devboost.get_sync(cfg, result["sync"]["id"])
+        sync["last_sync"] = __import__("time").time()
+        devboost.save_config(cfg)
+        outcome = devboost.run_sync(result["sync"]["id"], trigger="agent")
+        self.assertTrue(outcome["ok"])
+        self.assertTrue(outcome["skipped"])
+        self.assertFalse(outcome["busy"])
 
 
 if __name__ == "__main__":

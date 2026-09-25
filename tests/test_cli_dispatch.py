@@ -45,7 +45,7 @@ class TestCLIDispatch(unittest.TestCase):
         with self.assertRaises(SystemExit) as ctx:
             self.run_cli("sync-run", "abc")
         self.assertEqual(ctx.exception.code, 1)
-        run.assert_called_once_with("abc")
+        run.assert_called_once_with("abc", trigger="agent")
 
     def test_missing_required_arguments_exit_with_helpful_error(self):
         with self.assertRaises(SystemExit) as ctx:
