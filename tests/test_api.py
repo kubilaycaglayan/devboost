@@ -61,6 +61,9 @@ class TestDashboardAPI(unittest.TestCase):
         self.assertIn("function toggleDockerLabel(key)", app_js)
         self.assertIn("sortDocker('disk_size', event)", html)
         self.assertIn("dockerVisibleLabels === null", app_js)
+        with urllib.request.urlopen(self.base_url + "/dashboard/styles.css") as resp:
+            css = resp.read().decode("utf-8")
+        self.assertIn(".docker-label-toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; padding: 12px 18px 14px;", css)
 
     def test_theme_toggle_supports_all_modes_and_persists_selection(self):
         with urllib.request.urlopen(self.base_url + "/dashboard/app.js") as resp:

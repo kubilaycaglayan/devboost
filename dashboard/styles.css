@@ -600,7 +600,7 @@
     .docker-aggregate-summary strong { color: var(--text); font-size: 12px; letter-spacing: 0; }
     .docker-filter-label { display: inline-flex; align-items: center; gap: 5px; color: var(--text-muted); font-size: 12px; }
     .docker-filter { padding: 5px 7px; background: var(--input-bg); border: 1px solid var(--border); border-radius: 6px; color: var(--text); font-size: 12px; }
-    .docker-label-toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; padding: 12px 0 14px; border-bottom: 1px solid var(--border); }
+    .docker-label-toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; padding: 12px 18px 14px; border-bottom: 1px solid var(--border); }
     .docker-label-toolbar-title { color: var(--text-muted); font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
     .docker-label-chips { display: flex; flex: 1 1 auto; flex-wrap: wrap; align-items: center; gap: 6px; min-width: 120px; }
     .docker-label-chip { display: inline-flex; align-items: center; gap: 5px; padding: 4px 8px; border: 1px solid var(--border); border-radius: 999px; background: var(--input-bg); color: var(--text); cursor: pointer; font-size: 11px; transition: all .15s ease; }
