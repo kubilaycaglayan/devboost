@@ -1337,6 +1337,8 @@
     let dockerRows = [];
     let dockerSorts = [{key: "name", dir: 1}];
     let dockerFilter = "running";
+    let dockerVisibleLabels = null;
+    let dockerHideAll = false;
     let dockerLogTimer = null;
     let dockerLogContainer = "";
     let dockerLogProfileKey = "";
@@ -1477,9 +1479,89 @@
       return state === "running" ? "Running" : state.charAt(0).toUpperCase() + state.slice(1);
     }
 
+    function dockerLabelKey(label) {
+      return String(label.id || label.name || "");
+    }
+
+    function dockerLabelEntries() {
+      const labels = new Map();
+      dockerRows.forEach(container => (container.labels || []).forEach(label => {
+        const key = dockerLabelKey(label);
+        if (key && !labels.has(key)) labels.set(key, label);
+      }));
+      return [...labels.values()].sort((a, b) => String(a.name || "").localeCompare(String(b.name || "")));
+    }
+
+    function renderDockerLabelChips() {
+      const chips = document.getElementById("docker-label-chips");
+      if (!chips) return;
+      const labels = dockerLabelEntries();
+      chips.innerHTML = labels.length
+        ? labels.map(label => {
+          const key = dockerLabelKey(label);
+          const visible = !dockerHideAll && (dockerVisibleLabels === null || dockerVisibleLabels.has(key));
+          const hidden = !visible;
+          return `<button class="docker-label-chip${hidden ? " is-hidden" : ""}" type="button" aria-pressed="${!hidden}" onclick='toggleDockerLabel(${JSON.stringify(key)})' title="${hidden ? "Show" : "Hide"} containers with this label"><span class="docker-label-chip-dot" style="background:${escapeHtml(label.color || "#8b949e")}"></span>${escapeHtml(label.name || key)}</button>`;
+        }).join("")
+        : '<span class="docker-label-empty">No labels found</span>';
+      const toolbar = document.getElementById("docker-label-toolbar");
+      if (toolbar) toolbar.classList.toggle("is-empty", !labels.length);
+    }
+
+    function toggleDockerLabel(key) {
+      dockerHideAll = false;
+      if (dockerVisibleLabels === null) {
+        // The first click changes the all-visible view into a focused view.
+        dockerVisibleLabels = new Set([key]);
+      } else if (dockerVisibleLabels.has(key)) {
+        dockerVisibleLabels.delete(key);
+      } else {
+        dockerVisibleLabels.add(key);
+      }
+      renderDockerLabelChips();
+      renderDockerRows();
+    }
+
+    function showAllDockerLabels() {
+      dockerHideAll = false;
+      dockerVisibleLabels = null;
+      renderDockerLabelChips();
+      renderDockerRows();
+    }
+
+    function hideAllDockerLabels() {
+      dockerHideAll = true;
+      renderDockerLabelChips();
+      renderDockerRows();
+    }
+
     function dockerRowVisible(container) {
+      if (dockerHideAll) return false;
+      if (dockerVisibleLabels !== null && !(container.labels || []).some(label => dockerVisibleLabels.has(dockerLabelKey(label)))) return false;
       const running = dockerState(container) === "running";
       return dockerFilter === "all" || (dockerFilter === "running" ? running : !running);
+    }
+
+    function formatDockerAggregateMemory(bytes) {
+      if (!Number.isFinite(bytes)) return "—";
+      const units = ["B", "KiB", "MiB", "GiB", "TiB"];
+      let value = bytes;
+      let unit = 0;
+      while (value >= 1024 && unit < units.length - 1) { value /= 1024; unit++; }
+      const decimals = unit === 0 ? 0 : value >= 10 ? 1 : 2;
+      return `${value.toFixed(decimals)} ${units[unit]}`;
+    }
+
+    function renderDockerAggregates(rows) {
+      const cpu = rows.map(row => numericDockerValue((row.stats || {}).cpu_percent)).filter(Number.isFinite);
+      const memory = rows.map(row => dockerByteValue((row.stats || {}).memory_usage, false)).filter(Number.isFinite);
+      const network = rows.map(row => dockerByteValue((row.stats || {}).network_io, true)).filter(Number.isFinite);
+      const cpuTotal = cpu.reduce((total, value) => total + value, 0);
+      const memoryTotal = memory.reduce((total, value) => total + value, 0);
+      const networkTotal = network.reduce((total, value) => total + value, 0);
+      document.getElementById("docker-total-cpu").innerText = cpu.length ? `${cpuTotal.toFixed(cpuTotal >= 100 ? 0 : 1)}%` : "—";
+      document.getElementById("docker-total-memory").innerText = memory.length ? formatDockerAggregateMemory(memoryTotal) : "—";
+      document.getElementById("docker-total-network").innerText = network.length ? formatDockerAggregateMemory(networkTotal) : "—";
     }
 
     async function dockerAction(action, container) {
@@ -1508,7 +1590,10 @@
     }
     function renderDockerRows() {
       const tbody = document.getElementById("docker-body");
-      const rows = dockerRows.filter(dockerRowVisible).slice().sort((a, b) => {
+      renderDockerLabelChips();
+      const visibleRows = dockerRows.filter(dockerRowVisible);
+      renderDockerAggregates(visibleRows);
+      const rows = visibleRows.slice().sort((a, b) => {
         for (const sort of dockerSorts) {
           const av = dockerSortValue(a, sort.key), bv = dockerSortValue(b, sort.key);
           if (av < bv) return -1 * sort.dir;

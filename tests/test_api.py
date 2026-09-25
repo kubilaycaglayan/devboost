@@ -43,6 +43,21 @@ class TestDashboardAPI(unittest.TestCase):
             self.assertIn('id="theme-toggle"', html)
             self.assertIn('localStorage.getItem("devboost-theme")', html)
 
+    def test_docker_label_visibility_controls_are_present(self):
+        with urllib.request.urlopen(self.base_url + "/") as resp:
+            html = resp.read().decode("utf-8")
+        self.assertIn('id="docker-label-chips"', html)
+        self.assertIn('id="docker-total-cpu"', html)
+        self.assertIn('id="docker-total-memory"', html)
+        self.assertIn('id="docker-total-network"', html)
+        self.assertIn("showAllDockerLabels()", html)
+        self.assertIn("hideAllDockerLabels()", html)
+        self.assertNotIn("restoreDockerLabelVisibility()", html)
+        with urllib.request.urlopen(self.base_url + "/dashboard/app.js") as resp:
+            app_js = resp.read().decode("utf-8")
+        self.assertIn("function toggleDockerLabel(key)", app_js)
+        self.assertIn("dockerVisibleLabels === null", app_js)
+
     def test_theme_toggle_supports_all_modes_and_persists_selection(self):
         with urllib.request.urlopen(self.base_url + "/dashboard/app.js") as resp:
             app_js = resp.read().decode("utf-8")
