@@ -21,7 +21,7 @@ SYNC_DIRECTIONS = ("two-way", "push", "pull")
 SYNC_DEFAULT_DIRECTION = "two-way"
 SYNC_DEFAULT_INTERVAL = 15
 SYNC_MIN_INTERVAL = 5
-SYNC_MAX_INTERVAL = 600
+SYNC_MAX_INTERVAL = 3600
 
 
 class _RuntimeGlobals(dict):

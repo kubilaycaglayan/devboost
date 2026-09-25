@@ -49,7 +49,7 @@ class TestFolderSync(unittest.TestCase):
         self.assertTrue(changed)
         self.assertEqual(migrated["syncs"][0]["direction"], "two-way")
         self.assertFalse(migrated["syncs"][0]["mirror"])
-        self.assertEqual(migrated["syncs"][0]["interval"], 600)
+        self.assertEqual(migrated["syncs"][0]["interval"], 3600)
         self.assertNotEqual(migrated["syncs"][0]["id"], migrated["syncs"][1]["id"])
         self.assertEqual(len(migrated["folder_history"]), 1)
 
@@ -97,14 +97,14 @@ class TestFolderSync(unittest.TestCase):
         sid = self._server_id()
         res = devboost.add_sync(server_ref=sid, local_path="/tmp/a",
                                remote_path="~/b", direction="pull",
-                               mirror=True, always=True, interval=30,
+                               mirror=True, always=True, interval=3600,
                                run_now=False)
         self.assertTrue(res["ok"])
         plist_path = devboost.get_sync_plist_path(res["sync"]["id"])
         self.assertTrue(os.path.exists(plist_path))
         with open(plist_path, "rb") as f:
             data = plistlib.load(f)
-        self.assertEqual(data["StartInterval"], 30)
+        self.assertEqual(data["StartInterval"], 3600)
         self.assertTrue(data["RunAtLoad"])
         self.assertIn("sync-run", data["ProgramArguments"])
 

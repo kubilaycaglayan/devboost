@@ -141,7 +141,7 @@ SYNC_DIRECTIONS = ("two-way", "push", "pull")
 SYNC_DEFAULT_DIRECTION = "two-way"
 SYNC_DEFAULT_INTERVAL = 15
 SYNC_MIN_INTERVAL = 5
-SYNC_MAX_INTERVAL = 600
+SYNC_MAX_INTERVAL = 3600
 # CODE_DIR holds the executable (repo root in development, app Resources when packaged).
 CODE_DIR = _code_dir()
 # APP_DIR holds per-user state (.env, config.json), separate from source code
