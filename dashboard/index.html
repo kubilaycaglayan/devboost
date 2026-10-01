@@ -141,7 +141,7 @@
     </div></div>
 
     <!-- Docker monitoring (cached snapshots from the active server) -->
-    <div class="page-view" id="page-docker"><div class="section-card">
+    <div class="page-view content-wide" id="page-docker"><div class="section-card">
       <div class="section-header">
         <div class="docker-heading"><h2>Docker Containers <span class="muted" style="font-weight:400; font-size:12px;" id="docker-subtitle"></span></h2><div class="docker-aggregate-summary" aria-label="Docker resource totals"><span>CPU <strong id="docker-total-cpu">—</strong></span><span>MEMORY <strong id="docker-total-memory">—</strong></span><span>DISK <strong id="docker-total-disk">—</strong></span><span>NET I/O <strong id="docker-total-network">—</strong></span><span class="docker-system-disk-total">DOCKER DISK <strong id="docker-total-system-disk" title="Images, containers, local volumes, and build cache">—</strong></span></div></div>
         <div style="display:flex; gap:8px;">
@@ -185,7 +185,7 @@
     </div></div>
 
     <!-- Folder Syncs (tracked mirrors, managed like ports) -->
-    <div class="page-view" id="page-syncs"><div class="section-card">
+    <div class="page-view content-wide" id="page-syncs"><div class="section-card">
       <div class="section-header">
         <h2>Folder Syncs <span class="muted" style="font-weight:400; font-size:12px;" id="syncs-subtitle"></span></h2>
         <div style="display:flex; gap:8px;">
@@ -196,6 +196,7 @@
       <table>
         <thead>
           <tr>
+            <th>LABEL</th>
             <th>LOCAL FOLDER</th>
             <th>REMOTE FOLDER</th>
             <th>MODE</th>
@@ -204,7 +205,7 @@
           </tr>
         </thead>
         <tbody id="syncs-body">
-          <tr><td colspan="5" style="text-align:center; color:var(--text-muted); padding:30px;">Loading folder syncs...</td></tr>
+          <tr><td colspan="6" style="text-align:center; color:var(--text-muted); padding:30px;">Loading folder syncs...</td></tr>
         </tbody>
       </table>
     </div></div>
@@ -361,6 +362,10 @@
             </div>
             <div class="browser-list" id="browser-remote-list"></div>
           </div>
+        </div>
+        <div class="form-group">
+          <label for="sync-label">Label <span class="form-hint">A name to recognize this sync</span></label>
+          <input type="text" id="sync-label" maxlength="120" placeholder="e.g. Work projects" />
         </div>
         <div class="form-group">
           <label>Direction</label>

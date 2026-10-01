@@ -939,7 +939,7 @@
       document.getElementById("stat-remote").innerText = "-";
       document.getElementById("forwards-body").innerHTML = '<tr><td colspan="6" style="text-align:center; color:var(--text-muted); padding:30px;">Connect a server to manage port forwards.</td></tr>';
       document.getElementById("docker-body").innerHTML = '<tr><td colspan="9" style="text-align:center; color:var(--text-muted); padding:30px;">Connect a server to view Docker containers.</td></tr>';
-      document.getElementById("syncs-body").innerHTML = '<tr><td colspan="5" style="text-align:center; color:var(--text-muted); padding:30px;">Connect a server to manage folder syncs.</td></tr>';
+      document.getElementById("syncs-body").innerHTML = '<tr><td colspan="6" style="text-align:center; color:var(--text-muted); padding:30px;">Connect a server to manage folder syncs.</td></tr>';
       document.getElementById("remote-services-body").innerHTML = '<tr><td colspan="5" style="text-align:center; color:var(--text-muted); padding:20px;">Connect a server to scan remote services.</td></tr>';
       updateConnectionControls();
     }
@@ -1864,7 +1864,7 @@
       }
     }
 
-    async function fetchSyncs() {
+    async function fetchSyncs(forceRender = false) {
       if (!viewedServerId) { renderDisconnectedState(); return; }
       const requestedServerId = viewedServerId;
       try {
@@ -1872,6 +1872,14 @@
         const data = await res.json();
         if (!responseBelongsToServer(requestedServerId, viewedServerId, data.server_id)) return;
         cachedFolderHistory = data.folder_history || [];
+        const activeEditor = document.querySelector("#syncs-body .sync-label-editor");
+        // Periodic refreshes must not replace the input while the user is
+        // typing. A forced render is used after an explicit save/cancel.
+        if (activeEditor && !forceRender) {
+          currentSyncs = data.syncs || [];
+          renderHomeSyncSummary(currentSyncs);
+          return;
+        }
         renderSyncs(data);
       } catch (err) {
         console.error(err);
@@ -1940,7 +1948,7 @@
       if (sub) sub.innerText = data.server_name ? `• ${data.server_name}` : "";
       const tbody = document.getElementById("syncs-body");
       if (!currentSyncs.length) {
-        tbody.innerHTML = '<tr><td colspan="5" style="text-align:center; color:var(--text-muted); padding:30px;">No folder syncs yet. Click "+ Add Folder Sync" to mirror a folder with this server.</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="6" style="text-align:center; color:var(--text-muted); padding:30px;">No folder syncs yet. Click "+ Add Folder Sync" to mirror a folder with this server.</td></tr>';
         return;
       }
       tbody.innerHTML = currentSyncs.map(s => {
@@ -1963,6 +1971,7 @@
           : '<span class="muted">Disconnected — configuration only</span>';
         return `
           <tr>
+            <td><div class="sync-label-view" ${runtimeActive ? `onclick='beginSyncLabelEdit(this, ${JSON.stringify(s.id)}, ${JSON.stringify(s.label || "")})'` : ""} title="${runtimeActive ? "Click to edit sync label" : "Disconnected — configuration only"}><strong class="${s.label ? "" : "sync-label-placeholder"}">${escapeHtml(s.label || "Add label")}</strong></div></td>
             <td>${syncPathMarkup(s.local_path, "local")}<br/><span class="muted" style="font-size:11px;">this Mac</span></td>
             <td>${syncPathMarkup(s.remote_path, "remote")}<br/><span class="muted" style="font-size:11px;">${escapeHtml(data.server_host || currentServerHost || 'server')}</span></td>
             <td>${directionBadge(s.direction, s.mirror)}<br/><span style="display:inline-block; margin-top:4px;">${modeBadge(s)}</span></td>
@@ -1971,6 +1980,32 @@
           </tr>
         `;
       }).join("");
+    }
+
+    function beginSyncLabelEdit(view, syncId, currentLabel) {
+      if (view.parentElement.querySelector(".sync-label-editor")) return;
+      const editor = document.createElement("div");
+      editor.className = "sync-label-editor";
+      editor.innerHTML = `<input type="text" maxlength="120" value="${escapeHtml(currentLabel || "")}" aria-label="Sync label" /><button class="btn btn-sm btn-primary" onclick="saveSyncLabelEdit(this, '${escapeHtml(syncId)}')">Save</button><button class="btn btn-sm" onclick="fetchSyncs(true)">Cancel</button>`;
+      view.replaceWith(editor);
+      const input = editor.querySelector("input");
+      input.focus(); input.select();
+      input.addEventListener("keydown", event => {
+        if (event.key === "Enter") editor.querySelector("button").click();
+        if (event.key === "Escape") fetchSyncs(true);
+      });
+    }
+
+    async function saveSyncLabelEdit(button, syncId) {
+      if (!requireConnectedView()) return;
+      const editor = button.closest(".sync-label-editor");
+      const label = editor.querySelector("input").value.trim();
+      try {
+        const res = await fetch("/api/syncs/update", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({id: syncId, label: label, run_now: false})});
+        const data = await res.json();
+        if (!res.ok || !data.ok) throw new Error(data.message || "Could not update label");
+        showToast("Sync label saved"); fetchSyncs(true);
+      } catch (err) { showToast("Error saving sync label: " + err, true); }
     }
 
     async function runSyncNow(sid) {
@@ -2034,6 +2069,7 @@
       document.getElementById("sync-submit-btn").innerText = existing ? "Save & Sync" : "Start Sync";
       document.getElementById("sync-local-path").value = existing ? (existing.local_path || "") : "";
       document.getElementById("sync-remote-path").value = existing ? (existing.remote_path || "") : "";
+      document.getElementById("sync-label").value = existing ? (existing.label || "") : "";
       document.getElementById("sync-direction").value = existing ? (existing.direction || "two-way") : "two-way";
       document.getElementById("sync-mirror").checked = existing ? !!existing.mirror : false;
       document.getElementById("sync-always").checked = existing ? !!existing.always : true;
@@ -2448,6 +2484,7 @@
       if (!requireConnectedView()) return;
       const localPath = document.getElementById("sync-local-path").value.trim();
       const remotePath = document.getElementById("sync-remote-path").value.trim();
+      const label = document.getElementById("sync-label").value.trim();
       const direction = document.getElementById("sync-direction").value;
       const mirror = document.getElementById("sync-mirror").checked;
       const always = document.getElementById("sync-always").checked;
@@ -2461,8 +2498,8 @@
       const isEdit = !!editingSyncId;
       const url = isEdit ? "/api/syncs/update" : "/api/syncs";
       const payload = isEdit
-        ? { id: editingSyncId, local_path: localPath, remote_path: remotePath, direction: direction, mirror: mirror, always: always, interval: interval, run_now: true }
-        : { server_id: currentServerId, local_path: localPath, remote_path: remotePath, direction: direction, mirror: mirror, always: always, interval: interval, run_now: true };
+        ? { id: editingSyncId, local_path: localPath, remote_path: remotePath, label: label, direction: direction, mirror: mirror, always: always, interval: interval, run_now: true }
+        : { server_id: currentServerId, local_path: localPath, remote_path: remotePath, label: label, direction: direction, mirror: mirror, always: always, interval: interval, run_now: true };
       closeSyncModal();
       showToast(isEdit ? `Saving folder sync...` : `Starting folder sync...`);
       try {

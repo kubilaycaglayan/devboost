@@ -540,6 +540,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                     mirror=bool(body.get("mirror", False)),
                     always=bool(body.get("always", False)),
                     interval=body.get("interval", SYNC_DEFAULT_INTERVAL),
+                    label=body.get("label", ""),
                     run_now=bool(body.get("run_now", True)),
                 )
             except ValueError as e:
@@ -614,6 +615,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                     mirror=body.get("mirror") if "mirror" in body else None,
                     always=body.get("always") if "always" in body else None,
                     interval=body.get("interval") if "interval" in body else None,
+                    label=body.get("label") if "label" in body else None,
                 )
             except ValueError as e:
                 self._send_json({"ok": False, "message": str(e)}, status=400)

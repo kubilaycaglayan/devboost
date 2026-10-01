@@ -294,6 +294,17 @@ class TestFolderSync(unittest.TestCase):
         self.assertTrue(updated["mirror"])
         self.assertEqual(updated["interval"], 45)
 
+    def test_sync_label_is_persisted_and_returned_in_status(self):
+        sid = self._server_id()
+        res = devboost.add_sync(server_ref=sid, local_path="/tmp/a",
+                                remote_path="~/b", label="Project files", run_now=False)
+        sync_id = res["sync"]["id"]
+        self.assertEqual(res["sync"]["label"], "Project files")
+        updated = devboost.update_sync(sync_id, label="Release mirror")
+        self.assertEqual(updated["label"], "Release mirror")
+        row = devboost.get_syncs_status(sid)["syncs"][0]
+        self.assertEqual(row["label"], "Release mirror")
+
     def test_update_sync_forces_mirror_off_for_two_way(self):
         sid = self._server_id()
         res = devboost.add_sync(server_ref=sid, local_path="/tmp/a",

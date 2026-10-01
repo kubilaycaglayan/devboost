@@ -627,6 +627,10 @@ def create_launchagent(*args, **kwargs):
     return forwarding.invoke("create_launchagent", sys.modules[__name__], *args, **kwargs)
 
 
+def restore_always_forward_agents(*args, **kwargs):
+    return forwarding.invoke("restore_always_forward_agents", sys.modules[__name__], *args, **kwargs)
+
+
 def remove_launchagent(*args, **kwargs):
     return forwarding.invoke("remove_launchagent", sys.modules[__name__], *args, **kwargs)
 
@@ -822,11 +826,13 @@ class ReusableHTTPServer(ThreadingHTTPServer):
 
 
 def serve(port=DEFAULT_DASHBOARD_PORT):
-    # Auto sync agents execute the app's native launcher. Recreate them on
-    # each packaged-app start so an update always refreshes their path.
+    # Persistent agents execute the app's native launcher. Reconcile them on
+    # each packaged-app start so an update repairs stale launchd jobs and
+    # removes plist-only forwards.
     if get_packaged_app_executable():
         restore_packaged_forward_agents()
         enforce_server_runtime_state()
+        restore_always_forward_agents()
     server = ReusableHTTPServer(("127.0.0.1", port), DashboardHandler)
     # The dashboard controls local SSH, sync, Docker, and process-management
     # operations. A fresh per-launch token prevents unrelated local web/API

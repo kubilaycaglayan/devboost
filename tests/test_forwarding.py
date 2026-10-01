@@ -76,6 +76,35 @@ class TestForwardingDiscovery(unittest.TestCase):
             finally:
                 devboost.CONFIG_FILE, devboost.CONFIG_DIR = old_file, old_dir
 
+    @patch.object(devboost, "create_launchagent")
+    @patch.object(devboost, "remove_launchagent")
+    @patch.object(devboost, "get_launchagents_for_server")
+    def test_restore_always_forward_agents_reconciles_config(self, agents, remove, create):
+        with tempfile.TemporaryDirectory() as root:
+            old_file, old_dir = devboost.CONFIG_FILE, devboost.CONFIG_DIR
+            devboost.CONFIG_DIR = root
+            devboost.CONFIG_FILE = os.path.join(root, "config.json")
+            try:
+                cfg = devboost.load_config()
+                server = cfg["servers"][0]
+                cfg["forward_configs"] = [{
+                    "server_id": server["id"], "local_port": 3030,
+                    "remote_port": 3031, "always": True,
+                }]
+                devboost.save_config(cfg)
+                agents.return_value = {
+                    3030: {"port": 3030},
+                    8080: {"port": 8080},
+                }
+
+                result = devboost.restore_always_forward_agents()
+
+                self.assertEqual(result, {"repaired": 1, "removed": 1})
+                remove.assert_called_once_with(8080, server_ref=server["id"])
+                create.assert_called_once_with(3030, 3031, server_ref=server["id"])
+            finally:
+                devboost.CONFIG_FILE, devboost.CONFIG_DIR = old_file, old_dir
+
     @patch.object(devboost, "is_server_reachable", return_value=False)
     @patch.object(devboost, "get_port_history", return_value=[])
     @patch.object(devboost, "get_launchagents_for_server", return_value={})

@@ -24,7 +24,7 @@ class _RuntimeGlobals(dict):
             raise KeyError(key) from exc
 
 
-_FUNCTIONS = ["get_plist_label","get_plist_path","_infer_server_id_for_plist","is_server_reachable","get_listening_ports","_extract_ssh_destination","get_ssh_forwards","get_launchagents","get_launchagents_for_server","_scan_all_agents_raw","get_all_forwards_status","get_servers_status","create_launchagent","remove_launchagent","remove_launchagents_for_server","suspend_launchagents_for_server","restore_launchagents_for_server","kill_port_processes","kill_server_processes","add_forward","update_forward_label","remove_forward","toggle_always","clean_orphaned_tunnels"]
+_FUNCTIONS = ["get_plist_label","get_plist_path","_infer_server_id_for_plist","is_server_reachable","get_listening_ports","_extract_ssh_destination","get_ssh_forwards","get_launchagents","get_launchagents_for_server","_scan_all_agents_raw","get_all_forwards_status","get_servers_status","create_launchagent","restore_always_forward_agents","remove_launchagent","remove_launchagents_for_server","suspend_launchagents_for_server","restore_launchagents_for_server","kill_port_processes","kill_server_processes","add_forward","update_forward_label","remove_forward","toggle_always","clean_orphaned_tunnels"]
 
 
 def get_plist_label(port, server_id=None):
@@ -621,10 +621,55 @@ def create_launchagent(local_port, remote_port, server_ref=None):
         "StandardOutPath": os.path.join(LOG_DIR, f"devboost-forward-{sid}-{local_port}.log"),
         "StandardErrorPath": os.path.join(LOG_DIR, f"devboost-forward-{sid}-{local_port}.err"),
     }
+    # Replacing a plist in place is not enough for launchd jobs that failed
+    # under an older packaged-app code signature. Unload the existing job first
+    # so launchd drops the stale managed state before loading the new plist.
+    if os.path.exists(plist_path):
+        subprocess.run(["launchctl", "unload", "-w", plist_path],
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     with open(plist_path, "wb") as f:
         plistlib.dump(data, f)
     subprocess.run(["launchctl", "load", "-w", plist_path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     return plist_path
+
+def restore_always_forward_agents():
+    """Reconcile connected servers' persistent forwards with launchd.
+
+    The config is the source of truth for which forwards are persistent. This
+    repairs jobs left behind by an app update and removes plist-only forwards
+    that otherwise appear as Always in the dashboard forever.
+    """
+    cfg = load_config()
+    connected = set(cfg.get("connected_server_ids") or [])
+    repaired = 0
+    removed = 0
+    for server in get_servers(cfg):
+        sid = server.get("id")
+        if not sid or sid not in connected:
+            continue
+        configured = {}
+        for item in cfg.get("forward_configs", []):
+            if not isinstance(item, dict) or item.get("server_id") != sid or not item.get("always"):
+                continue
+            try:
+                configured[int(item.get("local_port"))] = int(item.get("remote_port"))
+            except (TypeError, ValueError):
+                continue
+
+        agents = get_launchagents_for_server(server)
+        for port in set(agents) - set(configured):
+            remove_launchagent(port, server_ref=sid)
+            removed += 1
+
+        for port, remote_port in configured.items():
+            try:
+                create_launchagent(port, remote_port, server_ref=sid)
+                repaired += 1
+            except Exception:
+                # Keep startup resilient if a server is temporarily unreachable
+                # or a conflicting local port prevents one job from loading.
+                continue
+    return {"repaired": repaired, "removed": removed}
 
 def remove_launchagent(local_port, server_ref=None):
     if server_ref is None:

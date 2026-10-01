@@ -88,6 +88,7 @@ def ensure_syncs_migrated(cfg):
             changed = True
         s.setdefault("local_path", "")
         s.setdefault("remote_path", "")
+        s.setdefault("label", "")
         s.setdefault("server_id", "")
         s.setdefault("created_at", time.time())
         s.setdefault("last_sync", None)
@@ -472,7 +473,8 @@ def _run_sync_unlocked(sync_id, timeout=300, trigger="manual"):
     return {"ok": True, "message": sync["last_message"]}
 
 def add_sync(server_ref=None, local_path="", remote_path="", direction="two-way",
-             mirror=False, always=False, interval=SYNC_DEFAULT_INTERVAL, run_now=True):
+             mirror=False, always=False, interval=SYNC_DEFAULT_INTERVAL, run_now=True,
+             label=""):
     """Creates a sync entry, installs agent if Auto, optionally runs once now."""
     cfg = load_config()
     server = resolve_server(cfg, server_ref)
@@ -495,6 +497,7 @@ def add_sync(server_ref=None, local_path="", remote_path="", direction="two-way"
             s["mirror"] = bool(mirror)
             s["always"] = bool(always)
             s["interval"] = interval
+            s["label"] = str(label or "").strip()[:120]
             save_config(cfg)
             sync = s
             break
@@ -504,6 +507,7 @@ def add_sync(server_ref=None, local_path="", remote_path="", direction="two-way"
             "server_id": sid,
             "local_path": local,
             "remote_path": remote,
+            "label": str(label or "").strip()[:120],
             "direction": direction,
             "mirror": bool(mirror),
             "always": bool(always),
@@ -585,7 +589,7 @@ def toggle_sync_always(sync_id, make_always, interval=None):
     return sync
 
 def update_sync(sync_id, local_path=None, remote_path=None, direction=None,
-                mirror=None, always=None, interval=None):
+                mirror=None, always=None, interval=None, label=None):
     """Edits a sync entry's paths/params (server tab never changes).
 
     Only arguments that are not None are updated. Returns the updated sync
@@ -617,6 +621,8 @@ def update_sync(sync_id, local_path=None, remote_path=None, direction=None,
             sync["interval"] = max(SYNC_MIN_INTERVAL, min(SYNC_MAX_INTERVAL, int(interval)))
         except (TypeError, ValueError):
             pass
+    if label is not None:
+        sync["label"] = str(label or "").strip()[:120]
     save_config(cfg)
     try:
         record_folder_history(sync.get("server_id"), sync.get("local_path"), sync.get("remote_path"))
@@ -652,6 +658,7 @@ def get_syncs_status(server_ref=None):
             "server_id": sid,
             "local_path": s.get("local_path", ""),
             "remote_path": s.get("remote_path", ""),
+            "label": s.get("label", ""),
             "direction": s.get("direction", SYNC_DEFAULT_DIRECTION),
             "mirror": bool(s.get("mirror", False)),
             "always": bool(s.get("always", False)),

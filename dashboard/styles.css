@@ -50,6 +50,9 @@
       line-height: 1.5;
     }
     .container { max-width: 1060px; margin: 0 auto; }
+    /* Only the data cards use the extra horizontal space. The title, server
+       tabs, and workspace navigation stay aligned to the normal shell. */
+    .page-view.content-wide { width: min(1360px, calc(100vw - 48px)); margin-left: 50%; transform: translateX(-50%); }
     .page-view { display: none; }
     .page-view.active { display: block; }
     .feature-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
@@ -559,13 +562,20 @@
     .sync-path-home { opacity: .62; font-weight: 600; }
     .sync-path-tail { font-weight: 850; }
     #page-syncs table { table-layout: fixed; }
-    #page-syncs th:nth-child(1), #page-syncs td:nth-child(1) { width: 25%; }
-    #page-syncs th:nth-child(2), #page-syncs td:nth-child(2) { width: 25%; }
-    #page-syncs th:nth-child(3), #page-syncs td:nth-child(3) { width: 13%; }
-    #page-syncs th:nth-child(4), #page-syncs td:nth-child(4) { width: 13%; }
-    #page-syncs th:nth-child(5), #page-syncs td:nth-child(5) { width: 24%; padding-left: 10px; padding-right: 10px; }
+    #page-syncs th:nth-child(1), #page-syncs td:nth-child(1) { width: 15%; }
+    #page-syncs th:nth-child(2), #page-syncs td:nth-child(2) { width: 22%; }
+    #page-syncs th:nth-child(3), #page-syncs td:nth-child(3) { width: 22%; }
+    #page-syncs th:nth-child(4), #page-syncs td:nth-child(4) { width: 12%; }
+    #page-syncs th:nth-child(5), #page-syncs td:nth-child(5) { width: 12%; }
+    #page-syncs th:nth-child(6), #page-syncs td:nth-child(6) { width: 17%; padding-left: 10px; padding-right: 10px; }
     #page-syncs .sync-actions-heading { text-align: center; }
-    #page-syncs td:nth-child(5) .actions-cell { justify-content: center; }
+    #page-syncs td:nth-child(6) .actions-cell { justify-content: center; }
+    .sync-label-view { min-width: 0; cursor: text; }
+    .sync-label-view strong { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .sync-label-placeholder { color: var(--text-muted); font-style: italic; }
+    .sync-label-editor { display: grid; grid-template-columns: minmax(80px, 1fr) auto auto; gap: 5px; align-items: center; }
+    .sync-label-editor input { min-width: 0; width: 100%; padding: 5px 7px; background: var(--input-bg); border: 1px solid var(--border); border-radius: 6px; color: var(--text); font-size: 12px; }
+    .sync-label-editor input:focus { outline: none; border-color: var(--accent); }
     .sync-last-line { display: inline-flex; flex-direction: column; gap: 5px; margin-top: 6px; color: var(--text-muted); font-size: 11px; line-height: 1.2; }
     .sync-last-line > span { white-space: nowrap; }
     .sync-sub { font-size: 11px; color: var(--text-muted); font-family: var(--font-mono); word-break: break-all; }
