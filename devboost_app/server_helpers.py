@@ -24,10 +24,13 @@ def get_server(cfg, server_ref):
 
 
 def get_server_labels(cfg, server_id):
-    """Merge legacy flat labels with per-server overrides."""
+    """Return labels migrated to this server's namespace.
+
+    Legacy flat labels are assigned to the bootstrap server by
+    ``ensure_servers_migrated``. Reading them here would expose them on every
+    server tab, so this lookup only uses the per-server map.
+    """
     labels = {}
-    if isinstance(cfg.get("labels"), dict):
-        labels.update({str(key): value for key, value in cfg["labels"].items()})
     per_server = cfg.get("server_labels", {}).get(server_id, {})
     if isinstance(per_server, dict):
         labels.update({str(key): value for key, value in per_server.items()})

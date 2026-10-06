@@ -22,11 +22,14 @@ class TestPureHelpers(unittest.TestCase):
         self.assertIs(server_helpers.get_server({"servers": servers}, "one"), servers[1])
         self.assertIsNone(server_helpers.get_server({"servers": servers}, "missing"))
 
-    def test_server_labels_merge_legacy_and_override(self):
+    def test_server_labels_only_use_requested_server_namespace(self):
         cfg = {"labels": {"3000": "legacy", "4000": "other"},
-               "server_labels": {"one": {"3000": "override", "5000": "new"}}}
+               "server_labels": {"one": {"3000": "override", "5000": "new"},
+                                 "two": {"6000": "separate"}}}
         self.assertEqual(server_helpers.get_server_labels(cfg, "one"),
-                         {"3000": "override", "4000": "other", "5000": "new"})
+                         {"3000": "override", "5000": "new"})
+        self.assertEqual(server_helpers.get_server_labels(cfg, "two"),
+                         {"6000": "separate"})
 
     def test_sync_path_normalization_and_validation(self):
         self.assertEqual(sync_helpers.normalize_sync_path(" /tmp/a/ "), "/tmp/a")

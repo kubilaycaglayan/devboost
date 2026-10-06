@@ -12,6 +12,38 @@ from devboost_app import forwarding
 
 
 class TestForwardingDiscovery(unittest.TestCase):
+    @patch.object(devboost, "is_server_reachable", return_value=False)
+    @patch.object(devboost, "get_port_history", return_value=[])
+    @patch.object(devboost, "get_launchagents_for_server", return_value={})
+    @patch.object(devboost, "get_ssh_forwards", return_value=[])
+    def test_status_does_not_leak_bootstrap_labels_or_forwards_to_new_server(
+            self, _forwards, _agents, _history, _reachable):
+        with tempfile.TemporaryDirectory() as root:
+            old_file, old_dir = devboost.CONFIG_FILE, devboost.CONFIG_DIR
+            devboost.CONFIG_DIR = root
+            devboost.CONFIG_FILE = os.path.join(root, "config.json")
+            try:
+                cfg = devboost.load_config()
+                first = cfg["servers"][0]
+                second = devboost.add_server("other", "Other")
+                cfg = devboost.load_config()
+                cfg["labels"] = {"3000": "Legacy App"}
+                cfg["server_labels"] = {}
+                cfg["forward_configs"] = [{
+                    "server_id": first["id"], "local_port": 3000,
+                    "remote_port": 3001, "always": False,
+                }]
+                devboost.save_config(cfg)
+
+                first_status = devboost.get_all_forwards_status(first["id"])
+                second_status = devboost.get_all_forwards_status(second["id"])
+
+                self.assertEqual([row["local_port"] for row in first_status["forwards"]], [3000])
+                self.assertEqual(first_status["forwards"][0]["label"], "Legacy App")
+                self.assertEqual(second_status["forwards"], [])
+            finally:
+                devboost.CONFIG_FILE, devboost.CONFIG_DIR = old_file, old_dir
+
     def test_extract_ssh_destination_skips_forward_values_and_options(self):
         cmd = "123 ssh -N -L 3000:127.0.0.1:3000 -o ServerAlive=yes my-box"
         self.assertEqual(devboost._extract_ssh_destination(cmd), "my-box")
