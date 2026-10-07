@@ -698,7 +698,7 @@
         const isActive = connectedServerIds.has(s.id);
         const isViewed = s.id === viewedServerId;
         const dotCls = isViewed && !isActive ? "tab-dot preview" : (serverReachability[s.id] === true ? "tab-dot online" : "tab-dot");
-        return `<div class="tab ${isActive ? 'active' : ''}${isViewed && !isActive ? ' preview' : ''}" data-server-id="${s.id}" draggable="true"
+        return `<div class="tab ${isViewed ? 'active' : ''}${isViewed && !isActive ? ' preview' : ''}" data-server-id="${s.id}" draggable="true"
             onclick="selectServer('${s.id}')" ondragstart="onServerTabDragStart(event, '${s.id}')"
             ondragend="onServerTabDragEnd()"
             title="${escapeHtml(s.ssh_host)}${s.ip ? ' (' + escapeHtml(s.ip) + ')' : ''}">

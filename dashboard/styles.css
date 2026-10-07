@@ -41,7 +41,7 @@
         --text-on-accent: #ffffff; --surface-subtle: #f6f8fa; --surface-hover: #eaeef2; --surface-selected: #ddf4ff;
       }
     }
-    * { box-sizing: border-box; margin: 0; padding: 0; }
+    * { box-sizing: border-box; margin: 0; padding: 0; cursor: default !important; }
     body {
       background-color: var(--bg);
       color: var(--text);
@@ -326,7 +326,7 @@
       cursor: pointer;
       white-space: nowrap;
     }
-    .workspace-tab:hover { color: #fff; background: var(--btn-hover); }
+    .workspace-tab:hover { cursor: default; color: #fff; background: var(--btn-hover); }
     .workspace-tab.active { color: #fff; background: rgba(88,166,255,0.18); }
     .workspace-tab:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
     .quota-nav-tab { position: relative; display: inline-flex; }
@@ -353,8 +353,8 @@
     .tab.active { border-color: var(--accent); background: rgba(88,166,255,0.12); color: #fff; }
     .tab.preview { border-style: dashed; border-color: var(--accent); }
     .tab.dragging { opacity: 0.45; }
-    .tab[draggable="true"] { cursor: grab; }
-    .tab[draggable="true"]:active { cursor: grabbing; }
+    .tab[draggable="true"] { cursor: default; }
+    .tab[draggable="true"]:active { cursor: default; }
     .server-tab-drop-shadow {
       flex: 0 0 auto;
       padding: 0;
