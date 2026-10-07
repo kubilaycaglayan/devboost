@@ -68,26 +68,29 @@ def ensure_servers_migrated(cfg):
         srv.setdefault("ip", "")
         srv.setdefault("order", idx)
         srv.setdefault("pinned", False)
-    # Migrate legacy flat labels -> per-server labels for the bootstrap server.
-    # Bootstrap = server matching current .env host, else first in file order
-    # (stable: never the pinned/sorted tab order, so pinning can't move data).
-    bootstrap_id = None
-    for srv in cfg["servers"]:
-        if isinstance(srv, dict) and srv.get("ssh_host") == SSH_HOST:
-            bootstrap_id = srv.get("id")
-            break
-    if bootstrap_id is None:
-        bootstrap_id = cfg["servers"][0]["id"] if isinstance(cfg["servers"][0], dict) else None
-    if isinstance(cfg.get("labels"), dict) and cfg["labels"] and bootstrap_id:
+    # Pin ownership of legacy flat labels once. Recomputing this after a host
+    # change or server removal can silently transfer old port labels to a new tab.
+    legacy_owner = cfg.get("legacy_labels_server_id")
+    valid_servers = [srv for srv in cfg["servers"] if isinstance(srv, dict) and srv.get("id")]
+    if "legacy_labels_server_id" not in cfg:
+        legacy_owner = next((srv.get("id") for srv in valid_servers
+                             if srv.get("ssh_host") == SSH_HOST),
+                            valid_servers[0].get("id") if valid_servers else "")
+        cfg["legacy_labels_server_id"] = legacy_owner or ""
+        changed = True
+    if legacy_owner and any(srv.get("id") == legacy_owner for srv in valid_servers) \
+            and isinstance(cfg.get("labels"), dict) and cfg["labels"]:
         server_labels = cfg.setdefault("server_labels", {})
-        if not server_labels.get(bootstrap_id):
-            server_labels[bootstrap_id] = dict(cfg["labels"])
-            changed = True
+        owned_labels = server_labels.setdefault(legacy_owner, {})
+        for port, label in cfg["labels"].items():
+            if port not in owned_labels:
+                owned_labels[port] = label
+                changed = True
     # Tag legacy history entries missing server_id with the bootstrap server
-    if isinstance(cfg.get("history"), list) and cfg["history"] and bootstrap_id:
+    if isinstance(cfg.get("history"), list) and cfg["history"] and legacy_owner:
         for h in cfg["history"]:
             if isinstance(h, dict) and not h.get("server_id"):
-                h["server_id"] = bootstrap_id
+                h["server_id"] = legacy_owner
                 changed = True
     cfg.setdefault("server_labels", {})
     valid_ids = {s.get("id") for s in cfg.get("servers", []) if isinstance(s, dict) and s.get("id")}
@@ -211,6 +214,9 @@ def get_legacy_server(cfg=None):
     servers = cfg.get("servers", [])
     if not servers:
         return default_server_from_env(order=0)
+    legacy_owner = cfg.get("legacy_labels_server_id")
+    if "legacy_labels_server_id" in cfg:
+        return next((srv for srv in servers if srv.get("id") == legacy_owner), {})
     for srv in servers:
         if srv.get("ssh_host") == SSH_HOST:
             return srv
@@ -280,6 +286,9 @@ def remove_server_entry(server_id):
     if cfg.get("last_connected_server_id") == server["id"]:
         cfg["last_connected_server_id"] = ""
     cfg.get("server_labels", {}).pop(server["id"], None)
+    if cfg.get("legacy_labels_server_id") == server["id"]:
+        cfg["legacy_labels_server_id"] = ""
+        cfg["labels"] = {}
     cfg["history"] = [h for h in cfg.get("history", []) if h.get("server_id") != server["id"]]
     sync_ids = [s.get("id") for s in cfg.get("syncs", []) if isinstance(s, dict) and s.get("server_id") == server["id"]]
     cfg["syncs"] = [s for s in cfg.get("syncs", []) if not (isinstance(s, dict) and s.get("server_id") == server["id"])]

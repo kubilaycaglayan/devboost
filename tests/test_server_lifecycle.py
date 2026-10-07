@@ -45,6 +45,36 @@ class TestServerLifecycle(unittest.TestCase):
         self.assertEqual(migrated["server_labels"]["same"]["3000"], "App")
         self.assertEqual(migrated["history"][0]["server_id"], "same")
 
+    def test_legacy_label_owner_does_not_change_when_server_is_removed(self):
+        cfg = {
+            "servers": [{"id": "old", "ssh_host": "one"}, {"id": "new", "ssh_host": "two"}],
+            "labels": {"3000": "Old app"}, "server_labels": {},
+        }
+        migrated, _ = devboost.ensure_servers_migrated(cfg)
+        self.assertEqual(migrated["legacy_labels_server_id"], "old")
+        self.assertEqual(migrated["server_labels"]["old"]["3000"], "Old app")
+        migrated["servers"] = [migrated["servers"][1]]
+        again, _ = devboost.ensure_servers_migrated(migrated)
+        self.assertEqual(again["legacy_labels_server_id"], "old")
+        self.assertNotIn("3000", again["server_labels"].get("new", {}))
+
+    def test_removing_legacy_owner_does_not_reassign_flat_labels(self):
+        first = devboost.load_config()["servers"][0]
+        second = devboost.add_server("staging")
+        cfg = devboost.load_config()
+        cfg["labels"] = {"3000": "Old app"}
+        cfg["server_labels"][first["id"]] = {"3000": "Old app"}
+        cfg["legacy_labels_server_id"] = first["id"]
+        devboost.save_config(cfg)
+        with patch.object(devboost, "remove_launchagents_for_server"), \
+                patch.object(devboost, "kill_server_processes"), \
+                patch.object(devboost, "remove_sync_agent"):
+            self.assertTrue(devboost.remove_server_entry(first["id"]))
+        saved = devboost.load_config()
+        self.assertEqual(saved["legacy_labels_server_id"], "")
+        self.assertEqual(saved["labels"], {})
+        self.assertNotIn("3000", devboost.get_server_labels(saved, second["id"]))
+
     def test_labels_keep_legacy_bootstrap_copy_in_sync(self):
         cfg = devboost.load_config()
         sid = cfg["servers"][0]["id"]
@@ -58,6 +88,8 @@ class TestServerLifecycle(unittest.TestCase):
     def test_update_forward_label_persists_without_restarting_tunnel(self):
         cfg = devboost.load_config()
         sid = cfg["servers"][0]["id"]
+        cfg["forward_configs"] = [{"server_id": sid, "local_port": 3030, "remote_port": 3030}]
+        devboost.save_config(cfg)
         devboost.update_forward_label(3030, "Grafana", server_ref=sid)
         saved = devboost.load_config()
         self.assertEqual(saved["server_labels"][sid]["3030"], "Grafana")

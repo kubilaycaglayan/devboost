@@ -519,6 +519,8 @@
     }
 
     function openAddModal(local = "", remote = "", label = "") {
+      const modal = document.getElementById("add-modal");
+      modal.dataset.serverId = viewedServerId || "";
       document.getElementById("modal-local-port").value = local;
       document.getElementById("modal-remote-port").value = remote || local;
       document.getElementById("modal-remote-port").dataset.autoSynced = "";
@@ -531,11 +533,12 @@
       document.getElementById("modal-always").checked = true;
       document.getElementById("modal-remote-label").innerText = "Remote Port (on " + (currentServerHost || 'server') + ")";
       renderRecentChips(local);
-      document.getElementById("add-modal").style.display = "flex";
+      modal.style.display = "flex";
       document.getElementById("modal-local-port").focus();
       // Refresh history in background so quick-select is always fresh (per active tab)
-      fetch("/api/history" + serverQuery()).then(r => r.json()).then(d => {
-        if (d.history) {
+      const requestedServerId = viewedServerId;
+      fetch("/api/history?server=" + encodeURIComponent(requestedServerId)).then(r => r.json()).then(d => {
+        if (d.history && viewedServerId === requestedServerId && modal.dataset.serverId === requestedServerId) {
           const forwarded = new Set((currentForwards || []).map(f => f.local_port));
           const cur = document.getElementById("modal-local-port").value;
           cachedHistory = d.history.filter(h => !forwarded.has(h.local_port) && String(h.local_port) !== String(cur));
@@ -860,6 +863,19 @@
 
     function previewServer(sid) {
       if (!allServers.some(server => server.id === sid)) return;
+      if (sid !== viewedServerId) {
+        currentForwards = [];
+        cachedHistory = [];
+        quickSelectCache = [];
+        const addModal = document.getElementById("add-modal");
+        if (addModal) addModal.style.display = "none";
+        const tbody = document.getElementById("forwards-body");
+        if (tbody) tbody.innerHTML = '<tr><td colspan="6" style="text-align:center; color:var(--text-muted); padding:30px;">Loading port forwards…</td></tr>';
+        const homeSummary = document.getElementById("home-forwards-summary");
+        if (homeSummary) homeSummary.innerText = "Loading forwarded ports…";
+        document.getElementById("stat-active").innerText = "0";
+        document.getElementById("stat-always").innerText = "0";
+      }
       viewedServerId = sid;
       currentServerId = sid;
       localStorage.setItem("devboost-active-server", sid);
@@ -1165,17 +1181,17 @@
               :${f.remote_port}
             </td>
             <td>
-              <div class="forward-label-view" ${runtimeActive ? `onclick='beginForwardLabelEdit(this, ${f.local_port}, ${JSON.stringify(f.label || "")})'` : ""} title="${runtimeActive ? "Click to edit service label" : "Disconnected — configuration only"}"><strong>${escapeHtml(f.label || "—")}</strong></div>
+              <div class="forward-label-view" ${runtimeActive ? `onclick='beginForwardLabelEdit(this, ${f.local_port}, ${JSON.stringify(f.label || "")}, ${JSON.stringify(data.server_id)})'` : ""} title="${runtimeActive ? "Click to edit service label" : "Disconnected — configuration only"}"><strong>${escapeHtml(f.label || "—")}</strong></div>
               ${conflictBadge}
             </td>
             <td>${modeBadge}</td>
             <td>${activeBadge}</td>
             <td>
               <div class="actions-cell">
-                <button class="btn btn-sm" ${runtimeActive ? `onclick="toggleAlways(${f.local_port}, ${!f.always})"` : "disabled"} title="${runtimeActive ? (f.always ? 'Change to temporary session' : 'Make persistent (Always Forward)') : 'Disconnected — configuration only'}">
+                <button class="btn btn-sm" ${runtimeActive ? `onclick="toggleAlways(${f.local_port}, ${!f.always}, ${JSON.stringify(data.server_id)})"` : "disabled"} title="${runtimeActive ? (f.always ? 'Change to temporary session' : 'Make persistent (Always Forward)') : 'Disconnected — configuration only'}">
                   ${f.always ? 'Make Session' : 'Make Always'}
                 </button>
-                <button class="btn btn-sm btn-danger" ${runtimeActive ? `onclick="deleteForward(${f.local_port})"` : "disabled"} title="${runtimeActive ? 'Remove forward' : 'Disconnected — configuration only'}">
+                <button class="btn btn-sm btn-danger" ${runtimeActive ? `onclick="deleteForward(${f.local_port}, ${JSON.stringify(data.server_id)})"` : "disabled"} title="${runtimeActive ? 'Remove forward' : 'Disconnected — configuration only'}">
                   Delete
                 </button>
               </div>
@@ -1192,6 +1208,9 @@
       if (isNaN(remotePort)) remotePort = localPort;
       const label = document.getElementById("modal-label").value.trim();
       const always = document.getElementById("modal-always").checked;
+      const serverId = document.getElementById("add-modal").dataset.serverId;
+
+      if (!serverId || serverId !== viewedServerId || !requireConnectedView()) return;
 
       if (isNaN(localPort) || localPort <= 0) {
         alert("Please specify a valid port number.");
@@ -1204,9 +1223,11 @@
         const res = await fetch("/api/forward", {
           method: "POST",
           headers: {"Content-Type": "application/json"},
-          body: JSON.stringify({ server_id: currentServerId, local_port: localPort, remote_port: remotePort, label: label, always: always })
+          body: JSON.stringify({ server_id: serverId, local_port: localPort, remote_port: remotePort, label: label, always: always })
         });
         const d = await res.json();
+        if (!res.ok || !d.ok) throw new Error(d.message || "Could not create forward");
+        if (viewedServerId !== serverId) return;
         showToast(d.message || "Forward created!");
         fetchStatus();
       } catch (err) {
@@ -1214,11 +1235,11 @@
       }
     }
 
-    function beginForwardLabelEdit(view, localPort, currentLabel) {
+    function beginForwardLabelEdit(view, localPort, currentLabel, serverId = viewedServerId) {
       if (view.parentElement.querySelector(".forward-label-editor")) return;
       const editor = document.createElement("div");
       editor.className = "forward-label-editor";
-      editor.innerHTML = `<input type="text" value="${escapeHtml(currentLabel || "")}" aria-label="Service description / label" /><button class="btn btn-sm btn-primary" onclick="saveForwardLabelEdit(this, ${localPort})">Save</button><button class="btn btn-sm" onclick="fetchStatus(true)">Cancel</button>`;
+      editor.innerHTML = `<input type="text" value="${escapeHtml(currentLabel || "")}" aria-label="Service description / label" /><button class="btn btn-sm btn-primary" onclick="saveForwardLabelEdit(this, ${localPort}, ${JSON.stringify(serverId)})">Save</button><button class="btn btn-sm" onclick="fetchStatus(true)">Cancel</button>`;
       view.replaceWith(editor);
       const input = editor.querySelector("input");
       input.focus();
@@ -1229,7 +1250,8 @@
       });
     }
 
-    async function saveForwardLabelEdit(button, localPort) {
+    async function saveForwardLabelEdit(button, localPort, serverId = viewedServerId) {
+      if (serverId !== viewedServerId) return;
       if (!requireConnectedView()) return;
       const editor = button.closest(".forward-label-editor");
       const label = editor.querySelector("input").value.trim();
@@ -1237,43 +1259,54 @@
         const res = await fetch("/api/forward/label", {
           method: "POST",
           headers: {"Content-Type": "application/json"},
-          body: JSON.stringify({server_id: currentServerId, local_port: localPort, label: label.trim()})
+          body: JSON.stringify({server_id: serverId, local_port: localPort, label: label.trim()})
         });
         const data = await res.json();
         if (!res.ok || !data.ok) throw new Error(data.message || "Could not update label");
+        if (viewedServerId !== serverId) return;
         showToast(data.message || "Service label saved");
         fetchStatus(true);
-      } catch (err) { showToast("Error saving service label: " + err, true); }
-    }
-
-    async function toggleAlways(localPort, makeAlways) {
-      if (!requireConnectedView()) return;
-      showToast(`Updating persistence rule for port ${localPort}...`);
-      try {
-        await fetch("/api/toggle", {
-          method: "POST",
-          headers: {"Content-Type": "application/json"},
-          body: JSON.stringify({ server_id: currentServerId, local_port: localPort, always: makeAlways })
-        });
-        fetchStatus();
       } catch (err) {
-        alert("Error toggling persistence: " + err);
+        if (viewedServerId === serverId) showToast("Error saving service label: " + err, true);
       }
     }
 
-    async function deleteForward(localPort) {
+    async function toggleAlways(localPort, makeAlways, serverId = viewedServerId) {
+      if (serverId !== viewedServerId) return;
+      if (!requireConnectedView()) return;
+      showToast(`Updating persistence rule for port ${localPort}...`);
+      try {
+        const res = await fetch("/api/toggle", {
+          method: "POST",
+          headers: {"Content-Type": "application/json"},
+          body: JSON.stringify({ server_id: serverId, local_port: localPort, always: makeAlways })
+        });
+        const data = await res.json();
+        if (!res.ok || !data.ok) throw new Error(data.message || "Could not update forward");
+        if (viewedServerId !== serverId) return;
+        fetchStatus();
+      } catch (err) {
+        if (viewedServerId === serverId) showToast("Error toggling persistence: " + err, true);
+      }
+    }
+
+    async function deleteForward(localPort, serverId = viewedServerId) {
+      if (serverId !== viewedServerId) return;
       if (!requireConnectedView()) return;
       if (!confirm(`Are you sure you want to remove forward for port ${localPort}?`)) return;
       showToast(`Removing forward for port ${localPort}...`);
       try {
-        await fetch("/api/remove", {
+        const res = await fetch("/api/remove", {
           method: "POST",
           headers: {"Content-Type": "application/json"},
-          body: JSON.stringify({ server_id: currentServerId, local_port: localPort })
+          body: JSON.stringify({ server_id: serverId, local_port: localPort })
         });
+        const data = await res.json();
+        if (!res.ok || !data.ok) throw new Error(data.message || "Could not remove forward");
+        if (viewedServerId !== serverId) return;
         fetchStatus();
       } catch (err) {
-        alert("Error removing forward: " + err);
+        if (viewedServerId === serverId) showToast("Error removing forward: " + err, true);
       }
     }
 

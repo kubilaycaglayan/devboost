@@ -93,6 +93,10 @@ class DashboardHandler(BaseHTTPRequestHandler):
         return bool(server and is_server_connected(cfg, server.get("id")))
 
     def _require_server_connected(self, server_ref):
+        cfg = load_config()
+        if server_ref and not get_server(cfg, server_ref):
+            self._send_json({"ok": False, "message": "Unknown server"}, status=404)
+            return False
         if self._server_is_connected(server_ref):
             return True
         self._send_json({"ok": False, "message": "Server is disconnected; connect it before using this action"}, status=409)
@@ -330,8 +334,9 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 return
             try:
                 update_forward_label(lp, label, server_ref=srv)
-            except (TypeError, ValueError):
-                self._send_json({"ok": False, "message": "local_port must be a valid port number"}, status=400)
+            except (TypeError, ValueError) as exc:
+                status = 400 if "valid port number" in str(exc) or isinstance(exc, TypeError) else 409
+                self._send_json({"ok": False, "message": str(exc)}, status=status)
                 return
             self._send_json({"ok": True, "message": f"Port {lp} label updated"})
         elif path == "/api/remove":
@@ -347,7 +352,11 @@ class DashboardHandler(BaseHTTPRequestHandler):
             srv = body.get("server_id") or body.get("server")
             if not self._require_server_connected(srv):
                 return
-            toggle_always(lp, always, server_ref=srv)
+            try:
+                toggle_always(lp, always, server_ref=srv)
+            except ValueError as exc:
+                self._send_json({"ok": False, "message": str(exc)}, status=409)
+                return
             self._send_json({"ok": True, "message": f"Port {lp} persistence updated"})
         elif path == "/api/clean":
             srv = body.get("server_id") or body.get("server")

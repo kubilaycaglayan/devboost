@@ -496,14 +496,18 @@ process.stdout.write(JSON.stringify([
             return response.status, json.loads(response.read().decode("utf-8"))
 
     @patch("dashboard.http.add_forward")
-    def test_api_forward_passes_server_and_defaults_remote_port(self, add):
+    @patch("dashboard.http.is_server_connected", return_value=True)
+    @patch("dashboard.http.get_server", return_value={"id": "box", "ssh_host": "box"})
+    def test_api_forward_passes_server_and_defaults_remote_port(self, _server, _connected, add):
         status, data = self._post_json("/api/forward", {"local_port": 3000, "server_id": "box", "always": True})
         self.assertEqual(status, 200)
         self.assertTrue(data["ok"])
         add.assert_called_once_with(3000, 3000, label="", always=True, server_ref="box")
 
     @patch("dashboard.http.update_forward_label")
-    def test_api_forward_label_update_passes_server(self, update):
+    @patch("dashboard.http.is_server_connected", return_value=True)
+    @patch("dashboard.http.get_server", return_value={"id": "box", "ssh_host": "box"})
+    def test_api_forward_label_update_passes_server(self, _server, _connected, update):
         status, data = self._post_json("/api/forward/label", {
             "local_port": 3000, "server_id": "box", "label": "Grafana",
         })
@@ -516,15 +520,26 @@ process.stdout.write(JSON.stringify([
             app_js = resp.read().decode("utf-8")
         self.assertIn("async function fetchStatus(forceRenderForwards = false)", app_js)
         self.assertIn('if (!forceRenderForwards && tbody.querySelector(".forward-label-editor")) return;', app_js)
+        self.assertIn("currentForwards = [];", app_js)
+        self.assertIn('server_id: serverId, local_port: localPort, always: makeAlways', app_js)
         self.assertIn("fetchStatus(true)", app_js)
 
     @patch("dashboard.http.remove_forward")
     @patch("dashboard.http.toggle_always")
-    def test_api_remove_and_toggle_forward_routes(self, toggle, remove):
+    @patch("dashboard.http.is_server_connected", return_value=True)
+    @patch("dashboard.http.get_server", return_value={"id": "box", "ssh_host": "box"})
+    def test_api_remove_and_toggle_forward_routes(self, _server, _connected, toggle, remove):
         self._post_json("/api/remove", {"local_port": 3000, "server": "box"})
         self._post_json("/api/toggle", {"local_port": 3000, "always": True, "server": "box"})
         remove.assert_called_once_with(3000, server_ref="box")
         toggle.assert_called_once_with(3000, True, server_ref="box")
+
+    @patch("dashboard.http.load_config", return_value={"servers": []})
+    @patch("dashboard.http.get_server", return_value=None)
+    def test_forward_api_rejects_unknown_server_instead_of_defaulting(self, _get_server, _load):
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            self._post_json("/api/forward", {"local_port": 3000, "server_id": "missing"})
+        self.assertEqual(ctx.exception.code, 404)
 
     def test_api_docker_logs_requires_container(self):
         with self.assertRaises(urllib.error.HTTPError) as ctx:
