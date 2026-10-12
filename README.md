@@ -4,7 +4,7 @@
 
 <h1 align="center">DevBoost</h1>
 
-<p align="center">A dashboard for macOS and IOS, for remote development servers. Quickly helping you stay organized and your services to be observed. </p>
+<p align="center">A dashboard for macOS and iOS, for remote development servers. Quickly helping you stay organized and your services to be observed. </p>
 
 ## Features
 
