@@ -8,21 +8,6 @@
 
 ## Features
 
-### Terminal & tmux sessions
-
-Open a terminal to your target server straight from the iOS app. DevBoost lists the existing tmux sessions on the server, so you can jump into one with a single tap or create a new session, and pick up your work exactly where you left off. A row of shortcut buttons above the keyboard puts keys like `Esc`, `Tab`, `Ctrl` and the arrows within reach, which makes working on a remote dev box from your phone genuinely easy.
-
-<table align="center">
-  <tr>
-    <th>Sessions</th>
-    <th>Keyboard shortcuts</th>
-  </tr>
-  <tr>
-    <td><a href="assets/screenshots/mobile-terminal.png"><img src="assets/screenshots/mobile-terminal.png" alt="Mobile terminal with tmux sessions" height="360"></a></td>
-    <td><a href="assets/screenshots/mobile-terminal-keyboard.png"><img src="assets/screenshots/mobile-terminal-keyboard.png" alt="Mobile terminal keyboard shortcut buttons" height="360"></a></td>
-  </tr>
-</table>
-
 ### Overview
 
 One home screen per server summarizes forwards, Docker, folder syncs, services, and AI usage, on the desktop dashboard and the iOS app.
@@ -35,6 +20,21 @@ One home screen per server summarizes forwards, Docker, folder syncs, services, 
   <tr>
     <td><a href="assets/screenshots/desktop-home.png"><img src="assets/screenshots/desktop-home.png" alt="Desktop home" height="360"></a></td>
     <td><a href="assets/screenshots/mobile-home.png"><img src="assets/screenshots/mobile-home.png" alt="Mobile home" height="360"></a></td>
+  </tr>
+</table>
+
+### Terminal & tmux sessions
+
+Open a terminal to your target server straight from the iOS app. DevBoost lists the existing tmux sessions on the server, so you can jump into one with a single tap or create a new session, and pick up your work exactly where you left off. A row of shortcut buttons above the keyboard puts keys like `Esc`, `Tab`, `Ctrl` and the arrows within reach, which makes working on a remote dev box from your phone genuinely easy.
+
+<table align="center">
+  <tr>
+    <th>Sessions</th>
+    <th>Keyboard shortcuts</th>
+  </tr>
+  <tr>
+    <td><a href="assets/screenshots/mobile-terminal.png"><img src="assets/screenshots/mobile-terminal.png" alt="Mobile terminal with tmux sessions" height="360"></a></td>
+    <td><a href="assets/screenshots/mobile-terminal-keyboard.png"><img src="assets/screenshots/mobile-terminal-keyboard.png" alt="Mobile terminal keyboard shortcut buttons" height="360"></a></td>
   </tr>
 </table>
 
