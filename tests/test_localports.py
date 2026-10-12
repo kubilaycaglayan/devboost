@@ -18,6 +18,17 @@ def _free_port():
     return port
 
 
+# A bare listener: no imports beyond socket, so it starts fast on cold CI runners.
+_LISTENER = ("import socket, sys\n"
+             "s = socket.socket()\n"
+             "s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)\n"
+             "s.bind(('127.0.0.1', int(sys.argv[1])))\n"
+             "s.listen()\n"
+             "while True:\n"
+             "    conn, _ = s.accept()\n"
+             "    conn.close()\n")
+
+
 def _wait_until_connectable(port, timeout=20.0):
     """Server startup is slow on cold CI runners; wait for the socket itself."""
     deadline = time.time() + timeout
@@ -74,10 +85,12 @@ class TestLocalPorts(unittest.TestCase):
     def test_kill_real_listener(self):
         port = _free_port()
         proc = subprocess.Popen(
-            [sys.executable, "-m", "http.server", str(port), "--bind", "127.0.0.1"],
-            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            [sys.executable, "-c", _LISTENER, str(port)],
+            stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
         try:
-            self.assertTrue(_wait_until_connectable(port), "test server never started")
+            if not _wait_until_connectable(port):
+                proc.kill()
+                self.fail("test server never started: " + proc.communicate()[1])
             pid = _pid_listening_on(port)
             if pid is None:
                 self.skipTest("lsof cannot see local listeners in this environment")

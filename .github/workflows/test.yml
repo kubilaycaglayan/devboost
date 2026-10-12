@@ -10,6 +10,7 @@ jobs:
   test:
     runs-on: macos-latest
     strategy:
+      fail-fast: false
       matrix:
         python-version: ["3.10", "3.11", "3.12"]
 
@@ -39,4 +40,6 @@ jobs:
             -project ios/DevBoost/DevBoost.xcodeproj \
             -scheme DevBoost \
             -destination "platform=iOS Simulator,id=$UDID" \
+            -skipPackagePluginValidation \
+            -skipMacroValidation \
             CODE_SIGNING_ALLOWED=NO
