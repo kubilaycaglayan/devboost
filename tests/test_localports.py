@@ -112,6 +112,7 @@ class TestLocalPorts(unittest.TestCase):
                 proc.wait(timeout=5)
             except Exception:
                 pass
+            proc.stderr.close()
 
 
 if __name__ == "__main__":
