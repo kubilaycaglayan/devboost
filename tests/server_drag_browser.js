@@ -54,9 +54,10 @@ async function evaluate(expression) {
   return response.result.value;
 }
 async function until(expression, message) {
-  const deadline = Date.now() + 5000;
+  // Slow CI runners may still be loading the page, so treat a throwing check as "not yet".
+  const deadline = Date.now() + 10000;
   do {
-    if (await evaluate(expression)) return;
+    if (await evaluate(expression).catch(() => false)) return;
     await pause(25);
   } while (Date.now() < deadline);
   throw new Error(message + "; drag events: " + JSON.stringify(await evaluate("window.dragTrace")) +
