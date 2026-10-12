@@ -258,7 +258,11 @@ __DEVBOOST_STATS__
         XCTAssertTrue(snapshot.quotas.isEmpty)
         XCTAssertEqual(snapshot.source, "[Local] Claude remote records")
         let commands = await remote.commands
-        XCTAssertTrue(commands.first?.contains("projects") == true)
+        let command = try XCTUnwrap(commands.first)
+        // The script travels base64-encoded; decode it to check it reads local project records.
+        let encoded = try XCTUnwrap(command.components(separatedBy: "printf %s '").last?.components(separatedBy: "'").first)
+        let script = try XCTUnwrap(Data(base64Encoded: encoded).flatMap { String(data: $0, encoding: .utf8) })
+        XCTAssertTrue(script.contains("'projects'"))
     }
 
     func testCodexServiceRejectsMalformedRemoteResponse() async {

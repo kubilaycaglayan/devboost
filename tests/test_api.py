@@ -547,7 +547,9 @@ process.stdout.write(JSON.stringify([
         self.assertEqual(ctx.exception.code, 400)
 
     @patch("dashboard.http.docker_container_action", return_value={"ok": True, "action": "stop", "container": "web"})
-    def test_api_docker_action_delegates_lifecycle_request(self, action):
+    @patch("dashboard.http.is_server_connected", return_value=True)
+    @patch("dashboard.http.get_server", return_value={"id": "box", "ssh_host": "box"})
+    def test_api_docker_action_delegates_lifecycle_request(self, _server, _connected, action):
         _, data = self._post_json("/api/docker/action", {"server": "box", "container": "web", "action": "stop"})
         self.assertTrue(data["ok"])
         action.assert_called_once_with("box", "web", "stop")
