@@ -9,6 +9,22 @@ struct DockerContainer: Identifiable, Hashable {
     let cpu: String
     let memory: String
     let network: String
+    var restartPolicy: String? = nil
+
+    var autoStartEnabled: Bool { ["always", "unless-stopped"].contains(restartPolicy ?? "") }
+    var autoStartLabel: String {
+        if autoStartEnabled { return "🔄 Auto-start" }
+        return ["no", "on-failure"].contains(restartPolicy ?? "") ? "Auto-start off" : "Auto-start unknown"
+    }
+    var autoStartDetail: String {
+        switch restartPolicy {
+        case "always": return "Always · Starts when Docker starts."
+        case "unless-stopped": return "Unless stopped · Stopped containers stay stopped after reboot."
+        case "no": return "Automatic restart is disabled."
+        case "on-failure": return "Restarts on errors only, not when Docker starts."
+        default: return "Restart policy unavailable."
+        }
+    }
 }
 
 struct DockerService: Sendable {
@@ -25,8 +41,11 @@ struct DockerService: Sendable {
 }
 
 enum DockerCommands {
+    static let restartMarker = "__DEVBOOST_RESTART__"
+
     static func snapshot(marker: String = "__DEVBOOST_STATS__") -> String {
-        "command -v docker >/dev/null || { echo Docker CLI is not installed; exit 127; }; docker ps --format '{{json .}}'; printf '\\n\(marker)\\n'; docker stats --no-stream --format '{{json .}}'"
+        let format = #"{"Name":{{json .Name}},"Policy":{{json .HostConfig.RestartPolicy.Name}}}"#
+        return "command -v docker >/dev/null || { echo Docker CLI is not installed; exit 127; }; docker ps --format '{{json .}}'; printf '\\n\(marker)\\n'; docker stats --no-stream --format '{{json .}}'; printf '\\n\(restartMarker)\\n'; (docker ps -q | xargs docker inspect --type container --format \(shellQuote(format)) 2>/dev/null || true)"
     }
 
     static func logs(container: String) -> String {
@@ -36,7 +55,14 @@ enum DockerCommands {
 
 enum DockerOutputParser {
     static func containers(from output: String, marker: String = "__DEVBOOST_STATS__") -> [DockerContainer] {
-        let parts = output.components(separatedBy: marker)
+        let sections = output.components(separatedBy: DockerCommands.restartMarker)
+        let parts = (sections.first ?? "").components(separatedBy: marker)
+        var policies: [String: String] = [:]
+        for row in jsonLines(sections.count > 1 ? sections[1] : "") {
+            if let name = row["Name"] as? String, let policy = row["Policy"] as? String {
+                policies[name.hasPrefix("/") ? String(name.dropFirst()) : name] = policy
+            }
+        }
         let ps = jsonLines(parts.first ?? "")
         let stats = jsonLines(parts.count > 1 ? parts[1] : "")
         var byName: [String: [String: Any]] = [:]
@@ -47,7 +73,7 @@ enum DockerOutputParser {
             let name = (row["Names"] as? String) ?? ""
             guard !name.isEmpty else { return nil }
             let value = byName[name] ?? [:]
-            return DockerContainer(id: (row["ID"] as? String) ?? name, name: name, image: (row["Image"] as? String) ?? "", status: (row["Status"] as? String) ?? "", cpu: (value["CPUPerc"] as? String) ?? "—", memory: (value["MemUsage"] as? String) ?? "—", network: (value["NetIO"] as? String) ?? "—")
+            return DockerContainer(id: (row["ID"] as? String) ?? name, name: name, image: (row["Image"] as? String) ?? "", status: (row["Status"] as? String) ?? "", cpu: (value["CPUPerc"] as? String) ?? "—", memory: (value["MemUsage"] as? String) ?? "—", network: (value["NetIO"] as? String) ?? "—", restartPolicy: policies[name])
         }
     }
 
@@ -76,6 +102,11 @@ struct DockerView: View {
                     NavigationLink { DockerLogView(container: container, host: host) } label: {
                         VStack(alignment: .leading, spacing: 5) {
                             Text(container.name).font(.headline)
+                            Text(container.autoStartLabel)
+                                .font(.caption.weight(.medium))
+                                .foregroundStyle(container.autoStartEnabled ? Color.green : Color.secondary)
+                                .accessibilityLabel(container.autoStartLabel + ". " + container.autoStartDetail)
+                            Text(container.autoStartDetail).font(.caption2).foregroundStyle(.secondary)
                             Text(container.image).font(.caption).foregroundStyle(.secondary)
                             Text("\(container.status) · CPU \(container.cpu) · \(container.memory)").font(.caption2).foregroundStyle(.secondary)
                         }

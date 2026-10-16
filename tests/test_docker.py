@@ -1,3 +1,4 @@
+import json
 import subprocess
 import unittest
 from unittest.mock import patch
@@ -68,6 +69,30 @@ class TestDockerMonitor(unittest.TestCase):
         self.assertEqual(result["containers"][0]["stats"]["cpu_percent"], "1.20%")
         mock_ssh.assert_called_once()
         self.assertIn("docker ps -a --size", mock_ssh.call_args.args[1])
+
+    @patch("docker_monitor.run_ssh_command")
+    def test_collect_restart_policies(self, mock_ssh):
+        for policy, enabled in [("always", True), ("unless-stopped", True),
+                                ("no", False), ("on-failure", False), (None, None)]:
+            with self.subTest(policy=policy):
+                output = (
+                    '{"ID":"abc123","Names":"web","State":"exited"}\n'
+                    '__DEVBOOST_DOCKER_STATS__\n'
+                    '__DEVBOOST_DOCKER_DF__\n'
+                    '{"Type":"Images","Size":"142MB"}\n'
+                    '__DEVBOOST_DOCKER_RESTART__\n'
+                )
+                if policy is not None:
+                    output += json.dumps({"ID": "abc123" + "f" * 58,
+                                          "Name": "/web", "Policy": policy})
+                mock_ssh.return_value = subprocess.CompletedProcess(
+                    args=[], returncode=0, stdout=output, stderr="")
+                result = collect_docker_snapshot("myhost")
+                self.assertTrue(result["ok"])
+                self.assertEqual(result["containers"][0]["restart_policy"], policy)
+                self.assertIs(result["containers"][0]["auto_start"], enabled)
+                self.assertEqual(result["docker_disk"], [{"Type": "Images", "Size": "142MB"}])
+                self.assertIn("docker inspect --type container", mock_ssh.call_args.args[1])
 
     @patch("docker_monitor.run_ssh_command")
     def test_collect_includes_non_running_state_without_stats(self, mock_ssh):

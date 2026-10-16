@@ -1511,6 +1511,21 @@
       return status.split(/\s|\(/)[0] || "unknown";
     }
 
+    function dockerAutoStartBadge(container) {
+      const policy = container.restart_policy;
+      const enabled = ["always", "unless-stopped"].includes(policy);
+      const known = enabled || ["no", "on-failure"].includes(policy);
+      const label = enabled ? "🔄 Auto-start" : known ? "Auto-start off" : "Auto-start unknown";
+      const detail = policy === "unless-stopped"
+        ? "unless-stopped: starts when Docker starts, unless the container was stopped. Docker must start at boot."
+        : policy === "always"
+        ? "always: starts when Docker starts. Docker must start at boot."
+        : policy === "on-failure"
+        ? "on-failure: restarts on errors, but does not start automatically when Docker starts."
+        : policy === "no" ? "no: automatic restart is disabled." : "Restart policy unavailable.";
+      return `<span class="badge ${enabled ? "badge-active" : "badge-inactive"}" title="${detail}" aria-label="${label}: ${detail}">${label}</span>`;
+    }
+
     function dockerStateLabel(state) {
       return state === "running" ? "Running" : state.charAt(0).toUpperCase() + state.slice(1);
     }
@@ -1669,7 +1684,7 @@
           : `<button class="btn btn-sm docker-action-button" onclick='dockerAction("start", ${JSON.stringify(c)})' title="Start container">START</button>`;
         return `<tr>
           <td><div class="docker-image-name" title="${escapeHtml(c.image || "")}">${escapeHtml(c.image || "-")}</div><button class="btn btn-sm docker-logs-button" onclick='openDockerLog(${JSON.stringify(c.name || c.id)})' title="Watch logs">LOGS</button><strong>${escapeHtml(c.name || c.id)}</strong><div class="sync-sub">${escapeHtml(c.id || "")}</div></td>
-          <td>${labels}</td><td><span class="badge ${running ? "badge-active" : "badge-inactive"}">${escapeHtml(dockerStateLabel(state))}</span><div class="sync-sub">${escapeHtml(c.status || "")}</div></td>
+          <td>${labels}</td><td><span class="badge ${running ? "badge-active" : "badge-inactive"}">${escapeHtml(dockerStateLabel(state))}</span><div class="sync-sub">${escapeHtml(c.status || "")}</div><div class="sync-sub">${dockerAutoStartBadge(c)}</div></td>
           <td class="mono">${escapeHtml(formatDockerCpu(s.cpu_percent))}</td><td class="mono">${escapeHtml(formatDockerMemory(s.memory_usage))}</td>
           <td class="mono">${escapeHtml(s.memory_percent || "-")}</td><td class="mono">${escapeHtml(formatDockerNetwork(s.network_io))}</td><td class="mono" title="Container writable layer plus image virtual size">${escapeHtml(c.disk_size || "-")}</td>
           <td style="white-space:nowrap;">${actions}</td>

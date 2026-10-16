@@ -12,6 +12,8 @@ from remote_transport import run_ssh_command
 
 _SECTION_MARKER = "__DEVBOOST_DOCKER_STATS__"
 _DF_SECTION_MARKER = "__DEVBOOST_DOCKER_DF__"
+_RESTART_SECTION_MARKER = "__DEVBOOST_DOCKER_RESTART__"
+_RESTART_FORMAT = '{"ID":{{json .Id}},"Name":{{json .Name}},"Policy":{{json .HostConfig.RestartPolicy.Name}}}'
 _PS_FORMAT = "{{json .}}"
 _STATS_FORMAT = "{{json .}}"
 
@@ -33,7 +35,8 @@ def _json_lines(text):
 
 def parse_docker_output(stdout):
     """Parse the stable JSON-lines sections emitted by collect_docker_snapshot."""
-    before, marker, after = (stdout or "").partition(_SECTION_MARKER)
+    stdout = (stdout or "").partition(_RESTART_SECTION_MARKER)[0]
+    before, marker, after = stdout.partition(_SECTION_MARKER)
     if not marker:
         return [], [], []
     stats_text, df_marker, df_text = after.partition(_DF_SECTION_MARKER)
@@ -92,7 +95,10 @@ def collect_docker_snapshot(host, timeout=30):
         f"printf '\\n{_SECTION_MARKER}\\n' && "
         f"docker stats --no-stream --format {_STATS_FORMAT!r} && "
         f"printf '\\n{_DF_SECTION_MARKER}\\n' && "
-        f"(docker system df --format {_STATS_FORMAT!r} || true)"
+        f"(docker system df --format {_STATS_FORMAT!r} || true) && "
+        f"printf '\\n{_RESTART_SECTION_MARKER}\\n' && "
+        "(docker ps -aq --no-trunc | xargs docker inspect --type container --format "
+        f"{shlex.quote(_RESTART_FORMAT)} 2>/dev/null || true)"
     )
     now = time.time()
     try:
@@ -117,6 +123,9 @@ def collect_docker_snapshot(host, timeout=30):
 
     containers_raw, stats_raw, disk_raw = parse_docker_output(result.stdout)
     containers = [_normalise_container(row) for row in containers_raw]
+    restart_rows = _json_lines((result.stdout or "").partition(_RESTART_SECTION_MARKER)[2])
+    restart_by_name = {str(row.get("Name", "")).lstrip("/"): row.get("Policy")
+                       for row in restart_rows}
     stats_by_key = {}
     for row in stats_raw:
         stats = _normalise_stats(row)
@@ -124,6 +133,10 @@ def collect_docker_snapshot(host, timeout=30):
         stats_by_key[stats["name"]] = stats
 
     for container in containers:
+        policy = restart_by_name.get(container["name"])
+        container["restart_policy"] = policy
+        container["auto_start"] = (policy in ("always", "unless-stopped")
+                                   if policy in ("always", "unless-stopped", "no", "on-failure") else None)
         stats = stats_by_key.get(container["id"]) or stats_by_key.get(container["name"])
         container["stats"] = stats or {
             "container": container["id"], "name": container["name"],

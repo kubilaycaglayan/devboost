@@ -327,6 +327,27 @@ not-json
         XCTAssertEqual(values[1].network, "—")
     }
 
+    func testDockerRestartPoliciesAndUnavailableInspection() {
+        for policy in ["always", "unless-stopped", "no", "on-failure", "unknown"] {
+            let output = """
+            {"ID":"abc","Names":"web"}
+            __DEVBOOST_STATS__
+            {"Name":"web","CPUPerc":"2%"}
+            __DEVBOOST_RESTART__
+            {"Name":"/web","Policy":"\(policy)"}
+            """
+            let container = DockerOutputParser.containers(from: output).first!
+            XCTAssertEqual(container.restartPolicy, policy)
+            XCTAssertEqual(container.autoStartEnabled, ["always", "unless-stopped"].contains(policy))
+            XCTAssertEqual(container.cpu, "2%")
+            XCTAssertEqual(container.autoStartLabel, policy == "unknown" ? "Auto-start unknown" : container.autoStartEnabled ? "🔄 Auto-start" : "Auto-start off")
+        }
+        let container = DockerOutputParser.containers(from: #"{"Names":"web"}"#).first!
+        XCTAssertNil(container.restartPolicy)
+        XCTAssertEqual(container.autoStartLabel, "Auto-start unknown")
+        XCTAssertTrue(DockerCommands.snapshot().contains("docker inspect --type container"))
+    }
+
     func testDockerCommandsQuoteLogContainerAndKeepRemoteBoundaries() {
         let snapshot = DockerCommands.snapshot(marker: "marker with spaces")
         XCTAssertTrue(snapshot.contains("printf '\\nmarker with spaces\\n'"))
