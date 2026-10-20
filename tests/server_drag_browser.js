@@ -246,5 +246,7 @@ main().catch(error => {
   for (const {timeout} of pending.values()) clearTimeout(timeout);
   chrome.kill("SIGTERM");
   await new Promise(resolve => { if (chrome.exitCode !== null) resolve(); else chrome.once("exit", resolve); });
-  fs.rmSync(profile, {recursive: true, force: true});
+  // Chrome can finish exiting before its helper processes release every
+  // profile file. Retry transient ENOTEMPTY/EBUSY failures during teardown.
+  fs.rmSync(profile, {recursive: true, force: true, maxRetries: 10, retryDelay: 100});
 });
