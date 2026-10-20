@@ -31,9 +31,67 @@ copy_state_if_missing() {
   done
 }
 
+merge_source_env_defaults() {
+  # The packaged app loads state from STATE_DIR, while developers commonly
+  # keep local secrets in the checkout root .env. Copy only missing variables
+  # so explicit runtime settings continue to take precedence on later runs.
+  python3 - "$SOURCE_DIR/.env" "$STATE_DIR/.env" <<'PY'
+import os
+import re
+import sys
+import tempfile
+
+source_path, target_path = sys.argv[1:]
+if not os.path.isfile(source_path):
+    raise SystemExit(0)
+
+def assignments(path):
+    try:
+        with open(path, encoding="utf-8") as stream:
+            lines = stream.read().splitlines()
+    except FileNotFoundError:
+        lines = []
+    parsed = []
+    for line in lines:
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#") or "=" not in line:
+            continue
+        key = line.split("=", 1)[0].strip()
+        if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", key):
+            parsed.append((key, line))
+    return lines, parsed
+
+target_lines, target_entries = assignments(target_path)
+present = {key for key, _ in target_entries}
+_, source_entries = assignments(source_path)
+missing = []
+for key, line in source_entries:
+    if key not in present:
+        missing.append(line)
+        present.add(key)
+if not missing:
+    raise SystemExit(0)
+
+if target_lines and target_lines[-1].strip():
+    target_lines.append("")
+target_lines.extend(missing)
+directory = os.path.dirname(target_path)
+fd, temporary = tempfile.mkstemp(prefix=".devboost-env-", dir=directory)
+try:
+    with os.fdopen(fd, "w", encoding="utf-8") as stream:
+        stream.write("\n".join(target_lines) + "\n")
+    os.chmod(temporary, 0o600)
+    os.replace(temporary, target_path)
+finally:
+    if os.path.exists(temporary):
+        os.unlink(temporary)
+PY
+}
+
 mkdir -p "$STATE_DIR/logs"
 copy_state_if_missing .env
 copy_state_if_missing config.json
+merge_source_env_defaults
 
 # Stop the native status-item owner before replacing its app bundle. Killing
 # only its dashboard child later can briefly overlap two Cocoa app instances

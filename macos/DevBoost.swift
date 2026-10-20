@@ -112,7 +112,10 @@ final class DevBoostApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // full refresh interval.
         runCommand(pythonArguments: ["serve"] + Array(CommandLine.arguments.dropFirst()))
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in self?.refreshUsage() }
-        usageTimer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in self?.refreshUsage() }
+        // Account metadata can be edited in the dashboard at any time. Poll
+        // the cached usage response frequently so menu headings pick up a
+        // rename promptly; provider adapters still refresh on their own cadence.
+        usageTimer = Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { [weak self] _ in self?.refreshUsage() }
         let statusTimer = Timer(timeInterval: 1, repeats: true) { [weak self] _ in self?.updateUsageMenuStatus() }
         RunLoop.main.add(statusTimer, forMode: .common)
         usageStatusTimer = statusTimer
@@ -326,9 +329,9 @@ final class DevBoostApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
                             let balances = snapshot?["balances"] as? [[String: Any]] ?? []
                             for balance in balances {
                                 let currency = balance["currency"] as? String ?? "USD"
-                                if let remaining = self.numberText(balance["remaining"]) {
+                                if let remaining = self.moneyText(balance["remaining"]) {
                                     self.addIndentedItem(to: menu, title: "Balance: \(remaining) \(currency) remaining")
-                                } else if let spent = self.numberText(balance["spent"]) {
+                                } else if let spent = self.moneyText(balance["spent"]) {
                                     self.addIndentedItem(to: menu, title: "Balance: \(spent) \(currency) spent")
                                 }
                             }
@@ -553,9 +556,9 @@ final class DevBoostApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 if let balance = balances.first {
                     let currency = balance["currency"] as? String ?? "USD"
                     if let remaining = (balance["remaining"] as? NSNumber)?.doubleValue {
-                        value = "B:\(compactNumber(remaining)) \(currency)"
+                        value = "B:\(String(format: "%.2f", remaining)) \(currency)"
                     } else if let spent = (balance["spent"] as? NSNumber)?.doubleValue {
-                        value = "U:\(compactNumber(spent)) \(currency)"
+                        value = "U:\(String(format: "%.2f", spent)) \(currency)"
                     }
                 }
             }
@@ -569,6 +572,7 @@ final class DevBoostApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
         case "codex": return "Cdx"
         case "agy": return "Agy"
         case "claude": return "Cl"
+        case "deepseek": return "Ds"
         case "opencode": return "OC"
         default: return provider.prefix(1).uppercased() + provider.dropFirst().prefix(2)
         }
@@ -581,6 +585,11 @@ final class DevBoostApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
             return String(Int(raw))
         }
         return String(format: "%.2f", raw)
+    }
+
+    private func moneyText(_ value: Any?) -> String? {
+        guard let number = value as? NSNumber else { return nil }
+        return String(format: "%.2f", number.doubleValue)
     }
 
     private func quotaMenuDetail(_ quota: [String: Any], reset: String? = nil, provider: String? = nil) -> String {

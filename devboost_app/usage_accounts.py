@@ -128,7 +128,7 @@ def get_usage_status(refresh=False, account_id=None, server_ref=None, cached_onl
     def snapshot_key(account):
         return account.get("id") if not server else f"{server_id}:{account.get('id')}"
     def live_quota_due(account):
-        if account.get("provider") not in ("codex", "agy", "claude"):
+        if account.get("provider") not in ("codex", "agy", "claude", "deepseek"):
             return False
         try:
             checked = datetime.datetime.fromisoformat(snapshots.get(snapshot_key(account), {}).get("updated_at", ""))
@@ -172,8 +172,8 @@ def get_usage_status(refresh=False, account_id=None, server_ref=None, cached_onl
 
 def save_usage_account(data):
     provider, name = str(data.get("provider") or "").strip().lower(), str(data.get("name") or "").strip()
-    if provider not in USAGE_PROVIDERS and provider != "custom":
-        raise ValueError("provider must be codex, agy, claude, opencode, or custom")
+    if provider not in USAGE_PROVIDERS and provider not in ("deepseek", "custom"):
+        raise ValueError("provider must be codex, agy, claude, deepseek, opencode, or custom")
     if not name:
         raise ValueError("account name is required")
     cfg, accounts = load_config(), None

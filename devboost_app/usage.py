@@ -125,7 +125,14 @@ def normalize_usage_payload(payload):
                                "reset_at": _first(payload, "reset_time", "reset_at", "resets_at")})
         result = {"quotas": quotas, "balances": [], "source": str(payload.get("source") or "agy-quota")}
         return result
-    if isinstance(payload, dict):
+    if isinstance(payload, dict) and isinstance(payload.get("balance_infos"), list):
+        # DeepSeek's /user/balance response separates topped-up funds from
+        # promotional credits. Keep the topped-up amount distinct in the UI.
+        quotas = []
+        balances = [{"name": "Topped up", "remaining": item.get("topped_up_balance"),
+                     "currency": item.get("currency", "USD")}
+                    for item in payload["balance_infos"] if isinstance(item, dict)]
+    elif isinstance(payload, dict):
         quotas, balances = _first(payload, "quotas", "limits", "usage", "rate_limits"), _first(payload, "balances", "balance", "credits", "credits_remaining", "available_credits", "remaining_credits")
         if balances is None:
             granted = _safe_number(_first(payload, "total_granted", "credits_granted"))
@@ -161,10 +168,13 @@ def normalize_usage_payload(payload):
     for raw in balances:
         if not isinstance(raw, dict):
             raw = {"remaining": raw}
-        clean_balances.append({"remaining": _safe_number(_first(raw, "remaining", "left", "balance", "available", "available_credits", "remaining_credits")),
+        clean_balances.append({"name": str(_first(raw, "name", "label") or ""),
+                               "remaining": _safe_number(_first(raw, "remaining", "left", "balance", "available", "available_credits", "remaining_credits")),
                                "currency": str(_first(raw, "currency", "unit") or "USD"),
                                "spent": _safe_number(_first(raw, "spent", "used"))})
     result = {"quotas": normalized, "balances": clean_balances}
+    if isinstance(payload, dict) and isinstance(payload.get("balance_infos"), list):
+        result["source"] = "DeepSeek live balance"
     if isinstance(payload, dict) and payload.get("source"):
         result["source"] = str(payload["source"])
     return result

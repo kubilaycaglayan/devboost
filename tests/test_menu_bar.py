@@ -30,6 +30,8 @@ class TestMenuBarUsage(unittest.TestCase):
         self.assertIn('indentationLevel: 2', self.swift)
         self.assertIn("compactNumber(max(0, limit - used))", self.swift)
         self.assertIn("item.isEnabled = true", self.swift)
+        self.assertIn("self.moneyText(balance[\"remaining\"])", self.swift)
+        self.assertIn('return String(format: "%.2f", number.doubleValue)', self.swift)
 
     def test_menu_bar_follows_quota_order_and_omits_empty_accounts(self):
         self.assertIn("let orderedAccounts = accounts.filter", self.swift)
@@ -41,6 +43,7 @@ class TestMenuBarUsage(unittest.TestCase):
         self.assertIn("NSMenuDelegate", self.swift)
         self.assertIn("func menuWillOpen(_ menu: NSMenu)", self.swift)
         self.assertIn("refreshUsage(force: true)", self.swift)
+        self.assertIn("withTimeInterval: 5, repeats: true", self.swift)
         self.assertIn('if force { queryItems.append(URLQueryItem(name: "refresh", value: "1")) }', self.swift)
         self.assertIn("func menuDidClose(_ menu: NSMenu)", self.swift)
         self.assertIn("usageMenuIsOpen", self.swift)
@@ -79,8 +82,9 @@ class TestMenuBarUsage(unittest.TestCase):
 
     def test_status_item_supports_non_percentage_providers(self):
         self.assertIn('case "claude": return "Cl"', self.swift)
+        self.assertIn('case "deepseek": return "Ds"', self.swift)
         self.assertIn('value = "U:\\(compactNumber(used))', self.swift)
-        self.assertIn('value = "B:\\(compactNumber(remaining))', self.swift)
+        self.assertIn('value = "B:\\(String(format: "%.2f", remaining))', self.swift)
         self.assertIn('value = "B:∞"', self.swift)
 
     def test_percentage_quota_rows_use_compact_colored_bars(self):

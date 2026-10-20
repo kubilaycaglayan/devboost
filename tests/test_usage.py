@@ -260,6 +260,16 @@ class TestUsageMonitoring(unittest.TestCase):
         self.assertEqual(result["balances"][0]["remaining"], 7)
         self.assertEqual(result["balances"][0]["spent"], 3)
 
+    def test_deepseek_topped_up_balance_is_normalized_with_label_and_currency(self):
+        result = devboost._normalize_usage_payload({"is_available": True, "balance_infos": [
+            {"currency": "USD", "total_balance": "12.50", "granted_balance": "2.50", "topped_up_balance": "10.00"},
+            {"currency": "CNY", "topped_up_balance": "0"},
+        ]})
+        self.assertEqual(result["balances"], [
+            {"name": "Topped up", "remaining": 10, "currency": "USD", "spent": None},
+            {"name": "Topped up", "remaining": 0, "currency": "CNY", "spent": None},
+        ])
+
     @patch.object(devboost.urllib.request, "urlopen")
     @patch.dict(os.environ, {"OPENAI_ADMIN_KEY": "secret"}, clear=False)
     def test_codex_provider_api_builds_time_window(self, urlopen):

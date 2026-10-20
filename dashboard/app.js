@@ -129,7 +129,14 @@
     function usageNameChanged() { usageNameAuto = false; }
     function updateCodexUsageFields() {
       if (usageNameAuto) document.getElementById("usage-name").value = usageProviderLabel();
-      document.getElementById("usage-codex-settings").hidden = document.getElementById("usage-provider").value !== "codex";
+      const provider = document.getElementById("usage-provider").value;
+      document.getElementById("usage-codex-settings").hidden = provider !== "codex";
+      if (provider === "deepseek") {
+        const url = document.getElementById("usage-url");
+        const tokenEnv = document.getElementById("usage-token-env");
+        if (!url.value) url.value = "https://api.deepseek.com/user/balance";
+        if (!tokenEnv.value) tokenEnv.value = "DEEPSEEK_API_KEY";
+      }
     }
     function usageCommandValue(command) {
       if (!Array.isArray(command)) return command || "";
@@ -335,9 +342,9 @@
         const resetSummary = resetCount ? `<span class="usage-reset-summary" role="status" aria-label="${resetCount} usage limit resets available">${resetCount}X RESETS</span>` : "";
         const warning = s.stale ? `<div class="usage-stale" role="status">Stale · ${escapeHtml(s.message || "Live quota could not be verified.")}</div>` : "";
         const quotas = warning + resetSummary + ((s.quotas || []).map(renderUsageQuota).join("") || (s.ok ? "No quota data" : escapeHtml(s.message || "Unavailable")));
-        const balances = a.provider === "codex" && s.credits_unlimited ? "Unlimited credits" : ((s.balances || []).map(b => b.remaining != null ? `${usageNumber(b.remaining)} ${escapeHtml(b.currency || "USD")}` : (b.spent != null ? `spent ${usageNumber(b.spent)} ${escapeHtml(b.currency || "USD")}` : "—")).join("<br>") || "—");
+        const balances = a.provider === "codex" && s.credits_unlimited ? "Unlimited credits" : ((s.balances || []).map(b => `${b.name ? escapeHtml(b.name) + ": " : ""}${b.remaining != null ? `${usageNumber(b.remaining)} ${escapeHtml(b.currency || "USD")}` : (b.spent != null ? `spent ${usageNumber(b.spent)} ${escapeHtml(b.currency || "USD")}` : "—")}`).join("<br>") || "—");
         const accountId = escapeHtml(JSON.stringify(String(a.id || "")));
-        const source = (a.provider === "codex" || a.provider === "agy" || a.provider === "claude") ? `<div class="usage-source">${escapeHtml(s.source || "Awaiting live query")}${s.plan_type ? " · " + escapeHtml(s.plan_type) : ""}</div>` : "";
+        const source = (a.provider === "codex" || a.provider === "agy" || a.provider === "claude" || a.provider === "deepseek") ? `<div class="usage-source">${escapeHtml(s.source || "Awaiting live query")}${s.plan_type ? " · " + escapeHtml(s.plan_type) : ""}</div>` : "";
         return `<tr data-usage-id="${escapeHtml(String(a.id || ""))}"><td>${escapeHtml(a.provider)}</td><td><span class="usage-account-name">${escapeHtml(a.name)}</span>${source}</td><td>${quotas}</td><td>${balances}</td><td class="mono usage-age" data-last-valid-query="${escapeHtml(s.last_valid_query_at || (s.ok && !s.stale ? s.updated_at : ""))}">${usageUpdated(s)}</td><td><div class="usage-actions"><button type="button" class="usage-action-icon" onclick="editUsageAccount(${accountId})" title="Edit account" aria-label="Edit account">⚙</button><button type="button" class="usage-action-icon usage-remove-icon" onclick="removeUsageAccount(${accountId})" title="Remove account" aria-label="Remove account">✕</button><button type="button" class="usage-drag-handle" draggable="true" ondragstart="onUsageRowDragStart(event, ${accountId})" ondragend="onUsageRowDragEnd()" title="Drag to reorder" aria-label="Drag to reorder">⠿</button></div></td></tr>`;
       }).join("");
     }
