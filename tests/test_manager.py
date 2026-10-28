@@ -50,7 +50,8 @@ class TestManager(unittest.TestCase):
         self.assertNotIn("/usr/bin/ssh", args)
         self.assertIn("-N", args)
         self.assertIn("-L", args)
-        self.assertIn("8080:127.0.0.1:8080", args)
+        self.assertIn("127.0.0.1:8080:127.0.0.1:8080", args)
+        self.assertIn("[::1]:8080:127.0.0.1:8080", args)
         self.assertIn(devboost.SSH_HOST, args)
 
     def test_get_launchagents_discovery(self):

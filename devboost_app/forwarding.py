@@ -630,7 +630,8 @@ def create_launchagent(local_port, remote_port, server_ref=None):
             "-o", "ServerAliveCountMax=3",
             "-o", "ExitOnForwardFailure=yes",
             "-o", "BatchMode=yes",
-            "-L", f"{local_port}:127.0.0.1:{remote_port}",
+            "-L", f"127.0.0.1:{local_port}:127.0.0.1:{remote_port}",
+            "-L", f"[::1]:{local_port}:127.0.0.1:{remote_port}",
             ssh_host
             ]
         ),
@@ -783,7 +784,9 @@ def _start_session_forward(server, local_port, remote_port=None):
     subprocess.run([
         "/usr/bin/ssh", "-fN", "-o", "ServerAliveInterval=15",
         "-o", "ServerAliveCountMax=3", "-o", "ExitOnForwardFailure=yes",
-        "-o", "BatchMode=yes", "-L", f"{local_port}:127.0.0.1:{remote_port}",
+        "-o", "BatchMode=yes",
+        "-L", f"127.0.0.1:{local_port}:127.0.0.1:{remote_port}",
+        "-L", f"[::1]:{local_port}:127.0.0.1:{remote_port}",
         server.get("ssh_host"),
     ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
